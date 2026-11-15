@@ -14,10 +14,10 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (single source for 99.5M/500K figures)', () => {
-  it('reparte 0.5% creador y 99.5% pool sobre el supply estándar de 100M', () => {
-    const oneHundredMillion = 100_000_000n * 10_000_000n // 100M con 7 decimales
-    expect(poolAllocationBase(oneHundredMillion)).toBe(99_500_000n * 10_000_000n) // 99.5M (99.5%)
+describe('allocation math (single source for 9.95M/50K figures)', () => {
+  it('reparte 0.5% creador y 99.5% pool sobre el supply estándar de 10M', () => {
+    const tenMillion = 10_000_000n * 10_000_000n // 10M con 7 decimales
+    expect(poolAllocationBase(tenMillion)).toBe(9_950_000n * 10_000_000n) // 9.95M (99.5%)
     expect(STELLAR_BURN_ADDRESS).toHaveLength(56)
   })
 
@@ -27,16 +27,16 @@ describe('allocation math (single source for 99.5M/500K figures)', () => {
 })
 
 describe('whale threshold', () => {
-  it('marca ballena a partir del 1% del supply del fair launch (1M) en base units', () => {
+  it('marca ballena a partir del 1% del supply del fair launch (100K) en base units', () => {
     expect(WHALE_TRADE_SHARE_BPS).toBe(100n)
-    // 1% de 100M con 7 decimales = 1M tokens = 1M * 1e7 base units.
-    expect(whaleThresholdBase(7)).toBe(1_000_000n * 10_000_000n)
+    // 1% de 10M con 7 decimales = 100K tokens = 100K * 1e7 base units.
+    expect(whaleThresholdBase(7)).toBe(100_000n * 10_000_000n)
   })
 
   it('escala con los decimales del token y tolera valores inválidos', () => {
-    expect(whaleThresholdBase(0)).toBe(1_000_000n)
-    expect(whaleThresholdBase(-3)).toBe(1_000_000n)
-    expect(whaleThresholdBase(2.9)).toBe(1_000_000n * 100n)
+    expect(whaleThresholdBase(0)).toBe(100_000n)
+    expect(whaleThresholdBase(-3)).toBe(100_000n)
+    expect(whaleThresholdBase(2.9)).toBe(100_000n * 100n)
     expect(whaleThresholdBase()).toBe(whaleThresholdBase(7))
   })
 })
@@ -112,14 +112,14 @@ describe('fair seed & supply share math', () => {
   })
 
   it('calcula el porcentaje de tokens adquiridos sobre el pool sin bloquear libre comercio', () => {
-    const poolTokens = 99_500_000n * 10_000_000n // 99.5M tokens con 7 decimales
-    const order1M = 1_000_000n * 10_000_000n
-    const percent = calculateSupplySharePercent(order1M, poolTokens)
-    // 1M / 99.5M ≈ 1.005% -> 1.00%
+    const poolTokens = 9_950_000n * 10_000_000n // 9.95M tokens con 7 decimales
+    const order100K = 100_000n * 10_000_000n
+    const percent = calculateSupplySharePercent(order100K, poolTokens)
+    // 100K / 9.95M ≈ 1.005% -> 1.00%
     expect(percent).toBeCloseTo(1.0, 1)
 
     // Usa totalBase por defecto con unidades escaladas a Stroops (10^7)
-    const defaultPercent = calculateSupplySharePercent(order1M)
+    const defaultPercent = calculateSupplySharePercent(order100K)
     expect(defaultPercent).toBeCloseTo(1.0, 1)
 
     // Si orden es 0 o negativo
@@ -128,7 +128,7 @@ describe('fair seed & supply share math', () => {
 
   it('computes exact anti-sniper/anti-whale cost for acquiring p% of pool', () => {
     const reserveXlm10 = 10n * 10_000_000n // 10 XLM in stroops
-    const reserveTokens = 99_500_000n * 10_000_000n
+    const reserveTokens = 9_950_000n * 10_000_000n
 
     const cost10Pct = costToBuyPoolShareStroops(reserveXlm10, 10)
     const xlm10Pct = costToBuyPoolShareXlm(reserveXlm10, 10)

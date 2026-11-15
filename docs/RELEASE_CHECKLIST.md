@@ -76,8 +76,8 @@ Flujo manual en navegador (idealmente dos cuentas):
 
 - [ ] Conectar wallet real de testnet y leer balance.
 - [ ] Activar modo prueba; crear 3 cuentas; cambiar de usuario.
-- [ ] Crear token (`launch_fair`): comprobar 100,000,000 supply fijo (`cap`),
-      99.5% (99.5M) + XLM seed en Soroswap Pool, 0.5% (500K) en wallet creadora,
+- [ ] Crear token (`launch_fair`): comprobar 10,000,000 supply fijo (`cap`),
+      99.5% (9.95M) + >= 2 XLM seed en Soroswap Pool, 0.5% (50K) en wallet creadora,
       100% LP retirables quemados en `GAAAA...WHF` y ownership renunciado.
 - [ ] Vender token → XLM; comprobar mínimo, slippage, share del pool e impacto.
 - [ ] Comprar token con XLM; comprobar actualización de balance XLM y token.

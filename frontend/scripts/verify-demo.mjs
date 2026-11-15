@@ -103,9 +103,9 @@ try {
   const decimals = 7
   const unit = 10n ** BigInt(decimals)
 
-  // 1. Atomic Launchpad v2 Fair Launch (1 tx: 100M supply, 99.5% LP burned, ownership renounced)
+  // 1. Atomic Launchpad v3 Fair Launch (1 tx: 10M supply, 99.5% LP burned, ownership renounced)
   const fairMeta = metadataLib.encodeOnChainMeta({
-    description: 'Automated Launchpad v2 E2E Fair Launch',
+    description: 'Automated Launchpad v3 E2E Fair Launch',
   })
   const launch = await tokenLib.launchFairAtomic({
     name: `Demo ${Date.now()}`,
@@ -115,7 +115,7 @@ try {
     signer: signerA,
   })
   const token = launch.token
-  console.log('Launchpad v2 token creado por A:', token, '| par:', launch.pair)
+  console.log('Launchpad v3 token creado por A:', token, '| par:', launch.pair)
 
   const [record, audit, supplyInitial, creatorBalInitial] = await Promise.all([
     discoveryLib.fetchLaunchpadRecord(token),
@@ -129,13 +129,13 @@ try {
   if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.lpBurned || !audit.ownershipRenounced) {
     throw new Error(`verifyAntiRug fallo: ${JSON.stringify(audit)}`)
   }
-  if (supplyInitial.result !== 100_000_000n * unit) {
+  if (supplyInitial.result !== 10_000_000n * unit) {
     throw new Error(`supply inicial inesperado: ${supplyInitial.result.toString()}`)
   }
-  if (creatorBalInitial !== 500_000n * unit) {
+  if (creatorBalInitial !== 50_000n * unit) {
     throw new Error(`asignacion 0.5% creador inesperada: ${creatorBalInitial.toString()}`)
   }
-  console.log('verifyAntiRug + registro v2 OK (500K creator, 99.5M pool, LP quemado, owner renunciado)')
+  console.log('verifyAntiRug + registro v3 OK (50K creator, 9.95M pool, LP quemado, owner renunciado)')
 
   // 2. Transfer A -> B + B compra via Soroswap con cotizacion local 0ms
   const transfer = await tokenLib.tokenClient(token, signerA).transfer({
@@ -172,7 +172,7 @@ try {
 
   // 3. A anade y retira liquidez comunitaria (remove_liquidity atomico)
   const poolForLp = await soroswap.fetchPoolState(token)
-  const lpTokenIn = 200_000n * unit
+  const lpTokenIn = 20_000n * unit
   const matchedXlm = (lpTokenIn * poolForLp.reserveXlm) / poolForLp.reserveToken
   const addedLp = await soroswap.addLiquidity({
     tokenId: token,
@@ -232,7 +232,7 @@ try {
   await tokenLib.extendTokenTtl({ tokenId: token, signer: signerC })
   console.log('extendTokenTtl (90 dias) OK desde cuenta C')
 
-  console.log('\nOK: E2E completo Launchpad v2 + Soroswap AMM + Burn-to-Chat + TTL verificado en Testnet')
+  console.log('\nOK: E2E completo Launchpad v3 + Soroswap AMM + Burn-to-Chat + TTL verificado en Testnet')
 } catch (err) {
   failed = true
   console.error('\nFALLO:', err?.message ?? err)

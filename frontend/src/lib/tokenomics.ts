@@ -2,11 +2,11 @@
  * Fair Launch Tokenomics (GasPump / Pump.fun style adapted to Stellar / Soroban).
  *
  * Anti-Fraud & Rug-Pull Rules:
- * 1. Standard Supply: 100,000,000 tokens (7 decimals).
- * 2. Creator Allocation: strictly 0.5% (500,000 tokens) transferred directly
+ * 1. Standard Supply: 10,000,000 tokens (7 decimals, aligned with 1 XLM = 10^7 stroops).
+ * 2. Creator Allocation: strictly 0.5% (50,000 tokens) transferred directly
  *    at launch on testnet (5-phase 15-day post-graduation vesting is planned for mainnet).
- * 3. Liquidity Pool Allocation: 99.5% (99,500,000 tokens) seeded directly
- *    into the Soroswap token/XLM pair at launch.
+ * 3. Liquidity Pool Allocation: 99.5% (9,950,000 tokens) seeded directly
+ *    into the Soroswap token/XLM pair at launch (min 2 XLM seed so 1 token >= 2 stroops).
  * 4. Automatic LP Burn: 100% of the initial LP tokens generated are permanently
  *    burned to Stellar's dead address (GAAAA...WHF), guaranteeing non-withdrawable liquidity.
  * 5. Renounced Ownership: Minting is disabled forever on launch; supply is 100% fixed.
@@ -18,8 +18,14 @@ import { DEFAULT_XLM_USD_PRICE } from './xlm'
 
 export { DEVELOPER_TREASURY_ADDRESS } from './network'
 
-/** Total supply in readable units for a standard fair launch (100M, 7 decimals). */
-export const FAIR_LAUNCH_TOTAL_BASIS = 100_000_000n
+/** Total supply in readable units for a standard fair launch (10M, 7 decimals). */
+export const FAIR_LAUNCH_TOTAL_BASIS = 10_000_000n
+
+/** Minimum seed liquidity required by the Launchpad contract (2 XLM). */
+export const MIN_SEED_XLM = 2
+
+/** Minimum seed liquidity in XLM stroops (2 * 10^7). */
+export const MIN_SEED_XLM_STROOPS = 20_000_000n
 
 /** Decimals of every token deployed by this launchpad (native Stellar convention). */
 export const FAIR_LAUNCH_DECIMALS = 7
@@ -32,9 +38,9 @@ export const POOL_ALLOCATION_BPS = 9_950n
 
 /**
  * Internal breakdown of the 99.5% pool:
- * - ~79.5% (79.5M tokens) for initial bonding curve swaps.
- * - ~20% (20M tokens) reserved deep DEX liquidity cushion.
- * - 0.5% (500K tokens) creator allocation with 15-day post-graduation vesting (planned for mainnet).
+ * - ~79.5% (7.95M tokens) for initial bonding curve swaps.
+ * - ~20% (2M tokens) reserved deep DEX liquidity cushion.
+ * - 0.5% (50K tokens) creator allocation with 15-day post-graduation vesting (planned for mainnet).
  */
 export const BONDING_CURVE_ALLOCATION_BPS = 7_950n
 export const DEX_RESERVE_ALLOCATION_BPS = 2_000n
@@ -79,7 +85,7 @@ export function calculateDeployFeeInXlm(
 
 /**
  * Creator allocation share of `initialSupplyBase`, scaled by BPS.
- * Single source of truth for the "99.5M / 500K" figures shown across the UI.
+ * Single source of truth for the "9.95M / 50K" figures shown across the UI.
  */
 export function allocationOfBps(totalBase: bigint, bps: bigint): bigint {
   if (totalBase <= 0n) return 0n
@@ -93,7 +99,7 @@ export function poolAllocationBase(totalBase: bigint): bigint {
 
 /**
  * Trade size tagged as "whale" by the UI: >= 1% of the standard fair-launch
- * supply (1M readable tokens on a 100M launch), converted to base units.
+ * supply (100K readable tokens on a 10M launch), converted to base units.
  */
 export const WHALE_TRADE_SHARE_BPS = 100n
 
@@ -210,44 +216,45 @@ export const CREATOR_VESTING_SCHEDULE: VestingPhase[] = [
     phase: 1,
     day: 3,
     percent: 20,
-    tokensAmount: 100_000,
-    label: 'Phase 1 (Day 3): 20% (100K tokens) after 72h DEX consolidation',
+    tokensAmount: 10_000,
+    label: 'Phase 1 (Day 3): 20% (10K tokens) after 72h DEX consolidation',
   },
   {
     phase: 2,
     day: 6,
     percent: 20,
-    tokensAmount: 100_000,
-    label: 'Phase 2 (Day 6): 20% (100K tokens)',
+    tokensAmount: 10_000,
+    label: 'Phase 2 (Day 6): 20% (10K tokens)',
   },
   {
     phase: 3,
     day: 9,
     percent: 20,
-    tokensAmount: 100_000,
-    label: 'Phase 3 (Day 9): 20% (100K tokens)',
+    tokensAmount: 10_000,
+    label: 'Phase 3 (Day 9): 20% (10K tokens)',
   },
   {
     phase: 4,
     day: 12,
     percent: 20,
-    tokensAmount: 100_000,
-    label: 'Phase 4 (Day 12): 20% (100K tokens)',
+    tokensAmount: 10_000,
+    label: 'Phase 4 (Day 12): 20% (10K tokens)',
   },
   {
     phase: 5,
     day: 15,
     percent: 20,
-    tokensAmount: 100_000,
-    label: 'Phase 5 (Day 15): 20% (100K tokens) — Final 100% unlock',
+    tokensAmount: 10_000,
+    label: 'Phase 5 (Day 15): 20% (10K tokens) — Final 100% unlock',
   },
 ]
 
 /**
  * Default balanced seed XLM to open pool on Soroswap:
- * Seeding 5 to 10 XLM (~$0.75 - $1.55 USD) sets a fair initial price (~0.000000005 - 0.000000010 XLM)
+ * Seeding 5 to 10 XLM (~$0.75 - $1.55 USD) sets a fair initial price (5 to 10 stroops/token,
+ * i.e. ~0.0000005 - 0.0000010 XLM) aligned cleanly with Stellar's 7-decimal precision,
  * and deepens the pool so snipers cannot monopolize supply for pennies.
- * Crowdsourced trading then drives the curve to the 2,000 XLM graduation milestone (~14x - 16x upside).
+ * Crowdsourced trading then drives the curve to the 2,000 XLM graduation milestone.
  */
 export const DEFAULT_OPTIMIZED_SEED_XLM = 10
 

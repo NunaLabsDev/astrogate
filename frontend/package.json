@@ -22,6 +22,7 @@
     "verify:token-events": "node scripts/verify-token-events.mjs",
     "verify:demo": "node scripts/verify-demo.mjs",
     "verify:frontend": "node scripts/verify-frontend-flow.mjs",
+    "verify:adversarial": "node scripts/verify-adversarial.mjs",
     "keepalive:ttl": "node scripts/keepalive-ttl.mjs"
   },
   "dependencies": {

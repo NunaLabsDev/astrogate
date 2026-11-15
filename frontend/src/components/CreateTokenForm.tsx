@@ -16,6 +16,8 @@ import {
   DEFAULT_OPTIMIZED_SEED_XLM,
   FAIR_LAUNCH_DECIMALS,
   FAIR_LAUNCH_TOTAL_BASIS,
+  MIN_SEED_XLM,
+  MIN_SEED_XLM_STROOPS,
   POOL_ALLOCATION_BPS,
   SEED_LIQUIDITY_PRESETS,
   STELLAR_BURN_ADDRESS,
@@ -237,8 +239,8 @@ export function CreateTokenForm({
       targetDecimals,
     ) // 100 Million (fixed on-chain by launch_fair)
     const seedXlm = seedXlmStroops
-    if (seedXlm < 10_000_000n) {
-      setError('Minimum initial liquidity is 1 XLM.')
+    if (seedXlm < MIN_SEED_XLM_STROOPS) {
+      setError(`Minimum initial liquidity is ${MIN_SEED_XLM} XLM.`)
       return
     }
 
@@ -420,7 +422,7 @@ export function CreateTokenForm({
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white truncate">Create & Launch</h2>
             <p className="mt-0.5 text-xs text-slate-400">
-              100M fixed supply · 99.5% LP burned · mint renounced
+              10M fixed supply · 99.5% LP burned · mint renounced
             </p>
           </div>
         </div>
@@ -453,9 +455,9 @@ export function CreateTokenForm({
                   Pair: {createdLaunch.pair}
                 </p>
                 <p className="text-xs text-emerald-200/90">
-                  ✓ 99,500,000 ${createdLaunch.symbol} +{' '}
+                  ✓ 9,950,000 ${createdLaunch.symbol} +{' '}
                   {formatAmount(createdLaunch.seedXlm, XLM_DECIMALS)} XLM → Pool ·
-                  500,000 ${createdLaunch.symbol} (0.5%) → Your Wallet ·{' '}
+                  50,000 ${createdLaunch.symbol} (0.5%) → Your Wallet ·{' '}
                   {formatAmount(createdLaunch.lpMinted, 7)} LP burned to{' '}
                   {shortAddress(STELLAR_BURN_ADDRESS)}
                 </p>
@@ -721,12 +723,12 @@ export function CreateTokenForm({
         <div className="sm:col-span-2 space-y-2.5 pt-2 border-t border-white/[0.06]">
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
             <span className="font-medium text-slate-300">
-              Initial Liquidity (XLM Seed, min 1 XLM)
+              Initial Liquidity (XLM Seed, min {MIN_SEED_XLM} XLM)
             </span>
             <span className="font-mono text-emerald-400 font-bold">
               {seedXlmStroops > 0n
                 ? `${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM (≈ $${(seedXlmNumber * xlmUsd).toFixed(2)} USD)`
-                : 'Enter ≥ 1 XLM'}
+                : `Enter ≥ ${MIN_SEED_XLM} XLM`}
             </span>
           </div>
 
@@ -774,7 +776,7 @@ export function CreateTokenForm({
                 🔍 Where Your XLM & Tokens Go (Atomic On-Chain Split)
               </span>
               <span className="font-mono text-[11px] text-emerald-400">
-                {symbol || 'TOKEN'} Total Cap: 100,000,000
+                {symbol || 'TOKEN'} Total Cap: 10,000,000
               </span>
             </div>
 
@@ -884,7 +886,7 @@ export function CreateTokenForm({
           ) : (
             <button
               type="submit"
-              disabled={busy || seedXlmStroops < 10_000_000n}
+              disabled={busy || seedXlmStroops < MIN_SEED_XLM_STROOPS}
               className="min-h-[44px] rounded-xl bg-emerald-500 px-6 py-2.5 text-sm font-black text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50 shadow-md shadow-emerald-500/20 cursor-pointer active:scale-[0.99]"
             >
               {busy

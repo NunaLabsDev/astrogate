@@ -79,6 +79,8 @@ export function analyzeTokenHolders(params: {
       const next = (netBalances.get(ev.from) ?? 0n) - ev.amount
       netBalances.set(ev.from, next > 0n ? next : 0n)
     } else if (ev.kind === 'transfer') {
+      // Ignore self-transfers so bounded event slices never subtract-clamp to 0 and double-credit.
+      if (ev.from && ev.to && ev.from === ev.to) continue
       if (ev.from) {
         const nextFrom = (netBalances.get(ev.from) ?? 0n) - ev.amount
         netBalances.set(ev.from, nextFrom > 0n ? nextFrom : 0n)

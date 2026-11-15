@@ -54,16 +54,16 @@ export const ASTRO_WASM_HASH =
   'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
 
 /**
- * Atomic Launchpad contract deployed on testnet (100M fixed supply).
+ * Atomic Launchpad contract deployed on testnet (10M fixed supply, min 2 XLM LP).
  */
 export const LAUNCHPAD_CONTRACT_ID =
-  'CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC'
+  'CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ'
 
 /**
  * SHA-256 hash of the launchpad contract bytecode deployed on testnet.
  */
 export const LAUNCHPAD_WASM_HASH =
-  '8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542'
+  '9b9476bb26be0474b3f5a7bddaee903aa4232a6d2f6690303788bb7db3326037'
 
 /**
  * Official AstroGate Developers Treasury address on Stellar Testnet.

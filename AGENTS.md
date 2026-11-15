@@ -32,8 +32,8 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - XLM SAC: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 - Token del launchpad: CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE
 - wasm hash del token (ya subido): a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7
-- Launchpad contract (v2): CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC
-- wasm hash del launchpad (v2): 8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542
+- Launchpad contract (v3): CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ
+- wasm hash del launchpad (v3): 9b9476bb26be0474b3f5a7bddaee903aa4232a6d2f6690303788bb7db3326037
 - Par ASTRO/XLM: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
 - Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
 - Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)
@@ -46,7 +46,7 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - Frontend (`cd frontend`): `npm run dev` (:5173) · `npm run check`
   (build + lint + tests + smoke + `verify:pwa`) · `npm run bindings`.
 - On-chain (`STELLAR_SECRET` obligatorio): `npm run verify:launchpad` ·
-  `npm run verify:soroswap` · `npm run verify:frontend`.
+  `npm run verify:soroswap` · `npm run verify:frontend` · `npm run verify:adversarial`.
 - Solo lectura (sin secret): `npm run verify:discovery` (parser de eventos +
   descubrimiento real de pares en la factory) · `npm run verify:token-events`
   (transfer/mint/burn reales del token).

@@ -25,9 +25,9 @@ const DEADLINE_SECONDS = 300
 /**
  * Precio de 1 token en XLM (stroops enteros) según las reservas del par.
  *
- * @deprecated Trunca a `0n` cualquier precio < 1 stroop, que es el caso de
- * TODO fair launch estándar (99.5M tokens contra < 9.95 XLM). Para mostrar o
- * comparar precios usar `tokenPriceInXlmNumber` + `formatTokenPrice`.
+ * @deprecated Trunca a `0n` cualquier precio < 1 stroop (e.g. pares legacy de
+ * 100M o tokens de baja densidad). Para mostrar o comparar precios usar
+ * `tokenPriceInXlmNumber` + `formatTokenPrice`.
  */
 export function tokenPriceInXlm(pool: PoolState, decimals: number): bigint {
   if (!pool.exists || pool.reserveToken <= 0n || pool.reserveXlm <= 0n) return 0n
@@ -61,7 +61,7 @@ function formatTinyNumber(value: number): string {
 
 /**
  * Formats a fractional token price in XLM into a human-readable string without scientific notation.
- * e.g. 0.0000000503 XLM (precio inicial de un fair launch de 5 XLM / 99.5M tokens)
+ * e.g. 0.000000503 XLM (precio inicial de un fair launch de 5 XLM / 9.95M tokens)
  */
 export function formatTokenPrice(priceInXlm: number): string {
   if (!Number.isFinite(priceInXlm) || priceInXlm <= 0) return '0'

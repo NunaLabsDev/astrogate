@@ -361,3 +361,51 @@ fn sep41_interface_via_token_client() {
     assert_eq!(sc.balance(&owner), 550);
     assert_eq!(sc.allowance(&owner, &spender), 50);
 }
+
+#[test]
+#[should_panic(expected = "Error(Contract, #100)")]
+fn transfer_exceeding_balance_panics() {
+    let e = Env::default();
+    let owner = Address::generate(&e);
+    let client = create_client(&e, &owner);
+    let user = Address::generate(&e);
+
+    e.mock_all_auths();
+    client.transfer(&owner, &user, &1_001);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #103)")]
+fn transfer_negative_amount_panics() {
+    let e = Env::default();
+    let owner = Address::generate(&e);
+    let client = create_client(&e, &owner);
+    let user = Address::generate(&e);
+
+    e.mock_all_auths();
+    client.transfer(&owner, &user, &-1);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #101)")]
+fn transfer_from_without_allowance_panics() {
+    let e = Env::default();
+    let owner = Address::generate(&e);
+    let client = create_client(&e, &owner);
+    let attacker = Address::generate(&e);
+
+    e.mock_all_auths();
+    client.transfer_from(&attacker, &owner, &attacker, &10);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #101)")]
+fn burn_from_without_allowance_panics() {
+    let e = Env::default();
+    let owner = Address::generate(&e);
+    let client = create_client(&e, &owner);
+    let attacker = Address::generate(&e);
+
+    e.mock_all_auths();
+    client.burn_from(&attacker, &owner, &10);
+}

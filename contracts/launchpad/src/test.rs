@@ -142,7 +142,7 @@ fn test_invalid_amounts_fail() {
     });
     assert_eq!(res_zero_xlm, Err(Ok(LaunchpadError::InvalidAmount)));
 
-    // Just below MIN_XLM_LP_STROOPS (10^7 - 1 = 9_999_999 stroops = 0.9999999 XLM) should fail
+    // Just below MIN_XLM_LP_STROOPS (20_000_000 - 1 = 19_999_999 stroops = 1.9999999 XLM) should fail
     let res_sub_min_xlm = client.try_launch_token(&LaunchParams {
         creator: creator.clone(),
         name: String::from_str(&e, "Test"),
@@ -150,7 +150,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 9_999_999, // < MIN_XLM_LP_STROOPS
+        xlm_lp_amount: 19_999_999, // < MIN_XLM_LP_STROOPS
         salt: BytesN::from_array(&e, &[1u8; 32]),
     });
     assert_eq!(res_sub_min_xlm, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -163,7 +163,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 990_000_000, // only 99.0%, fails fair launch 99.5% invariant
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[2u8; 32]),
     });
     assert_eq!(res_low_lp, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -176,7 +176,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 10_000_000_000_000_000_001_i128,
         token_lp_amount: 9_950_000_000_000_000_000_i128,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[3u8; 32]),
     });
     assert_eq!(res_max_supply, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -189,7 +189,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000,
         token_lp_amount: 995,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[4u8; 32]),
     });
     assert_eq!(res_min_supply, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -202,7 +202,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 1_000_000_001,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[5u8; 32]),
     });
     assert_eq!(res_excess_lp, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -215,7 +215,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 0,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[6u8; 32]),
     });
     assert_eq!(res_zero_lp, Err(Ok(LaunchpadError::InvalidAmount)));
@@ -228,7 +228,7 @@ fn test_invalid_amounts_fail() {
         decimals: 19,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[7u8; 32]),
     });
     assert_eq!(res_invalid_dec, Err(Ok(LaunchpadError::InvalidMetadata)));
@@ -241,7 +241,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[8u8; 32]),
     });
     assert_eq!(res_empty_name, Err(Ok(LaunchpadError::InvalidMetadata)));
@@ -254,7 +254,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[9u8; 32]),
     });
     assert_eq!(res_empty_symbol, Err(Ok(LaunchpadError::InvalidMetadata)));
@@ -267,7 +267,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[10u8; 32]),
     });
     assert_eq!(res_long_name, Err(Ok(LaunchpadError::InvalidMetadata)));
@@ -280,7 +280,7 @@ fn test_invalid_amounts_fail() {
         decimals: 7,
         initial_supply: 1_000_000_000,
         token_lp_amount: 995_000_000,
-        xlm_lp_amount: 10_000_000,
+        xlm_lp_amount: 20_000_000,
         salt: BytesN::from_array(&e, &[11u8; 32]),
     });
     assert_eq!(res_long_symbol, Err(Ok(LaunchpadError::InvalidMetadata)));
@@ -513,7 +513,7 @@ fn test_full_100_percent_lp_launch() {
         decimals: 7,
         initial_supply: supply,
         token_lp_amount: supply,
-        xlm_lp_amount: 10_000_000_i128,
+        xlm_lp_amount: 20_000_000_i128,
         salt: BytesN::from_array(&e, &[15u8; 32]),
     });
 
@@ -557,9 +557,9 @@ fn test_launch_fair_and_registry() {
 
     let tok_one = AstroTokenClient::new(&e, &res_one.token);
     assert_eq!(tok_one.decimals(), 7);
-    assert_eq!(tok_one.total_supply(), 1_000_000_000_000_000_i128);
-    assert_eq!(tok_one.balance(&creator), 5_000_000_000_000_i128);
-    assert_eq!(tok_one.balance(&res_one.pair), 995_000_000_000_000_i128);
+    assert_eq!(tok_one.total_supply(), 100_000_000_000_000_i128);
+    assert_eq!(tok_one.balance(&creator), 500_000_000_000_i128);
+    assert_eq!(tok_one.balance(&res_one.pair), 99_500_000_000_000_i128);
     assert_eq!(tok_one.get_owner(), None);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &res_one.pair).lp_recipient(),
@@ -644,7 +644,7 @@ fn test_launch_fair_validation_errors() {
             creator,
             name: String::from_str(&e, "Low XLM"),
             symbol: String::from_str(&e, "LOWX"),
-            xlm_lp_amount: 9_999_999_i128,
+            xlm_lp_amount: 19_999_999_i128,
             meta: String::from_str(&e, ""),
             salt: BytesN::from_array(&e, &[24u8; 32]),
         })
@@ -736,4 +736,109 @@ fn test_burn_shout_burns_tokens_and_caps_history() {
         String::from_str(&e, "shout #18")
     );
     assert_eq!(shouts.get(14).unwrap().amount, 1_000_000_i128);
+}
+
+#[test]
+fn test_adversarial_salt_frontrunning_and_duplicate_salt() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
+    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
+    let xlm_sac_addr = e.register(MockToken, ());
+    let burn_addr = Address::generate(&e);
+
+    let launchpad_addr = e.register(
+        Launchpad,
+        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
+    );
+    let client = LaunchpadClient::new(&e, &launchpad_addr);
+
+    let attacker = Address::generate(&e);
+    let creator = Address::generate(&e);
+    let shared_salt = BytesN::from_array(&e, &[99u8; 32]);
+
+    // Attacker squats `shared_salt` first; creator still deploys a distinct contract
+    // because `derived_salt = sha256(creator || salt)`.
+    let res_attacker = client.launch_fair(&FairLaunchParams {
+        creator: attacker,
+        name: String::from_str(&e, "Squat"),
+        symbol: String::from_str(&e, "SQT"),
+        xlm_lp_amount: 20_000_000_i128,
+        meta: String::from_str(&e, ""),
+        salt: shared_salt.clone(),
+    });
+
+    let res_creator = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Real Coin"),
+        symbol: String::from_str(&e, "REAL"),
+        xlm_lp_amount: 20_000_000_i128,
+        meta: String::from_str(&e, ""),
+        salt: shared_salt,
+    });
+
+    assert_ne!(res_attacker.token, res_creator.token);
+    assert_eq!(client.get_launch_count(), 2);
+    assert_eq!(
+        client.get_launch(&res_creator.token).unwrap().creator,
+        creator
+    );
+}
+
+#[test]
+fn test_adversarial_unauthorized_and_invalid_shouts_and_pagination() {
+    let e = Env::default();
+    e.mock_all_auths();
+
+    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
+    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
+    let xlm_sac_addr = e.register(MockToken, ());
+    let burn_addr = Address::generate(&e);
+
+    let launchpad_addr = e.register(
+        Launchpad,
+        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
+    );
+    let client = LaunchpadClient::new(&e, &launchpad_addr);
+
+    let creator = Address::generate(&e);
+    let attacker = Address::generate(&e);
+    let launched = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Guard"),
+        symbol: String::from_str(&e, "GRD"),
+        xlm_lp_amount: 20_000_000_i128,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[77u8; 32]),
+    });
+
+    // Negative shout amount -> InvalidAmount
+    let err_neg = client
+        .try_burn_shout(
+            &creator,
+            &launched.token,
+            &-100_i128,
+            &String::from_str(&e, "neg"),
+        )
+        .unwrap_err()
+        .unwrap();
+    assert_eq!(err_neg, LaunchpadError::InvalidAmount);
+
+    // Zero-balance attacker attempting burn_shout fails in SEP-41 burn and writes 0 shouts
+    let err_broke = client.try_burn_shout(
+        &attacker,
+        &launched.token,
+        &100_i128,
+        &String::from_str(&e, "free shout"),
+    );
+    assert!(err_broke.is_err());
+    assert!(client.get_shouts(&launched.token).is_empty());
+
+    // Extreme pagination bounds never panic or underflow
+    assert!(client.get_launches(&u32::MAX, &u32::MAX).is_empty());
+    assert!(client.get_launches(&0, &0).is_empty());
+    assert_eq!(client.get_launches(&0, &u32::MAX).len(), 1);
 }

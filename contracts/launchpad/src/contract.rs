@@ -44,7 +44,7 @@ pub struct LaunchParams {
     pub salt: BytesN<32>,
 }
 
-/// Minimalist fair-launch parameters: supply (100M), decimals (7), and 99.5% LP
+/// Minimalist fair-launch parameters: supply (10M), decimals (7), and 99.5% LP
 /// allocation are enforced on-chain, reducing user input to identity + seed XLM.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -152,8 +152,8 @@ const TTL_THRESHOLD: u32 = TTL_BUMP_AMOUNT - (7 * DAY_IN_LEDGERS);
 
 /// Minimum initial supply (1,000 stroops) to prevent Soroswap MINIMUM_LIQUIDITY (1000) underflow.
 const MIN_INITIAL_SUPPLY: i128 = 1_000;
-/// Minimum 1 XLM (10^7 stroops) initial liquidity to prevent Soroswap MINIMUM_LIQUIDITY (1000) trap.
-const MIN_XLM_LP_STROOPS: i128 = 10_000_000;
+/// Minimum 2 XLM (20_000_000 stroops) initial liquidity so 10M fair-launch supply keeps >= 2 stroops/token.
+const MIN_XLM_LP_STROOPS: i128 = 20_000_000;
 /// Maximum initial supply (1 trillion tokens with 7 decimals = 10^19 stroops) to prevent AMM overflow.
 const MAX_INITIAL_SUPPLY: i128 = 10_000_000_000_000_000_000;
 /// Minimum fair launch pool allocation: 99.5% (9,950 bps).
@@ -161,10 +161,10 @@ const MIN_LP_ALLOCATION_BPS: i128 = 9_950;
 /// Basis points denominator (100% = 10,000 bps).
 const BPS_DENOMINATOR: i128 = 10_000;
 
-/// Fixed fair-launch defaults used by `launch_fair`: 100M supply, 7 decimals, 99.5% LP.
+/// Fixed fair-launch defaults used by `launch_fair`: 10M supply, 7 decimals, 99.5% LP.
 const FAIR_DECIMALS: u32 = 7;
-const FAIR_INITIAL_SUPPLY: i128 = 1_000_000_000_000_000;
-const FAIR_TOKEN_LP_AMOUNT: i128 = 995_000_000_000_000;
+const FAIR_INITIAL_SUPPLY: i128 = 100_000_000_000_000;
+const FAIR_TOKEN_LP_AMOUNT: i128 = 99_500_000_000_000;
 
 const MAX_OFFCHAIN_META_BYTES: u32 = 512;
 const MAX_SHOUT_BYTES: u32 = 160;
@@ -197,7 +197,7 @@ impl Launchpad {
         Self::extend_ttl(e);
     }
 
-    /// Minimalist fair launch: enforces fixed 100M supply (7 decimals) and 99.5%
+    /// Minimalist fair launch: enforces fixed 10M supply (7 decimals) and 99.5%
     /// burned LP while storing optional compact metadata on-chain for discovery.
     pub fn launch_fair(e: &Env, params: FairLaunchParams) -> Result<LaunchResult, LaunchpadError> {
         params.creator.require_auth();

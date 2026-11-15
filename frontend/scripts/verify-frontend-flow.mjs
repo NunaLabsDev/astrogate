@@ -215,8 +215,12 @@ try {
     '/',
     newPool.reserveXlm.toString(),
   )
-  // 1,000 tokens de los 500,000 del creador (~0.2%): en un pool 99.5M / 5 XLM
-  // 1 token vale < 1 stroop (se redondea a 0 en el AMM), mientras 1,000 tokens cotizan ~500 stroops.
+  // 1 whole token en un pool 9.95M / 5 XLM cotiza ~5 stroops (> 0n, sin sub-stroop loss!)
+  const oneTokenQuote = await soroswap.quoteTokenForXlm(1n * 10n ** BigInt(DECIMALS), newPool)
+  console.log('cotizacion 1 token ->', oneTokenQuote.toString(), 'stroops XLM')
+  if (oneTokenQuote <= 0n) throw new Error('la cotizacion de 1 token del par nuevo cayo a 0 stroops')
+
+  // 1,000 tokens de los 50,000 del creador (2% de su asignacion): cotizan ~5,010 stroops
   const sellAmount = 1_000n * 10n ** BigInt(DECIMALS)
   const newQuote = await soroswap.quoteTokenForXlm(sellAmount, newPool)
   console.log('cotizacion 1,000 token ->', newQuote.toString(), 'XLM (base units)')

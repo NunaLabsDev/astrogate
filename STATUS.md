@@ -1,5 +1,22 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 29 — Calibración 10M / 2 XLM Stroop Floor, Launchpad v3 & Pruebas Adversariales Multi-Cuenta)
+Calibración exacta de tokenomics al piso mínimo de Stellar (`1 XLM = 10^7 stroops`), redespliegue de Launchpad v3 en Testnet, hardening de seguridad y batería de ataques multi-cuenta verificada en vivo. *AI-generated; revisión humana pendiente.*
+- **Calibración exacta de tokenomics (`10M` supply / `9.95M` LP / `50K` creator / mínimo `2 XLM`)**:
+  - **Motivo**: con `100M` (`99.5M` LP) y `1–5 XLM`, el precio spot (`~0.10–0.50` stroops/token) hacía que vender `1` token entero se redondeara a `0` stroops en Soroswap; calibrar `FAIR_INITIAL_SUPPLY = 10,000,000` (`100_000_000_000_000` con 7 decimales) iguala `10^7` stroops (`1 XLM`), con `9,950,000` al pool AMM, `50,000` (`0.5%`) al creador y piso `MIN_XLM_LP_STROOPS = 20_000_000` (`2 XLM`), garantizando `>= 2` stroops por `1` token incluso tras comisión del `0.3%` y dump completo del creador (y `~5 / 10 / 20 / 50` stroops en los presets `5 / 10 / 20 / 50 XLM`).
+- **Launchpad v3 desplegado en Testnet**:
+  - **Contract ID**: `CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ` (WASM hash `9b9476bb26be0474b3f5a7bddaee903aa4232a6d2f6690303788bb7db3326037`, `16762 bytes`, constructor verificado vía `get_factory`).
+  - Bindings TypeScript regenerados (`npm run bindings` en `frontend/src/contracts/launchpad/{client,types}.ts`) y referencias actualizadas en `frontend/src/lib/network.ts`, `tokenomics.ts` (`MIN_SEED_XLM = 2`, `MIN_SEED_XLM_STROOPS = 20_000_000n`), `CreateTokenForm.tsx`, `HomePage.tsx`, `MarketList.tsx`, `KingOfTheHill.tsx`, `soroswap.ts`, `token.ts`, `sdk/index.ts`, tests, scripts y documentación (`README.md`, `AGENTS.md`, `GEMINI.md`, `docs/AI_AGENT_INTEGRATION.md`, `docs/RELEASE_CHECKLIST.md`, `frontend/public/llms.txt`).
+- **Hardening adversarial y cobertura ampliada**:
+  - `frontend/src/lib/holders.ts` + `holders.test.ts`: guard `if (ev.from && ev.to && ev.from === ev.to) continue` para ignorar self-transfers y evitar doble contabilidad / conservación rota bajo ventanas acotadas, más test de churn circular multi-wallet.
+  - `contracts/launchpad/src/test.rs`: `test_adversarial_salt_frontrunning_and_duplicate_salt` y `test_adversarial_unauthorized_and_invalid_shouts_and_pagination` (`12/12`).
+  - `contracts/token/src/test.rs`: `transfer_exceeding_balance_panics` (`#100`), `transfer_negative_amount_panics` (`#103`), `transfer_from_without_allowance_panics` (`#101`) y `burn_from_without_allowance_panics` (`#101`) (`23/23`).
+  - `frontend/scripts/verify-adversarial.mjs` (`npm run verify:adversarial`): auditoría en vivo con 5 cuentas (`Creator`, `Trader1`, `Trader2`, `Attacker` vía Friendbot + `Ops` `astrogate-deployer`).
+- **Verificación en verde (post-edición final)**:
+  - Rust: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` (`35/35`: `12` launchpad + `23` astro-token).
+  - Frontend: `cd frontend && npm run check` (`tsc -b`, `vite build`, `oxlint` `0` warnings/errors en `123` archivos, `vitest` `25` suites / `182` tests, `smoke:render`, `verify:pwa`, `check:csp`).
+  - Testnet en vivo: `verify:launchpad` (`CA7IXXSMYZDAS3UH7MAY7NRXBV3T6WO4WDXZAVCFVHMG6ZMW5OLQUHYU`), `verify:discovery`, `verify:token-events`, `keepalive:ttl` (`0` fallos), `verify:soroswap` (`CAHBV57FVWLGFLKNYDWEJB4AQFQYXEBZCIIZELPYBCTXUZLXAO4AG2IG`), `verify:demo` (`CDUHTAER7P3Z6T6RMJKQKSV2ODLGIE743HHRTM6ZSQJLTGXGCNZATOU3`), `verify:frontend` (`CCOND5GFTPHZSFDCOC3MV74YF6IPE3EBZ3ZWEO7YETFKG6S2LQ3PXP74`, `1 token -> 5 stroops XLM`) y `verify:adversarial` (`CBTREVBWVYYH7XCIUOP5KAW445KHYGMBINOITAKKSTRTDCBDJ4557BOC`, `1 whole ADVT sells for 10 stroops`, todas las llamadas maliciosas rechazadas e invariantes `k`/supply/holders verificados).
+
 ## Handoff rápido (Nov 16 2026, sesión 28 — Auditoría E2E Testnet, Cuentas Oficiales Developer & Hardening Holders/Chart/Bindings)
 Auditoría completa post-upgrade 100M, creación de cuentas oficiales de Testnet, correcciones de matemáticas/lógica, sincronización de bindings TS y verificación E2E en vivo. *AI-generated; revisión humana pendiente.*
 - **Cuentas oficiales Testnet (seguras y fuera de git)**:
