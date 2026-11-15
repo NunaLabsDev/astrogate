@@ -37,8 +37,6 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - Par ASTRO/XLM: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
 - Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
 - Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)
-- Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
-- Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)
 
 ## Comandos
 - PATH: `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"`
