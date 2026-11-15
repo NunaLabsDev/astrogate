@@ -15,7 +15,7 @@ import { Keypair } from '@stellar/stellar-sdk'
 const RPC_URL = 'https://soroban-testnet.stellar.org'
 const PASSPHRASE = 'Test SDF Network ; September 2015'
 const WASM_HASH = 'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
-const LAUNCHPAD_CONTRACT_ID = 'CB5LMSJ2Y2KEZEO2BXTRNA2OPFALVU6AVIOASVPZTQ66GRT3UEKOQ3O4'
+const LAUNCHPAD_CONTRACT_ID = 'CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC'
 
 const secret = process.env.STELLAR_SECRET
 if (!secret) {

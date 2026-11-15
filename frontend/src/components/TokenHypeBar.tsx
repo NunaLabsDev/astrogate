@@ -98,6 +98,7 @@ export function TokenHypeBar({
         queryClient.invalidateQueries({ queryKey: ['token-events', tokenId] }),
         queryClient.invalidateQueries({ queryKey: ['token-balance', tokenId] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', tokenId] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
       ])
     } catch (err) {
       const msg = errorMessage(err)

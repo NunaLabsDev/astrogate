@@ -1,9 +1,8 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 /**
- * Invalida los datos que cambian tras transferir, quemar o emitir:
- * balances (de todas las cuentas), metadata/supply y XLM de las cuentas demo
- * (las fees de testnet también se descuentan).
+ * Invalidates all queries affected by a token state change (transfer, burn, mint, LP, or swap):
+ * token balances, metadata/supply, events, Soroswap pool reserves, LP position/burn state, and XLM balances.
  */
 export async function invalidateTokenData(
   queryClient: QueryClient,
@@ -13,6 +12,9 @@ export async function invalidateTokenData(
     queryClient.invalidateQueries({ queryKey: ['token-balance', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['token-info', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['token-events', tokenId] }),
-    queryClient.invalidateQueries({ queryKey: ['demo-xlm-balances'] }),
+    queryClient.invalidateQueries({ queryKey: ['soroswap-pool', tokenId] }),
+    queryClient.invalidateQueries({ queryKey: ['lp-position', tokenId] }),
+    queryClient.invalidateQueries({ queryKey: ['lp-burn'] }),
+    queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
   ])
 }

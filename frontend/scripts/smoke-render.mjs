@@ -76,7 +76,7 @@ try {
   const createHtml = renderApp('/create')
   if (
     !createHtml.includes('Launch Your Token') ||
-    !createHtml.includes('1B fixed supply')
+    !createHtml.includes('100M fixed supply')
   ) {
     throw new Error('la ruta /create no muestra el formulario simplificado')
   }

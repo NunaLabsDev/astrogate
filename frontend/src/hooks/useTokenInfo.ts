@@ -23,6 +23,10 @@ export type TokenInfo = {
   verifiedLaunchpad?: boolean
   launchIndex?: number
   launchLedger?: number
+  initialSupply?: bigint
+  tokenLpAmount?: bigint
+  xlmLpAmount?: bigint
+  lpMinted?: bigint
 }
 
 type TokenReader = ReturnType<typeof tokenClient>
@@ -99,6 +103,10 @@ export function useTokenInfo(contractId: string = ASTRO_TOKEN_ID) {
               creator: launch.creator,
               verifiedLaunchpad: true,
               launchLedger: launch.ledger,
+              initialSupply: launch.initialSupply,
+              tokenLpAmount: launch.tokenLpAmount,
+              xlmLpAmount: launch.xlmLpAmount,
+              lpMinted: launch.lpMinted,
             }
           : {}),
       }

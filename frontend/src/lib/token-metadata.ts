@@ -22,6 +22,28 @@ export interface EnrichedTokenMetadata {
 
 const METADATA_KEY_PREFIX = 'astrogate.token.meta.'
 const memoryCache = new Map<string, EnrichedTokenMetadata>()
+const metadataListeners = new Set<() => void>()
+
+function notifyMetadataListeners(): void {
+  for (const listener of [...metadataListeners]) {
+    try {
+      listener()
+    } catch {
+      // Ignore individual subscriber errors so all views update cleanly.
+    }
+  }
+}
+
+/**
+ * Subscribes to local metadata store mutations (e.g. when on-chain `LaunchRecord.meta`
+ * finishes hydrating in the background). Returns an unsubscribe callback.
+ */
+export function subscribeTokenMetadata(listener: () => void): () => void {
+  metadataListeners.add(listener)
+  return () => {
+    metadataListeners.delete(listener)
+  }
+}
 
 /**
  * Built-in default metadata for genesis / canonical tokens on testnet.
@@ -51,6 +73,7 @@ function isEnrichedTokenMetadata(value: unknown): value is EnrichedTokenMetadata
 
 /**
  * Reads enriched metadata for a given token from memory defaults or localStorage.
+ * Stores restored entries in `memoryCache` so repeated reads return a stable reference.
  */
 export function getLocalTokenMetadata(tokenId: string): EnrichedTokenMetadata | null {
   if (DEFAULT_TOKEN_METADATA[tokenId]) {
@@ -62,13 +85,14 @@ export function getLocalTokenMetadata(tokenId: string): EnrichedTokenMetadata | 
 
   const restored = readStorageJson<unknown>(`${METADATA_KEY_PREFIX}${tokenId}`)
   if (isEnrichedTokenMetadata(restored)) {
+    memoryCache.set(tokenId, restored)
     return restored
   }
   return null
 }
 
 /**
- * Saves enriched metadata for a token to localStorage and memory.
+ * Saves enriched metadata for a token to localStorage and memory, notifying active views.
  */
 export function saveLocalTokenMetadata(metadata: EnrichedTokenMetadata): void {
   const payload: EnrichedTokenMetadata = {
@@ -78,6 +102,7 @@ export function saveLocalTokenMetadata(metadata: EnrichedTokenMetadata): void {
   memoryCache.set(metadata.tokenId, payload)
 
   writeStorageJson(`${METADATA_KEY_PREFIX}${metadata.tokenId}`, payload)
+  notifyMetadataListeners()
 }
 
 /**
@@ -85,15 +110,20 @@ export function saveLocalTokenMetadata(metadata: EnrichedTokenMetadata): void {
  * Scoped: never touches localStorage entries of other apps on the same origin.
  */
 export function clearTokenMetadataCache(): void {
+  for (const tokenId of memoryCache.keys()) {
+    removeStorageKey(`${METADATA_KEY_PREFIX}${tokenId}`)
+  }
   memoryCache.clear()
   const s = typeof window !== 'undefined' ? window.localStorage : null
-  if (!s) return
-  const toRemove: string[] = []
-  for (let i = 0; i < s.length; i++) {
-    const key = s.key(i)
-    if (key?.startsWith(METADATA_KEY_PREFIX)) toRemove.push(key)
+  if (s) {
+    const toRemove: string[] = []
+    for (let i = 0; i < s.length; i++) {
+      const key = s.key(i)
+      if (key?.startsWith(METADATA_KEY_PREFIX)) toRemove.push(key)
+    }
+    for (const key of toRemove) removeStorageKey(key)
   }
-  for (const key of toRemove) removeStorageKey(key)
+  notifyMetadataListeners()
 }
 
 export const ONCHAIN_META_MAX_BYTES = 512

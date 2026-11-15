@@ -2,27 +2,27 @@
  * Fair Launch Tokenomics (GasPump / Pump.fun style adapted to Stellar / Soroban).
  *
  * Anti-Fraud & Rug-Pull Rules:
- * 1. Standard Supply: 1,000,000,000 tokens (7 decimals).
- * 2. Creator Allocation: strictly 0.5% (5,000,000 tokens) transferred directly
+ * 1. Standard Supply: 100,000,000 tokens (7 decimals).
+ * 2. Creator Allocation: strictly 0.5% (500,000 tokens) transferred directly
  *    at launch on testnet (5-phase 15-day post-graduation vesting is planned for mainnet).
- * 3. Liquidity Pool Allocation: 99.5% (995,000,000 tokens) seeded directly
+ * 3. Liquidity Pool Allocation: 99.5% (99,500,000 tokens) seeded directly
  *    into the Soroswap token/XLM pair at launch.
  * 4. Automatic LP Burn: 100% of the initial LP tokens generated are permanently
  *    burned to Stellar's dead address (GAAAA...WHF), guaranteeing non-withdrawable liquidity.
  * 5. Renounced Ownership: Minting is disabled forever on launch; supply is 100% fixed.
- * 6. If the creator wants more than 0.5%, they must buy from the pool using XLM
- *    just like any community participant, deepening liquidity for all.
+ * 6. Protocol, trading, and graduation fees belong 100% to the AstroGate Developers Treasury
+ *    (zero XLM rewards/fees routed to token creators).
  */
 import type { PoolState } from './soroswap'
 import { DEFAULT_XLM_USD_PRICE } from './xlm'
 
-/** Total supply in readable units for a standard fair launch (1B, 7 decimals). */
-export const FAIR_LAUNCH_TOTAL_BASIS = 1_000_000_000n
+/** Total supply in readable units for a standard fair launch (100M, 7 decimals). */
+export const FAIR_LAUNCH_TOTAL_BASIS = 100_000_000n
 
 /** Decimals of every token deployed by this launchpad (native Stellar convention). */
 export const FAIR_LAUNCH_DECIMALS = 7
 
-/** Creator allocation in basis points (50 bps = 0.5% developer allocation). */
+/** Creator allocation in basis points (50 bps = 0.5% creator allocation). */
 export const CREATOR_ALLOCATION_BPS = 50n
 
 /** Percentage sent directly to liquidity pool (9,950 bps = 99.5%). */
@@ -30,9 +30,9 @@ export const POOL_ALLOCATION_BPS = 9_950n
 
 /**
  * Internal breakdown of the 99.5% pool:
- * - ~79.5% (795M tokens) for initial bonding curve swaps.
- * - ~20% (200M tokens) reserved deep DEX liquidity cushion.
- * - 0.5% (5M tokens) creator max allocation upon graduation.
+ * - ~79.5% (79.5M tokens) for initial bonding curve swaps.
+ * - ~20% (20M tokens) reserved deep DEX liquidity cushion.
+ * - 0.5% (500K tokens) creator allocation with 15-day post-graduation vesting (planned for mainnet).
  */
 export const BONDING_CURVE_ALLOCATION_BPS = 7_950n
 export const DEX_RESERVE_ALLOCATION_BPS = 2_000n
@@ -46,16 +46,17 @@ export const STELLAR_BURN_ADDRESS =
   'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
 
 /**
- * Protocol Monetization Model (AstroGate Treasury):
- * 1. Fair launch deployment: 0 protocol fee charged on-chain (the launchpad contract only
- *    pulls the creator's chosen seed XLM). A planned $1.11 protocol deploy fee is modeled for future mainnet.
- * 2. Trading fee on curve: Soroswap charges the standard 0.30% LP fee; additional
- *    protocol/creator cuts (0.70% treasury + 0.30% creator) are planned, not enforced on-chain yet.
- * 3. Graduation fee at 2,000 XLM target: modeled 15 XLM protocol + 5 XLM creator
- *    reward (planned for mainnet).
+ * Protocol Monetization Model (100% AstroGate Developers Treasury):
+ * 1. Fair launch deployment: 0 protocol fee charged on testnet; $1.11 USD deploy fee
+ *    modeled for Developers Treasury on mainnet.
+ * 2. Trading fee on curve: Soroswap charges the standard 0.30% LP fee; an additional
+ *    1.00% (100 bps) developer trading fee is modeled 100% for AstroGate Developers Treasury.
+ * 3. Graduation fee at 2,000 XLM target: 20 XLM fee routed 100% to AstroGate Developers
+ *    Treasury (0 XLM graduation reward sent to creators).
  */
 export const PROTOCOL_DEPLOY_FEE_USD = 1.11
-export const CREATOR_GRADUATION_REWARD_XLM = 5
+export const DEVELOPER_TRADING_FEE_BPS = 100n
+export const DEVELOPER_GRADUATION_FEE_XLM = 20
 
 /** Ensure a fallback XLM/USD price is finite and positive; else use the default. */
 export function sanitizeXlmUsdPrice(xlmUsdPrice: number): number {
@@ -76,7 +77,7 @@ export function calculateDeployFeeInXlm(
 
 /**
  * Creator allocation share of `initialSupplyBase`, scaled by BPS.
- * Single source of truth for the "995M / 5M" figures shown across the UI.
+ * Single source of truth for the "99.5M / 500K" figures shown across the UI.
  */
 export function allocationOfBps(totalBase: bigint, bps: bigint): bigint {
   if (totalBase <= 0n) return 0n
@@ -90,7 +91,7 @@ export function poolAllocationBase(totalBase: bigint): bigint {
 
 /**
  * Trade size tagged as "whale" by the UI: >= 1% of the standard fair-launch
- * supply (10M readable tokens on a 1B launch), converted to base units.
+ * supply (1M readable tokens on a 100M launch), converted to base units.
  */
 export const WHALE_TRADE_SHARE_BPS = 100n
 
@@ -119,6 +120,39 @@ export function calculateSupplySharePercent(
   if (totalBase <= 0n || amountTokensBase <= 0n) return 0
   const bps = (amountTokensBase * 10_000n) / totalBase
   return Number(bps) / 100
+}
+
+/**
+ * Inverse constant-product AMM formula (`x * y = k` with 0.30% Soroswap fee):
+ * Calculates the exact XLM input (in stroops) required to acquire `targetSharePercent`
+ * (e.g. 2%, 5%, 10%) of a pool's token reserve.
+ * Useful both as an Anti-Sniper Depth indicator on token launch and as a 1-click
+ * Anti-Whale cap in SwapCard.
+ */
+export function costToBuyPoolShareStroops(
+  reserveXlmStroops: bigint,
+  targetSharePercent: number,
+): bigint {
+  if (
+    reserveXlmStroops <= 0n ||
+    !Number.isFinite(targetSharePercent) ||
+    targetSharePercent <= 0
+  ) {
+    return 0n
+  }
+  const bps = Math.min(9_500, Math.max(1, Math.round(targetSharePercent * 100)))
+  const numerator = reserveXlmStroops * 1_000n * BigInt(bps)
+  const denominator = 997n * BigInt(10_000 - bps)
+  if (denominator <= 0n) return 0n
+  return (numerator + denominator - 1n) / denominator
+}
+
+/** Readable XLM amount required to buy `targetSharePercent` of a pool. */
+export function costToBuyPoolShareXlm(
+  reserveXlmStroops: bigint,
+  targetSharePercent: number,
+): number {
+  return Number(costToBuyPoolShareStroops(reserveXlmStroops, targetSharePercent)) / 1e7
 }
 
 /**
@@ -174,36 +208,36 @@ export const CREATOR_VESTING_SCHEDULE: VestingPhase[] = [
     phase: 1,
     day: 3,
     percent: 20,
-    tokensAmount: 1_000_000,
-    label: 'Phase 1 (Day 3): 20% (1M tokens) after 72h DEX consolidation',
+    tokensAmount: 100_000,
+    label: 'Phase 1 (Day 3): 20% (100K tokens) after 72h DEX consolidation',
   },
   {
     phase: 2,
     day: 6,
     percent: 20,
-    tokensAmount: 1_000_000,
-    label: 'Phase 2 (Day 6): 20% (1M tokens)',
+    tokensAmount: 100_000,
+    label: 'Phase 2 (Day 6): 20% (100K tokens)',
   },
   {
     phase: 3,
     day: 9,
     percent: 20,
-    tokensAmount: 1_000_000,
-    label: 'Phase 3 (Day 9): 20% (1M tokens)',
+    tokensAmount: 100_000,
+    label: 'Phase 3 (Day 9): 20% (100K tokens)',
   },
   {
     phase: 4,
     day: 12,
     percent: 20,
-    tokensAmount: 1_000_000,
-    label: 'Phase 4 (Day 12): 20% (1M tokens)',
+    tokensAmount: 100_000,
+    label: 'Phase 4 (Day 12): 20% (100K tokens)',
   },
   {
     phase: 5,
     day: 15,
     percent: 20,
-    tokensAmount: 1_000_000,
-    label: 'Phase 5 (Day 15): 20% (1M tokens) — Final 100% unlock',
+    tokensAmount: 100_000,
+    label: 'Phase 5 (Day 15): 20% (100K tokens) — Final 100% unlock',
   },
 ]
 

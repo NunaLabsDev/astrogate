@@ -5,12 +5,17 @@ import {
   toChartPoints,
   type ReserveSnapshot,
 } from '../lib/snapshots'
-import { GRADUATION_TARGET_XLM, graduationProgress } from '../lib/tokenomics'
+import {
+  GRADUATION_TARGET_XLM,
+  graduationProgress,
+  sanitizeXlmUsdPrice,
+} from '../lib/tokenomics'
 import {
   classifyTokenEvent,
   type TokenEvent,
 } from '../lib/token-events'
-import { formatTokenPrice, type PoolState } from '../lib/soroswap'
+import { formatTokenPrice, formatUsdPrice, type PoolState } from '../lib/soroswap'
+import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 
 const WIDTH = 400
 const HEIGHT = 160
@@ -18,13 +23,14 @@ const PADDING = 16
 const EMPTY_SNAPSHOTS: ReserveSnapshot[] = []
 const EMPTY_EVENTS: TokenEvent[] = []
 
-type Metric = 'price' | 'liquidity'
+type Metric = 'mcap' | 'price' | 'liquidity'
 
 function formatMetric(value: number, metric: Metric = 'price'): string {
   if (!Number.isFinite(value)) return '—'
+  if (metric === 'mcap') return `$${formatUsdPrice(value)}`
   if (metric === 'price') return formatTokenPrice(value)
   const abs = Math.abs(value)
-  const digits = abs > 0 && abs < 0.01 ? 8 : 4
+  const digits = abs > 0 && abs < 0.01 ? 8 : 2
   return value.toLocaleString('en-US', { maximumFractionDigits: digits })
 }
 
@@ -44,6 +50,8 @@ export function ReserveChart({
   symbol,
   events = EMPTY_EVENTS,
   pool,
+  totalSupply,
+  xlmUsd = DEFAULT_XLM_USD_PRICE,
 }: {
   snapshots?: ReserveSnapshot[]
   history?: ReserveSnapshot[]
@@ -51,9 +59,23 @@ export function ReserveChart({
   symbol?: string
   events?: TokenEvent[]
   pool?: PoolState
+  totalSupply?: bigint
+  xlmUsd?: number
 }) {
+  const effectiveXlmUsd = sanitizeXlmUsdPrice(xlmUsd)
+  const hasSupply = Boolean(totalSupply && totalSupply > 0n)
+  const totalSupplyWhole = useMemo(() => {
+    if (!totalSupply || totalSupply <= 0n) return 0
+    const safeDecimals = Math.max(0, Math.min(18, Math.trunc(decimals)))
+    return Number(totalSupply) / 10 ** safeDecimals
+  }, [totalSupply, decimals])
+
   const activeSnapshots = snapshots ?? history ?? EMPTY_SNAPSHOTS
-  const [metric, setMetric] = useState<Metric>('price')
+  const [selectedMetric, setSelectedMetric] = useState<Metric>(() =>
+    hasSupply ? 'mcap' : 'price',
+  )
+  const metric: Metric =
+    selectedMetric === 'mcap' && !hasSupply ? 'price' : selectedMetric
   const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [chartWidth, setChartWidth] = useState(WIDTH)
@@ -108,13 +130,14 @@ export function ReserveChart({
   const values = useMemo(
     () =>
       activeSnapshots
-        .map((snapshot) =>
-          metric === 'price'
-            ? snapshotPrice(snapshot, decimals)
-            : snapshotLiquidity(snapshot),
-        )
+        .map((snapshot) => {
+          if (metric === 'liquidity') return snapshotLiquidity(snapshot)
+          const priceXlm = snapshotPrice(snapshot, decimals)
+          if (metric === 'mcap') return priceXlm * totalSupplyWhole * effectiveXlmUsd
+          return priceXlm
+        })
         .map((value) => (Number.isFinite(value) ? value : 0)),
-    [decimals, metric, activeSnapshots],
+    [decimals, metric, activeSnapshots, totalSupplyWhole, effectiveXlmUsd],
   )
 
   const series = useMemo(
@@ -135,7 +158,11 @@ export function ReserveChart({
   const latest = values[values.length - 1] ?? 0
   const delta = first > 0 ? ((latest - first) / first) * 100 : null
   const metricLabel =
-    metric === 'price' ? `Price (XLM per ${symbol ?? 'token'})` : 'Liquidity (XLM)'
+    metric === 'mcap'
+      ? `Market Cap (USD for $${symbol ?? 'TOKEN'})`
+      : metric === 'price'
+        ? `Price (XLM per ${symbol ?? 'token'})`
+        : 'Liquidity (XLM)'
 
   // Target line for graduation in liquidity view
   const targetY = useMemo(() => {
@@ -157,26 +184,62 @@ export function ReserveChart({
         }
       : null
 
+  const activeValue = selectedPoint ? (selectedPoint.value ?? latest) : latest
+  const activeSnapshot = selectedPoint
+    ? selectedPoint.snapshot
+    : activeSnapshots[activeSnapshots.length - 1]
+  const activePriceXlm = activeSnapshot ? snapshotPrice(activeSnapshot, decimals) : 0
+  const activeLiqXlm = activeSnapshot ? snapshotLiquidity(activeSnapshot) : 0
+
+  function selectNearestPoint(clientX: number) {
+    if (series.points.length < 2 || !containerRef.current) return
+    const rect = containerRef.current.getBoundingClientRect()
+    if (rect.width <= 0) return
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    const idx = Math.round(ratio * (series.points.length - 1))
+    setSelectedPointIndex(idx)
+  }
+
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5 shadow-sm w-full max-w-full min-w-0 overflow-hidden space-y-3">
       <h2 className="sr-only">Pair History</h2>
       {/* Sleek Chart Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
-        <div className="flex items-baseline gap-2.5">
-          <span className="font-mono text-2xl font-black text-white">
-            {formatMetric(selectedPoint ? (selectedPoint.value ?? latest) : latest, metric)}
-          </span>
-          <span className="text-xs font-mono text-slate-400">
-            {metric === 'price' ? `XLM / $${symbol ?? 'TOKEN'}` : 'XLM Liquidity'}
-          </span>
-          {delta !== null ? (
-            <span
-              className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-bold ${
-                delta >= 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-rose-500/15 text-rose-300'
-              }`}
-            >
-              {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800/80 pb-3">
+        <div className="space-y-0.5">
+          <div className="flex flex-wrap items-baseline gap-2.5">
+            <span className="font-mono text-2xl font-black text-white">
+              {formatMetric(activeValue, metric)}
             </span>
+            <span className="text-xs font-mono text-slate-400">
+              {metric === 'mcap'
+                ? 'Market Cap (USD)'
+                : metric === 'price'
+                  ? `XLM / $${symbol ?? 'TOKEN'}`
+                  : 'XLM Liquidity'}
+            </span>
+            {delta !== null ? (
+              <span
+                className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-bold ${
+                  delta >= 0
+                    ? 'bg-emerald-500/15 text-emerald-300'
+                    : 'bg-rose-500/15 text-rose-300'
+                }`}
+              >
+                {delta >= 0 ? '+' : ''}
+                {delta.toFixed(1)}%
+              </span>
+            ) : null}
+          </div>
+
+          {activeSnapshot ? (
+            <p className="font-mono text-[11px] text-slate-400">
+              {selectedPoint ? `${formatTime(activeSnapshot.t)} · ` : 'Live · '}
+              {metric === 'mcap'
+                ? `Price: ${formatTokenPrice(activePriceXlm)} XLM ($${formatUsdPrice(activePriceXlm * effectiveXlmUsd)}) · TVL: ${activeLiqXlm.toFixed(1)} XLM`
+                : `≈ $${formatUsdPrice(
+                    (metric === 'price' ? activePriceXlm : activeLiqXlm) * effectiveXlmUsd,
+                  )} USD`}
+            </p>
           ) : null}
         </div>
 
@@ -185,15 +248,33 @@ export function ReserveChart({
           role="tablist"
           aria-label="Chart metric"
         >
+          {hasSupply ? (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={metric === 'mcap'}
+              onClick={() => {
+                setSelectedMetric('mcap')
+                setSelectedPointIndex(null)
+              }}
+              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                metric === 'mcap'
+                  ? 'bg-sky-500 text-slate-950 font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              MCap ($)
+            </button>
+          ) : null}
           <button
             type="button"
             role="tab"
             aria-selected={metric === 'price'}
             onClick={() => {
-              setMetric('price')
+              setSelectedMetric('price')
               setSelectedPointIndex(null)
             }}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
               metric === 'price'
                 ? 'bg-sky-500 text-slate-950 font-bold shadow-sm'
                 : 'text-slate-400 hover:text-white'
@@ -206,16 +287,16 @@ export function ReserveChart({
             role="tab"
             aria-selected={metric === 'liquidity'}
             onClick={() => {
-              setMetric('liquidity')
+              setSelectedMetric('liquidity')
               setSelectedPointIndex(null)
             }}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
               metric === 'liquidity'
                 ? 'bg-sky-500 text-slate-950 font-bold shadow-sm'
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Liquidity
+            TVL (XLM)
           </button>
         </div>
       </div>
@@ -223,12 +304,18 @@ export function ReserveChart({
       {values.length >= 2 ? (
         <>
           <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
-            <span>Peak: {formatMetric(series.max, metric)}</span>
-            <span>Floor: {formatMetric(series.min, metric)}</span>
+            <span>High: {formatMetric(series.max, metric)}</span>
+            <span>Low: {formatMetric(series.min, metric)}</span>
           </div>
 
           <div
             ref={containerRef}
+            onMouseMove={(e) => selectNearestPoint(e.clientX)}
+            onMouseLeave={() => setSelectedPointIndex(null)}
+            onTouchMove={(e) => {
+              const touch = e.touches[0]
+              if (touch) selectNearestPoint(touch.clientX)
+            }}
             className="relative mt-1 overflow-hidden rounded-xl border border-slate-800/80 bg-slate-950/80 p-2 w-full max-w-full min-w-0"
           >
             <svg
@@ -241,7 +328,7 @@ export function ReserveChart({
                 latest,
                 metric,
               )}`}
-              className="h-44 w-full max-w-full block overflow-hidden"
+              className="h-44 w-full max-w-full block overflow-hidden cursor-crosshair"
             >
               <defs>
                 <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -270,9 +357,23 @@ export function ReserveChart({
                     fontFamily="monospace"
                     textAnchor="end"
                   >
-                    🎓 DEX Graduation ({GRADUATION_TARGET_XLM.toLocaleString()} XLM)
+                    🎓 DEX Graduation ({GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
                   </text>
                 </g>
+              ) : null}
+
+              {/* Crosshair guideline */}
+              {selectedPoint ? (
+                <line
+                  x1={selectedPoint.point.x}
+                  y1={PADDING}
+                  x2={selectedPoint.point.x}
+                  y2={HEIGHT - PADDING}
+                  stroke="#38bdf8"
+                  strokeWidth="1"
+                  strokeDasharray="3 3"
+                  opacity="0.7"
+                />
               ) : null}
 
               {/* Area Under Curve */}
@@ -301,10 +402,10 @@ export function ReserveChart({
                     key={idx}
                     cx={pt.x}
                     cy={pt.y}
-                    r={isSelected ? 5 : 3.5}
+                    r={isSelected ? 5.5 : 3}
                     fill={isUp ? '#10b981' : '#f43f5e'}
-                    stroke="#0f172a"
-                    strokeWidth="1.5"
+                    stroke={isSelected ? '#38bdf8' : '#0f172a'}
+                    strokeWidth={isSelected ? '2' : '1.5'}
                     className="cursor-pointer transition-transform hover:scale-150"
                     onClick={() => setSelectedPointIndex(idx)}
                   />
@@ -315,6 +416,7 @@ export function ReserveChart({
 
           <div className="mt-2 flex items-center justify-between font-mono text-[10px] text-slate-400">
             <span>{formatTime(activeSnapshots[0]?.t ?? 0)}</span>
+            <span>Hover chart to inspect historical points</span>
             <span>{formatTime(activeSnapshots[activeSnapshots.length - 1]?.t ?? 0)}</span>
           </div>
         </>
@@ -326,14 +428,20 @@ export function ReserveChart({
         </div>
       )}
 
-      {/* Clean Telemetry Status Row */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80 font-mono text-[11px] text-slate-400">
+      {/* Clean Telemetry Status Row + Graduation Mini-Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 font-mono text-[11px] text-slate-400">
         <div className="flex items-center gap-3">
           <span className="text-emerald-400 font-bold">🟢 {buyCount} buys</span>
           <span className="text-rose-400 font-bold">🔴 {sellCount} sells</span>
         </div>
         <div className="flex items-center gap-2">
-          <span>Target: <strong className="text-amber-300 font-bold">{grad.percent.toFixed(1)}%</strong> ({grad.targetXlm} XLM)</span>
+          <span>
+            Graduation:{' '}
+            <strong className="text-amber-300 font-bold">
+              {grad.percent.toFixed(1)}%
+            </strong>{' '}
+            ({grad.currentXlm.toFixed(1)}/{grad.targetXlm} XLM)
+          </span>
         </div>
       </div>
     </section>

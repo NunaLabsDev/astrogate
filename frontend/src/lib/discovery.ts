@@ -382,6 +382,7 @@ export function recordToListing(record: StoredTokenRecord): TokenListing {
     ledger: record.ledger,
     verifiedLaunchpad: record.isAntiRugVerified,
     creator: record.creator,
+    onChainMeta: record.meta,
     pool: {
       exists: true,
       pairId: record.pairId,
@@ -403,6 +404,7 @@ export function listingToRecord(listing: TokenListing): StoredTokenRecord {
     reserveXlm: listing.pool.reserveXlm.toString(),
     ledger: listing.ledger,
     creator: listing.creator,
+    meta: listing.onChainMeta,
     isAntiRugVerified: listing.verifiedLaunchpad,
     updatedAt: Date.now(),
   }
@@ -462,22 +464,34 @@ export async function fetchLaunchpadRecord(tokenId: string): Promise<{
   }
 }
 
+const REGISTRY_PAGE_SIZE = 20
+
 /**
  * Primary discovery source: reads newest launches directly from Launchpad's
  * persistent 90-day registry (immune to Soroban RPC's 24h `getEvents` limit).
  */
 export async function fetchLaunchpadRegistryListings(
-  limit = 20,
+  maxTokens = DEFAULT_MAX_TOKENS,
 ): Promise<TokenListing[]> {
   try {
-    const records = await executeWithRpcFailover(async (rpcUrl) => {
-      const tx = await launchpadClient(undefined, rpcUrl).get_launches({
-        offset: 0,
-        limit,
+    const records: Awaited<
+      ReturnType<ReturnType<typeof launchpadClient>['get_launches']>
+    >['result'] = []
+
+    for (let offset = 0; offset < maxTokens; offset += REGISTRY_PAGE_SIZE) {
+      const pageLimit = Math.min(REGISTRY_PAGE_SIZE, maxTokens - offset)
+      const page = await executeWithRpcFailover(async (rpcUrl) => {
+        const tx = await launchpadClient(undefined, rpcUrl).get_launches({
+          offset,
+          limit: pageLimit,
+        })
+        return tx.result
       })
-      return tx.result
-    })
-    if (!Array.isArray(records) || records.length === 0) return []
+      if (!Array.isArray(page) || page.length === 0) break
+      records.push(...page)
+      if (page.length < pageLimit) break
+    }
+    if (records.length === 0) return []
 
     const listings = await mapLimit(records, 3, async (rec) => {
       try {
@@ -612,6 +626,10 @@ export async function discoverTokens(options?: {
   for (const record of storedRecords) {
     try {
       storedListings.push(recordToListing(record))
+      if (record.meta) {
+        const enriched = decodeOnChainMeta(record.id, record.meta)
+        if (enriched) saveLocalTokenMetadata(enriched)
+      }
     } catch {
       // Registro inválido: se ignora; getAllStored ya valida forma, esto es defensa extra.
     }
@@ -620,7 +638,7 @@ export async function discoverTokens(options?: {
   // 2. Primary on-chain registry + recent Soroswap pair events + pinned ASTRO
   try {
     const [registryListings, pairs] = await Promise.all([
-      fetchLaunchpadRegistryListings(20),
+      fetchLaunchpadRegistryListings(maxTokens),
       discoverPairs(options),
     ])
     const registryIds = new Set(registryListings.map((r) => r.id))
@@ -663,7 +681,17 @@ export async function discoverTokens(options?: {
     for (const item of storedListings) map.set(item.id, item)
     for (const item of freshEventListings) {
       const prev = map.get(item.id)
-      map.set(item.id, prev?.verifiedLaunchpad ? { ...item, verifiedLaunchpad: true, creator: prev.creator } : item)
+      map.set(
+        item.id,
+        prev?.verifiedLaunchpad
+          ? {
+              ...item,
+              verifiedLaunchpad: true,
+              creator: prev.creator,
+              onChainMeta: prev.onChainMeta,
+            }
+          : item,
+      )
     }
     for (const item of registryListings) map.set(item.id, item)
 

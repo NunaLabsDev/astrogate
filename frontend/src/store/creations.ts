@@ -8,6 +8,8 @@ import { readStorageJson, writeStorageJson } from '../lib/storage'
 export type CreatedToken = {
   id: string
   symbol?: string
+  name?: string
+  creator?: string
   decimals: number
   createdAt: number
 }
@@ -24,6 +26,8 @@ function isCreatedToken(value: unknown): value is CreatedToken {
     typeof token.decimals === 'number' &&
     Number.isFinite(token.decimals) &&
     (token.symbol === undefined || typeof token.symbol === 'string') &&
+    (token.name === undefined || typeof token.name === 'string') &&
+    (token.creator === undefined || typeof token.creator === 'string') &&
     typeof token.createdAt === 'number'
   )
 }

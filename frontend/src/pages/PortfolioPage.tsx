@@ -2,12 +2,14 @@ import { useMemo } from 'react'
 import { Link } from 'react-router'
 import { useQueries } from '@tanstack/react-query'
 import { useTokenList } from '../hooks/useTokenList'
+import { useTokenMetadata } from '../hooks/useTokenMetadata'
+import { useXlmBalance } from '../hooks/useXlmBalance'
 import { useWallet } from '../store/wallet'
 import { useCreatedTokens } from '../store/creations'
 import { fetchTokenBalance } from '../lib/token'
 import { errorMessage, formatAmount, shortAddress } from '../lib/format'
 import type { PoolState } from '../lib/soroswap'
-import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
+import { DEFAULT_XLM_USD_PRICE, xlmToStroops } from '../lib/xlm'
 import { toast } from '../lib/toast'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { TokenArt } from '../components/TokenArt'
@@ -29,16 +31,20 @@ export function PortfolioPage() {
   const { publicKey, connect, startDemo, demoPending, pending } = useWallet()
   const createdTokens = useCreatedTokens((state) => state.tokens)
   const tokenList = useTokenList()
+  const xlmBalance = useXlmBalance(publicKey)
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
 
   const tokens = useMemo<PortfolioToken[]>(() => {
     const map = new Map<string, PortfolioToken>()
 
     for (const token of createdTokens) {
+      if (token.creator && publicKey && token.creator !== publicKey) {
+        continue
+      }
       map.set(token.id, {
         id: token.id,
         symbol: token.symbol ?? shortAddress(token.id),
-        name: 'Token created by you',
+        name: token.name ?? 'Token created by you',
         decimals: token.decimals,
         created: true,
         pool: null,
@@ -96,7 +102,12 @@ export function PortfolioPage() {
     return sum + (balance.data * token.pool.reserveXlm) / token.pool.reserveToken
   }, 0n)
 
+  const walletXlmStroops =
+    xlmBalance.data !== undefined ? xlmToStroops(xlmBalance.data) : 0n
+  const walletXlmUsd = (Number(walletXlmStroops) / 1e7) * xlmUsd
   const totalUsd = (Number(totalXlm) / 1e7) * xlmUsd
+  const netWorthStroops = walletXlmStroops + totalXlm
+  const netWorthUsd = walletXlmUsd + totalUsd
 
   return (
     <>
@@ -137,33 +148,57 @@ export function PortfolioPage() {
           </div>
         </section>
       ) : (
-        <section className="grid gap-3 sm:grid-cols-2">
+        <section className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Estimated Pool Value
+              Wallet XLM Balance
+            </p>
+            <p className="mt-1 font-mono text-2xl font-semibold text-white">
+              {xlmBalance.isPending
+                ? '…'
+                : `${formatAmount(walletXlmStroops, 7)} XLM`}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              {xlmBalance.isPending
+                ? 'Reading Horizon…'
+                : `≈ $${walletXlmUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD (native liquid XLM)`}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
+            <p className="text-xs uppercase tracking-wide text-slate-500">
+              Token Holdings Value
             </p>
             <p className="mt-1 font-mono text-2xl font-semibold text-emerald-300">
               {balancesPending
                 ? '…'
-                : `${formatAmount(totalXlm, 7)} XLM ($${totalUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD)`}
+                : `${formatAmount(totalXlm, 7)} XLM`}
             </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Spot pricing from liquidity pairs; excludes slippage and gas.
+            <p className="mt-1 text-xs text-slate-400">
+              {balancesPending
+                ? 'Reading Soroswap pools…'
+                : `≈ $${totalUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })} USD spot pool value`}
             </p>
           </div>
+
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
-              Created Tokens
+              Total Net Worth · Launches
             </p>
-            <p className="mt-1 font-mono text-2xl font-semibold text-slate-100">
-              {createdRows.length}
+            <p className="mt-1 font-mono text-2xl font-semibold text-amber-300">
+              {xlmBalance.isPending || balancesPending
+                ? '…'
+                : `$${netWorthUsd.toLocaleString('en-US', { maximumFractionDigits: 2 })}`}
             </p>
-            <Link
-              to="/create"
-              className="mt-1 inline-block text-xs text-emerald-400 underline underline-offset-2 hover:text-emerald-300"
-            >
-              Launch another token →
-            </Link>
+            <p className="mt-1 text-xs text-slate-400">
+              {`${formatAmount(netWorthStroops, 7)} XLM total · `}
+              <Link
+                to="/create"
+                className="text-emerald-400 underline underline-offset-2 hover:text-emerald-300"
+              >
+                {createdRows.length} {createdRows.length === 1 ? 'launch' : 'launches'} →
+              </Link>
+            </p>
           </div>
         </section>
       )}
@@ -258,6 +293,7 @@ function HoldingRow({
   isError?: boolean
   hasAccount: boolean
 }) {
+  const meta = useTokenMetadata(token.id)
   // Valor de la tenencia en stroops: balance * reserveXlm / reserveToken.
   // No depende del precio unitario, que en un fair launch es < 1 stroop.
   const value =
@@ -277,6 +313,7 @@ function HoldingRow({
         <TokenArt
           id={token.id}
           symbol={token.symbol}
+          logoUrl={meta.data?.logoUrl}
           className="h-10 w-10 shrink-0 rounded-lg"
         />
         <div className="min-w-0 flex-1">

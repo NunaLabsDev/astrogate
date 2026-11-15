@@ -21,7 +21,8 @@
     "verify:discovery": "node scripts/verify-discovery.mjs",
     "verify:token-events": "node scripts/verify-token-events.mjs",
     "verify:demo": "node scripts/verify-demo.mjs",
-    "verify:frontend": "node scripts/verify-frontend-flow.mjs"
+    "verify:frontend": "node scripts/verify-frontend-flow.mjs",
+    "keepalive:ttl": "node scripts/keepalive-ttl.mjs"
   },
   "dependencies": {
     "@creit.tech/stellar-wallets-kit": "^2.7.1",

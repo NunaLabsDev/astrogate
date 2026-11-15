@@ -325,7 +325,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
   }
 }
 
-/** Minimalist 1B fair-launch wrapper for programmatic AI agents and apps. */
+/** Minimalist 100M fair-launch wrapper for programmatic AI agents and apps. */
 export async function launchFair(params: {
   name: string
   symbol: string

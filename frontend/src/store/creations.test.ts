@@ -13,12 +13,15 @@ describe('useCreatedTokens', () => {
     writeStorageJson('floodgate.created-tokens.v1', null)
   })
 
-  it('adds and removes tokens', () => {
+  it('adds and removes tokens including name and creator scope', () => {
     const { add, remove } = useCreatedTokens.getState()
+    const creator = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
 
-    add({ id: TOKEN_A, symbol: 'ASTRO', decimals: 7 })
+    add({ id: TOKEN_A, symbol: 'ASTRO', name: 'Astro Coin', creator, decimals: 7 })
     expect(useCreatedTokens.getState().tokens).toHaveLength(1)
     expect(useCreatedTokens.getState().tokens[0].id).toBe(TOKEN_A)
+    expect(useCreatedTokens.getState().tokens[0].name).toBe('Astro Coin')
+    expect(useCreatedTokens.getState().tokens[0].creator).toBe(creator)
 
     remove(TOKEN_A)
     expect(useCreatedTokens.getState().tokens).toHaveLength(0)

@@ -27,7 +27,7 @@ export function HomePage() {
             Memecoin Market
           </h1>
           <p className="mt-1 max-w-2xl text-xs sm:text-sm text-slate-400">
-            1B fixed supply · mint renounced · 99.5% LP permanently burned on Soroswap.
+            100M fixed supply · mint renounced · 99.5% LP permanently burned on Soroswap.
           </p>
         </div>
 

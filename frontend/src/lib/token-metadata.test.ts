@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import {
   DEFAULT_TOKEN_METADATA,
   ONCHAIN_META_MAX_BYTES,
@@ -7,6 +7,7 @@ import {
   encodeOnChainMeta,
   getLocalTokenMetadata,
   saveLocalTokenMetadata,
+  subscribeTokenMetadata,
 } from './token-metadata'
 import { ASTRO_TOKEN_ID } from './network'
 
@@ -88,5 +89,27 @@ describe('Enriched Token Metadata', () => {
         JSON.stringify({ l: 'javascript:alert(1)', w: 'ftp://bad.example' }),
       ),
     ).toBeNull()
+  })
+
+  it('notifies subscribers reactively when metadata is saved or cleared', () => {
+    const listener = vi.fn()
+    const unsubscribe = subscribeTokenMetadata(listener)
+
+    saveLocalTokenMetadata({
+      tokenId: 'CREACTIVE123',
+      description: 'Hydrated from chain',
+    })
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(getLocalTokenMetadata('CREACTIVE123')?.description).toBe(
+      'Hydrated from chain',
+    )
+
+    clearTokenMetadataCache()
+    expect(listener).toHaveBeenCalledTimes(2)
+    expect(getLocalTokenMetadata('CREACTIVE123')).toBeNull()
+
+    unsubscribe()
+    saveLocalTokenMetadata({ tokenId: 'CREACTIVE123', description: 'After unsub' })
+    expect(listener).toHaveBeenCalledTimes(2)
   })
 })

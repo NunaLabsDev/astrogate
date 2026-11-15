@@ -14,6 +14,7 @@ export interface StoredTokenRecord {
   reserveXlm: string
   ledger: number
   creator?: string
+  meta?: string
   isAntiRugVerified?: boolean
   updatedAt: number
 }
@@ -145,6 +146,7 @@ export function isStoredTokenRecord(value: unknown): value is StoredTokenRecord 
     /^\d+$/.test(r.reserveXlm) &&
     typeof r.ledger === 'number' &&
     Number.isFinite(r.ledger) &&
+    (r.meta === undefined || typeof r.meta === 'string') &&
     typeof r.updatedAt === 'number' &&
     Number.isFinite(r.updatedAt)
   )

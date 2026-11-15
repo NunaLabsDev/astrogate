@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { localAmountOut } from './soroswap'
 import {
   calculateSupplySharePercent,
+  costToBuyPoolShareStroops,
+  costToBuyPoolShareXlm,
   DEFAULT_OPTIMIZED_SEED_XLM,
   graduationProgress,
   poolAllocationBase,
@@ -11,10 +14,10 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (single source for 995M/5M figures)', () => {
-  it('reparte 0.5% creador y 99.5% pool sobre el supply estándar', () => {
-    const oneBillion = 1_000_000_000n * 10_000_000n // 1B con 7 decimales
-    expect(poolAllocationBase(oneBillion)).toBe(995_000_000n * 10_000_000n) // 995M (99.5%)
+describe('allocation math (single source for 99.5M/500K figures)', () => {
+  it('reparte 0.5% creador y 99.5% pool sobre el supply estándar de 100M', () => {
+    const oneHundredMillion = 100_000_000n * 10_000_000n // 100M con 7 decimales
+    expect(poolAllocationBase(oneHundredMillion)).toBe(99_500_000n * 10_000_000n) // 99.5M (99.5%)
     expect(STELLAR_BURN_ADDRESS).toHaveLength(56)
   })
 
@@ -24,16 +27,16 @@ describe('allocation math (single source for 995M/5M figures)', () => {
 })
 
 describe('whale threshold', () => {
-  it('marca ballena a partir del 1% del supply del fair launch en base units', () => {
+  it('marca ballena a partir del 1% del supply del fair launch (1M) en base units', () => {
     expect(WHALE_TRADE_SHARE_BPS).toBe(100n)
-    // 1% de 1B con 7 decimales = 10M tokens = 10M * 1e7 base units.
-    expect(whaleThresholdBase(7)).toBe(10_000_000n * 10_000_000n)
+    // 1% de 100M con 7 decimales = 1M tokens = 1M * 1e7 base units.
+    expect(whaleThresholdBase(7)).toBe(1_000_000n * 10_000_000n)
   })
 
   it('escala con los decimales del token y tolera valores inválidos', () => {
-    expect(whaleThresholdBase(0)).toBe(10_000_000n)
-    expect(whaleThresholdBase(-3)).toBe(10_000_000n)
-    expect(whaleThresholdBase(2.9)).toBe(10_000_000n * 100n)
+    expect(whaleThresholdBase(0)).toBe(1_000_000n)
+    expect(whaleThresholdBase(-3)).toBe(1_000_000n)
+    expect(whaleThresholdBase(2.9)).toBe(1_000_000n * 100n)
     expect(whaleThresholdBase()).toBe(whaleThresholdBase(7))
   })
 })
@@ -109,17 +112,36 @@ describe('fair seed & supply share math', () => {
   })
 
   it('calcula el porcentaje de tokens adquiridos sobre el pool sin bloquear libre comercio', () => {
-    const poolTokens = 995_000_000n * 10_000_000n // 995M tokens con 7 decimales
-    const order10M = 10_000_000n * 10_000_000n
-    const percent = calculateSupplySharePercent(order10M, poolTokens)
-    // 10M / 995M ≈ 1.005% -> 1.00%
+    const poolTokens = 99_500_000n * 10_000_000n // 99.5M tokens con 7 decimales
+    const order1M = 1_000_000n * 10_000_000n
+    const percent = calculateSupplySharePercent(order1M, poolTokens)
+    // 1M / 99.5M ≈ 1.005% -> 1.00%
     expect(percent).toBeCloseTo(1.0, 1)
 
     // Usa totalBase por defecto con unidades escaladas a Stroops (10^7)
-    const defaultPercent = calculateSupplySharePercent(order10M)
+    const defaultPercent = calculateSupplySharePercent(order1M)
     expect(defaultPercent).toBeCloseTo(1.0, 1)
 
     // Si orden es 0 o negativo
     expect(calculateSupplySharePercent(0n, poolTokens)).toBe(0)
+  })
+
+  it('computes exact anti-sniper/anti-whale cost for acquiring p% of pool', () => {
+    const reserveXlm10 = 10n * 10_000_000n // 10 XLM in stroops
+    const reserveTokens = 99_500_000n * 10_000_000n
+
+    const cost10Pct = costToBuyPoolShareStroops(reserveXlm10, 10)
+    const xlm10Pct = costToBuyPoolShareXlm(reserveXlm10, 10)
+    expect(xlm10Pct).toBeCloseTo(1.1145, 3)
+
+    const out10 = localAmountOut(cost10Pct, reserveXlm10, reserveTokens)
+    expect(calculateSupplySharePercent(out10, reserveTokens)).toBeCloseTo(10, 1)
+
+    const cost50Pct = costToBuyPoolShareXlm(reserveXlm10, 50)
+    expect(cost50Pct).toBeCloseTo(10.03, 2)
+
+    expect(costToBuyPoolShareStroops(0n, 10)).toBe(0n)
+    expect(costToBuyPoolShareStroops(reserveXlm10, 0)).toBe(0n)
+    expect(costToBuyPoolShareStroops(reserveXlm10, Number.NaN)).toBe(0n)
   })
 })

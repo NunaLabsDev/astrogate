@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useTokenInfo } from '../hooks/useTokenInfo'
+import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
 import { useReserveHistory } from '../hooks/useReserveHistory'
 import { useTokenEvents } from '../hooks/useTokenEvents'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { useWallet } from '../store/wallet'
+import { useWatchlist } from '../store/watchlist'
 import { useCopy } from '../hooks/useCopy'
 import {
   formatAmount,
@@ -16,7 +18,12 @@ import {
 } from '../lib/format'
 import { explorerContractUrl, explorerAccountUrl, explorerTxUrl } from '../lib/explorer'
 import { classifyTokenEvent } from '../lib/token-events'
-import { tokenPriceInXlmNumber, formatTokenPrice, formatUsdPrice } from '../lib/soroswap'
+import {
+  tokenPriceInXlmNumber,
+  formatTokenPrice,
+  formatUsdPrice,
+  SOROSWAP_MINIMUM_LIQUIDITY,
+} from '../lib/soroswap'
 import { TokenArt } from '../components/TokenArt'
 import { SwapCard } from '../components/SwapCard'
 import { ReserveChart } from '../components/ReserveChart'
@@ -26,22 +33,34 @@ import { LiquidityPosition } from '../components/LiquidityPosition'
 import { TransferCard } from '../components/TransferCard'
 import { BurnCard } from '../components/BurnCard'
 import { MintCard } from '../components/MintCard'
+import { ShareButton } from '../components/ShareButton'
 import { NotFoundPage } from './NotFoundPage'
 import { useTokenMetadata } from '../hooks/useTokenMetadata'
 import { useLpBurnInfo } from '../hooks/useLpBurnInfo'
 import { useTokenShouts } from '../hooks/useTokenShouts'
 import { isValidContractAddress } from '../lib/address'
+import { analyzeTokenHolders, type HolderRiskLevel } from '../lib/holders'
 import {
+  calculateSupplySharePercent,
   GRADUATION_TARGET_XLM,
   graduationProgress,
   rugProofStatus,
+  SOROSWAP_SWAP_FEE_PERCENT,
   STELLAR_BURN_ADDRESS,
+  whaleThresholdBase,
   type RugProofStatus,
 } from '../lib/tokenomics'
 import { extendTokenTtl, type LaunchpadToken } from '../lib/token'
-import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
+import { DEFAULT_XLM_USD_PRICE, XLM_DECIMALS } from '../lib/xlm'
 import { errorMessage } from '../lib/format'
 import { toast } from '../lib/toast'
+
+function formatGroupedAmount(amount: bigint, decimals: number): string {
+  const plain = formatAmount(amount, decimals)
+  const [whole, frac] = plain.split('.')
+  const grouped = Number(whole).toLocaleString('en-US')
+  return frac ? `${grouped}.${frac.slice(0, 2)}` : grouped
+}
 
 /** Badge honesto: solo "Rug-Proof" cuando la quema de LP está verificada. */
 function SecurityBadge({ status }: { status: RugProofStatus }) {
@@ -78,6 +97,31 @@ function SecurityBadge({ status }: { status: RugProofStatus }) {
   }
 }
 
+function HolderRiskBadge({
+  risk,
+  label,
+  topSinglePct,
+}: {
+  risk: HolderRiskLevel
+  label: string
+  topSinglePct: number
+}) {
+  const styles: Record<HolderRiskLevel, string> = {
+    low: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
+    medium: 'bg-amber-500/15 border-amber-500/30 text-amber-300',
+    high: 'bg-rose-500/15 border-rose-500/40 text-rose-300',
+  }
+  const icon = risk === 'low' ? '🟢' : risk === 'medium' ? '🟡' : '🔴'
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold flex items-center gap-1 ${styles[risk]}`}
+      title={`Largest observed wallet outside AMM pool: ${topSinglePct.toFixed(1)}% of total supply`}
+    >
+      <span>{icon}</span> {label}
+    </span>
+  )
+}
+
 export function TokenPage() {
   const { id = '' } = useParams<{ id: string }>()
   const isMockToken = typeof window === 'undefined' && id.startsWith('C')
@@ -88,6 +132,8 @@ export function TokenPage() {
   const getSigner = useWallet((state) => state.getSigner)
   const connect = useWallet((state) => state.connect)
   const info = useTokenInfo(queryId)
+  const userBalance = useTokenBalance(publicKey, queryId)
+  const creatorBalance = useTokenBalance(info.data?.creator ?? null, queryId)
   const pool = useSoroswapPool(queryId || null)
   const history = useReserveHistory(queryId, pool.data)
   const events = useTokenEvents(queryId)
@@ -95,12 +141,36 @@ export function TokenPage() {
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
   const meta = useTokenMetadata(queryId)
   const lpBurn = useLpBurnInfo(pool.data?.pairId)
+  const isFav = useWatchlist((s) => s.favorites.includes(id))
+  const toggleFav = useWatchlist((s) => s.toggle)
   const { copied, copy } = useCopy()
   const [openAdvanced, setOpenAdvanced] = useState(
     () => typeof window !== 'undefined' && window.location.hash === '#advanced-tools',
   )
-  const [activeTab, setActiveTab] = useState<'thread' | 'trades' | 'audit'>('thread')
+  const [activeTab, setActiveTab] = useState<
+    'thread' | 'trades' | 'holders' | 'audit'
+  >('thread')
   const [extendingTtl, setExtendingTtl] = useState(false)
+
+  const holderAnalysis = useMemo(
+    () =>
+      analyzeTokenHolders({
+        totalSupply: info.data?.totalSupply ?? 0n,
+        reserveToken: pool.data?.reserveToken ?? 0n,
+        pairId: pool.data?.pairId,
+        creator: info.data?.creator,
+        creatorBalance: creatorBalance.data,
+        events: events.data,
+      }),
+    [
+      info.data?.totalSupply,
+      pool.data?.reserveToken,
+      pool.data?.pairId,
+      info.data?.creator,
+      creatorBalance.data,
+      events.data,
+    ],
+  )
 
   async function onExtendTtl() {
     if (!publicKey) {
@@ -192,6 +262,37 @@ export function TokenPage() {
   const priceNumber = pool.data ? tokenPriceInXlmNumber(pool.data, token.decimals) : 0
   const priceUsd = priceNumber > 0 ? priceNumber * xlmUsd : 0
   const liquidity = pool.data?.reserveXlm ?? 0n
+  const liquidityXlmNum = Number(liquidity) / 10 ** XLM_DECIMALS
+  const liquidityUsd = liquidityXlmNum * xlmUsd
+  const totalSupplyWhole =
+    Number(info.data.totalSupply) / 10 ** info.data.decimals
+  const marketCapXlm = priceNumber > 0 ? totalSupplyWhole * priceNumber : 0
+  const marketCapUsd = marketCapXlm * xlmUsd
+
+  const reserveToken = pool.data?.reserveToken ?? 0n
+  const poolSupplyPct =
+    reserveToken > 0n && info.data.totalSupply > 0n
+      ? calculateSupplySharePercent(reserveToken, info.data.totalSupply)
+      : 0
+  const circulatingWalletsBase =
+    info.data.totalSupply > reserveToken ? info.data.totalSupply - reserveToken : 0n
+  const walletsSupplyPct =
+    circulatingWalletsBase > 0n && info.data.totalSupply > 0n
+      ? calculateSupplySharePercent(circulatingWalletsBase, info.data.totalSupply)
+      : 0
+  const burnedSupplyBase =
+    info.data.initialSupply && info.data.initialSupply > info.data.totalSupply
+      ? info.data.initialSupply - info.data.totalSupply
+      : 0n
+  const whaleThreshold = whaleThresholdBase(token.decimals)
+
+  const userBalBase = userBalance.data ?? 0n
+  const userBalValueXlm =
+    userBalBase > 0n && pool.data?.exists && pool.data.reserveToken > 0n
+      ? (userBalBase * pool.data.reserveXlm) / pool.data.reserveToken
+      : 0n
+  const userBalValueUsd = (Number(userBalValueXlm) / 10 ** XLM_DECIMALS) * xlmUsd
+
   const owner = info.data.owner
   const isOwner = Boolean(publicKey && owner === publicKey)
   const security = rugProofStatus({
@@ -207,6 +308,8 @@ export function TokenPage() {
   const safeTelegram = sanitizeTelegramUrl(meta.data?.telegram)
   const safeWebsite = sanitizeHttpUrl(meta.data?.website)
   const safeTwitter = sanitizeTwitterUrl(meta.data?.twitter)
+  const shareUrl =
+    typeof window !== 'undefined' ? window.location.href : `/token/${id}`
 
   return (
     <div className="space-y-6">
@@ -232,6 +335,11 @@ export function TokenPage() {
                 ${token.symbol}
               </span>
               <SecurityBadge status={security} />
+              <HolderRiskBadge
+                risk={holderAnalysis.riskLevel}
+                label={holderAnalysis.riskLabel}
+                topSinglePct={holderAnalysis.topSingleWalletPercent}
+              />
               {isOwner ? (
                 <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
                   Creator
@@ -240,7 +348,7 @@ export function TokenPage() {
             </div>
 
             {/* Contract & Socials Bar */}
-            <div className="mt-1 flex flex-wrap items-center gap-2.5 text-xs text-slate-400">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
               <button
                 type="button"
                 onClick={() => void copy(id)}
@@ -250,6 +358,26 @@ export function TokenPage() {
                 <span>{shortAddress(id)}</span>
                 <span>{copied ? '✓' : '📋'}</span>
               </button>
+
+              <button
+                type="button"
+                aria-pressed={isFav}
+                onClick={() => toggleFav(id)}
+                className={`rounded-lg border px-2 py-0.5 text-xs transition ${
+                  isFav
+                    ? 'border-amber-400/60 bg-amber-500/15 text-amber-300 font-semibold'
+                    : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-amber-200'
+                }`}
+                title={isFav ? 'Remove from watchlist' : 'Add to watchlist'}
+              >
+                {isFav ? '★ Watchlisted' : '☆ Watch'}
+              </button>
+
+              <ShareButton
+                text={`Check out $${token.symbol ?? 'TOKEN'} on AstroGate:`}
+                url={shareUrl}
+                label="Share"
+              />
 
               {safeTelegram ? (
                 <a
@@ -328,6 +456,98 @@ export function TokenPage() {
         </div>
       </div>
 
+      {/* Graduation Alert Banner */}
+      {grad.stage === 'heating' || grad.graduated ? (
+        <div
+          className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-2.5 text-xs font-medium ${
+            grad.graduated
+              ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-200'
+              : 'border-amber-500/50 bg-amber-950/30 text-amber-200'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <span
+              className={`h-2 w-2 rounded-full ${
+                grad.graduated
+                  ? 'bg-emerald-400'
+                  : 'bg-amber-400 animate-pulse'
+              }`}
+            />
+            <span>
+              {grad.graduated
+                ? `🎓 Graduated on Soroswap DEX! ${liquidityXlmNum.toFixed(1)} XLM pool depth unlocked.`
+                : `🔥 Almost Graduated! ${graduationPercent}% of ${GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM target (${Math.max(0, GRADUATION_TARGET_XLM - grad.currentXlm).toFixed(1)} XLM remaining).`}
+            </span>
+          </div>
+          <span className="font-mono text-[11px] font-bold">
+            {grad.currentXlm.toFixed(1)} / {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
+          </span>
+        </div>
+      ) : null}
+
+      {/* Market Telemetry Strip */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 font-mono">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+            Market Cap
+          </p>
+          <p className="mt-1 text-base font-bold text-white">
+            {marketCapUsd > 0 ? `$${formatUsdPrice(marketCapUsd)}` : '—'}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {marketCapXlm > 0 ? `${marketCapXlm.toFixed(2)} XLM` : 'No active pool'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+            Pool Liquidity (TVL)
+          </p>
+          <p className="mt-1 text-base font-bold text-emerald-300">
+            {pool.data?.exists
+              ? `${formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM`
+              : '0 XLM'}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {liquidityUsd > 0 ? `≈ $${formatUsdPrice(liquidityUsd)} USD` : 'Seed pool to launch'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+            AMM Token Reserve
+          </p>
+          <p className="mt-1 text-base font-bold text-sky-300">
+            {pool.data?.exists
+              ? `${formatGroupedAmount(reserveToken, token.decimals)}`
+              : '0'}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {pool.data?.exists ? `${poolSupplyPct.toFixed(2)}% of total supply` : '100% outside pool'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+            Your Balance
+          </p>
+          <p className="mt-1 text-base font-bold text-white truncate">
+            {!publicKey
+              ? 'Not connected'
+              : userBalance.isPending
+                ? '…'
+                : `${formatGroupedAmount(userBalBase, token.decimals)} $${token.symbol}`}
+          </p>
+          <p className="text-[11px] text-slate-400">
+            {!publicKey
+              ? 'Connect wallet to view'
+              : userBalValueXlm > 0n
+                ? `≈ ${formatAmount(userBalValueXlm, XLM_DECIMALS)} XLM ($${formatUsdPrice(userBalValueUsd)})`
+                : '0 XLM value'}
+          </p>
+        </div>
+      </div>
+
       {/* 2. Main Arena: Gráfico + Chat on Left, Buy & Sell on Right */}
       <div className="grid gap-6 lg:grid-cols-12 items-start">
         {/* Left Column: Gráfico (Chart) + Tabs [Thread | Trades] */}
@@ -339,9 +559,11 @@ export function TokenPage() {
             decimals={token.decimals}
             events={events.data}
             pool={pool.data}
+            totalSupply={info.data.totalSupply}
+            xlmUsd={xlmUsd}
           />
 
-          {/* Tabbed Interactive Section: Thread | Live Trades | Audit & Contract */}
+          {/* Tabbed Interactive Section: Thread | Live Trades | Holders & Risk | Audit & Contract */}
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-2">
               <button
@@ -376,6 +598,26 @@ export function TokenPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setActiveTab('holders')}
+                className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'holders'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>👥 Holders &amp; Risk</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    holderAnalysis.riskLevel === 'low'
+                      ? 'bg-emerald-400'
+                      : holderAnalysis.riskLevel === 'medium'
+                        ? 'bg-amber-400'
+                        : 'bg-rose-400'
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
                 onClick={() => setActiveTab('audit')}
                 className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
                   activeTab === 'audit'
@@ -383,7 +625,7 @@ export function TokenPage() {
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <span>🛡️ Audit & Contract</span>
+                <span>🛡️ Audit &amp; Contract</span>
               </button>
             </div>
 
@@ -394,8 +636,148 @@ export function TokenPage() {
                 pairId={pool.data?.pairId}
                 decimals={token.decimals}
               />
+            ) : activeTab === 'holders' ? (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-4 text-xs">
+                <div
+                  className={`rounded-xl border p-3.5 space-y-1.5 ${
+                    holderAnalysis.riskLevel === 'low'
+                      ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-200'
+                      : holderAnalysis.riskLevel === 'medium'
+                        ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
+                        : 'border-rose-500/40 bg-rose-950/25 text-rose-200'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-sm">
+                      {holderAnalysis.riskLevel === 'low'
+                        ? '🟢'
+                        : holderAnalysis.riskLevel === 'medium'
+                          ? '🟡'
+                          : '🔴'}{' '}
+                      {holderAnalysis.riskLabel}
+                    </span>
+                    <span className="font-mono text-[11px] opacity-90">
+                      Top Wallet: {holderAnalysis.topSingleWalletPercent.toFixed(2)}% · Top 10: {holderAnalysis.top10WalletsPercent.toFixed(2)}%
+                    </span>
+                  </div>
+                  <p className="text-[11px] opacity-90 leading-relaxed">
+                    {holderAnalysis.riskSummary}
+                  </p>
+                </div>
+
+                {/* Supply Distribution Bar */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-300">
+                    <span>
+                      🟩 Pool AMM: <strong>{poolSupplyPct.toFixed(1)}%</strong>
+                    </span>
+                    <span>
+                      🟨 Creator: <strong>{holderAnalysis.creatorSharePercent.toFixed(2)}%</strong>
+                    </span>
+                    <span>
+                      🟦 Traders / Outside:{' '}
+                      <strong>
+                        {Math.max(
+                          0,
+                          walletsSupplyPct - holderAnalysis.creatorSharePercent,
+                        ).toFixed(2)}
+                        %
+                      </strong>
+                    </span>
+                  </div>
+                  <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-900 border border-slate-800">
+                    <div
+                      className="bg-emerald-500"
+                      style={{ width: `${Math.max(0, Math.min(100, poolSupplyPct))}%` }}
+                      title={`AMM Pool: ${poolSupplyPct.toFixed(2)}%`}
+                    />
+                    <div
+                      className="bg-amber-400"
+                      style={{
+                        width: `${Math.max(0, Math.min(100 - poolSupplyPct, holderAnalysis.creatorSharePercent))}%`,
+                      }}
+                      title={`Creator: ${holderAnalysis.creatorSharePercent.toFixed(2)}%`}
+                    />
+                    <div
+                      className="bg-sky-400"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            walletsSupplyPct - holderAnalysis.creatorSharePercent,
+                          ),
+                        )}%`,
+                      }}
+                      title="External Trader Wallets"
+                    />
+                  </div>
+                </div>
+
+                {/* Top Observed Addresses */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-b border-slate-800/80 pb-1.5">
+                    <span>Observed Custody &amp; Top Wallets</span>
+                    <span>Balance · Supply %</span>
+                  </div>
+                  {holderAnalysis.holders.length === 0 ? (
+                    <p className="py-4 text-center text-slate-500">
+                      No holder movements observed in recent ledger window.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-slate-800/50 max-h-64 overflow-y-auto font-mono">
+                      {holderAnalysis.holders.slice(0, 15).map((entry) => {
+                        const tagBadge =
+                          entry.tag === 'pool'
+                            ? { text: 'AMM Pool', cls: 'bg-emerald-500/20 text-emerald-300' }
+                            : entry.tag === 'creator'
+                              ? { text: 'Creator', cls: 'bg-amber-500/20 text-amber-300' }
+                              : entry.tag === 'burn'
+                                ? { text: 'Burned', cls: 'bg-slate-700/40 text-slate-300' }
+                                : { text: 'Wallet', cls: 'bg-sky-500/20 text-sky-300' }
+                        const url =
+                          entry.tag === 'pool'
+                            ? explorerContractUrl(entry.address)
+                            : explorerAccountUrl(entry.address)
+                        return (
+                          <div
+                            key={entry.address}
+                            className="py-2 flex items-center justify-between gap-2 text-[11px]"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 ${tagBadge.cls}`}>
+                                {tagBadge.text}
+                              </span>
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate text-slate-300 hover:text-sky-300 hover:underline"
+                              >
+                                {shortAddress(entry.address)} ↗
+                              </a>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span className="text-white font-semibold">
+                                {formatGroupedAmount(entry.balance, token.decimals)}
+                              </span>{' '}
+                              <span className="text-slate-400">
+                                ({entry.sharePercent.toFixed(2)}%)
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  Live estimate built directly from Soroswap pool reserves, creator balance, and recent RPC SEP-41 transfer events without a centralized indexer.
+                </p>
+              </div>
             ) : activeTab === 'audit' ? (
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-3 text-xs">
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-4 text-xs">
                 <div className="grid gap-2.5 sm:grid-cols-2">
                   <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
                     <p className="text-slate-400">Launchpad Registry</p>
@@ -439,13 +821,49 @@ export function TokenPage() {
                             ? `${lpBurn.data.burnedPercent.toFixed(1)}% in burn address`
                             : 'No AMM pair'}
                     </p>
+                    {lpBurn.data ? (
+                      <div className="mt-1.5 space-y-1">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-900">
+                          <div
+                            className={`h-full rounded-full ${
+                              lpBurn.data.fullyBurned
+                                ? 'bg-emerald-400'
+                                : 'bg-amber-400'
+                            }`}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, lpBurn.data.burnedPercent))}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="font-mono text-[10px] text-slate-400">
+                          {formatAmount(lpBurn.data.burnedLp, XLM_DECIMALS)} /{' '}
+                          {formatAmount(lpBurn.data.totalSupply, XLM_DECIMALS)} LP @{' '}
+                          <a
+                            href={explorerAccountUrl(STELLAR_BURN_ADDRESS)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sky-400 hover:underline"
+                          >
+                            {shortAddress(STELLAR_BURN_ADDRESS)} ↗
+                          </a>
+                        </p>
+                        <p className="font-mono text-[10px] text-slate-500">
+                          + {SOROSWAP_MINIMUM_LIQUIDITY.toString()} stroops locked permanently in Pair
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
-                    <p className="text-slate-400">Circulating Supply</p>
+                    <p className="text-slate-400">Live Supply & Contracts</p>
                     <p className="mt-1 font-mono font-semibold text-white">
-                      {formatAmount(info.data.totalSupply, info.data.decimals)} ${token.symbol}
+                      {formatGroupedAmount(info.data.totalSupply, info.data.decimals)} ${token.symbol}
                     </p>
+                    {burnedSupplyBase > 0n ? (
+                      <p className="mt-0.5 font-mono text-[10px] text-amber-300">
+                        🔥 {formatGroupedAmount(burnedSupplyBase, info.data.decimals)} burned permanently
+                      </p>
+                    ) : null}
                     {pool.data?.pairId ? (
                       <a
                         href={explorerContractUrl(pool.data.pairId)}
@@ -456,6 +874,53 @@ export function TokenPage() {
                         Pair {shortAddress(pool.data.pairId)} ↗
                       </a>
                     ) : null}
+                  </div>
+                </div>
+
+                {/* Where Tokens & XLM Live Breakdown */}
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3.5 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-200">
+                      📊 Token & XLM Custody Breakdown
+                    </p>
+                    {info.data.initialSupply ? (
+                      <span className="font-mono text-[11px] text-slate-400">
+                        Initial Cap:{' '}
+                        {formatGroupedAmount(info.data.initialSupply, info.data.decimals)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1.5 font-mono text-[11px]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Soroswap AMM Pool (Tradable)</span>
+                      <span className="text-emerald-300 font-semibold">
+                        {formatGroupedAmount(reserveToken, token.decimals)} ${token.symbol} (
+                        {poolSupplyPct.toFixed(2)}%) + {formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Holder Wallets (Creator + Buyers)</span>
+                      <span className="text-sky-300 font-semibold">
+                        {formatGroupedAmount(circulatingWalletsBase, token.decimals)} ${token.symbol} (
+                        {walletsSupplyPct.toFixed(2)}%)
+                      </span>
+                    </div>
+                    {info.data.xlmLpAmount !== undefined && info.data.tokenLpAmount !== undefined ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-slate-400">Genesis Pool Seed</span>
+                        <span className="text-slate-300">
+                          {formatGroupedAmount(info.data.tokenLpAmount, info.data.decimals)} ${token.symbol} +{' '}
+                          {formatAmount(info.data.xlmLpAmount, XLM_DECIMALS)} XLM
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Swap Fee Flow</span>
+                      <span className="text-slate-300">
+                        {SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax
+                      </span>
+                    </div>
                   </div>
                 </div>
 
@@ -477,7 +942,7 @@ export function TokenPage() {
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-2">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-[11px] font-mono text-slate-400">
                   <span>Action · Amount</span>
-                  <span>Trader · Tx</span>
+                  <span>Trader · Ledger · Tx</span>
                 </div>
                 {trades.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-6">
@@ -487,12 +952,13 @@ export function TokenPage() {
                   <div className="divide-y divide-slate-800/50 max-h-72 overflow-y-auto">
                     {trades.map((ev) => {
                       const isBuy = classifyTokenEvent(ev, pool.data?.pairId) === 'buy'
+                      const isWhale = ev.amount >= whaleThreshold
                       return (
                         <div
                           key={ev.id}
-                          className="py-2 flex items-center justify-between text-xs font-mono"
+                          className="py-2 flex items-center justify-between gap-2 text-xs font-mono"
                         >
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-1.5">
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                 isBuy
@@ -505,9 +971,18 @@ export function TokenPage() {
                             <span className="text-white font-bold">
                               {formatAmount(ev.amount, token.decimals)} ${token.symbol}
                             </span>
+                            {isWhale ? (
+                              <span
+                                className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
+                                title="Trade ≥ 1% of fair-launch supply"
+                              >
+                                🐋 Whale
+                              </span>
+                            ) : null}
                           </div>
-                          <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+                          <div className="flex items-center gap-2 text-slate-400 text-[11px] shrink-0">
                             <span>by {shortAddress((isBuy ? ev.to : ev.from) ?? '')}</span>
+                            <span className="text-slate-500">#{ev.ledger}</span>
                             {ev.txHash ? (
                               <a
                                 href={explorerTxUrl(ev.txHash)}

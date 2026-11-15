@@ -62,6 +62,7 @@ function MarketCard({
   const meta = useTokenMetadata(token.id)
 
   const isGraduated = grad.graduated
+  const isHeating = grad.stage === 'heating'
   const ageLabel = token.ledger > 0 ? `#${token.ledger}` : null
 
   return (
@@ -87,7 +88,11 @@ function MarketCard({
         }
       }}
       className={`liquid-glass-card group relative flex cursor-pointer flex-col overflow-hidden rounded-3xl ${
-        selected ? 'ring-2 ring-sky-400 border-sky-400/50' : ''
+        selected
+          ? 'ring-2 ring-sky-400 border-sky-400/50'
+          : isHeating
+            ? 'ring-1 ring-amber-400/60 border-amber-500/40'
+            : ''
       }`}
     >
       {/* Token Emblem Showcase Frame */}
@@ -151,9 +156,10 @@ function MarketCard({
             <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-2.5 py-1 text-[10px] font-bold tracking-wider text-emerald-300 uppercase">
               ✦ Graduated
             </span>
-          ) : grad.percent >= 50 ? (
-            <span className="liquid-glass-pill rounded-full border-amber-400/40 bg-amber-950/60 px-2.5 py-1 text-[10px] font-bold tracking-wider text-amber-300 uppercase">
-              👑 King ({grad.percent.toFixed(0)}%)
+          ) : isHeating ? (
+            <span className="liquid-glass-pill inline-flex items-center gap-1.5 rounded-full border-amber-400/60 bg-amber-950/75 px-2.5 py-1 text-[10px] font-bold tracking-wider text-amber-300 uppercase">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+              🔥 Graduating ({grad.percent.toFixed(0)}%)
             </span>
           ) : (
             <span className="liquid-glass-pill rounded-full px-2.5 py-1 text-[10px] font-medium text-sky-300">
@@ -362,6 +368,14 @@ export function MarketList({
   const favorites = useWatchlist((s) => s.favorites)
   const isFavorite = useCallback((id: string) => favorites.includes(id), [favorites])
 
+  const heatingTokens = useMemo(
+    () =>
+      (list.data ?? []).filter(
+        (token) => graduationProgress(token.pool.reserveXlm).stage === 'heating',
+      ),
+    [list.data],
+  )
+
   const tokens = useMemo(() => {
     let result = filterAndSortTokens(list.data ?? [], query, sort)
     if (favsOnly) {
@@ -396,7 +410,31 @@ export function MarketList({
       </div>
 
       {list.data && list.data.length > 0 ? (
-        <div className="mt-4">
+        <div className="mt-4 space-y-3">
+          {heatingTokens.length > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-500/40 bg-amber-950/25 px-4 py-2.5 text-xs">
+              <div className="flex items-center gap-2 text-amber-200 font-semibold">
+                <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+                <span>
+                  🔥 {heatingTokens.length} {heatingTokens.length === 1 ? 'token is' : 'tokens are'} graduating soon (&ge;50% to 2,000 XLM)
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {heatingTokens.slice(0, 3).map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() =>
+                      onSelect({ id: t.id, decimals: t.decimals, symbol: t.symbol })
+                    }
+                    className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 font-mono font-bold text-amber-200 hover:bg-amber-500/25 transition"
+                  >
+                    ${t.symbol} {Math.round(graduationProgress(t.pool.reserveXlm).percent)}% →
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <KingOfTheHill tokens={list.data} onSelect={onSelect} />
         </div>
       ) : null}
@@ -481,7 +519,7 @@ export function MarketList({
                   : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
               }`}
             >
-              🎓 Graduating Soon
+              🎓 Graduating Soon{heatingTokens.length > 0 ? ` (${heatingTokens.length})` : ''}
             </button>
             <button
               type="button"

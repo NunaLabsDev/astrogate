@@ -99,11 +99,14 @@ export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
           queryKey: ['token-events', token.id],
         }),
         queryClient.invalidateQueries({
+          queryKey: ['lp-burn'],
+        }),
+        queryClient.invalidateQueries({
           queryKey: ['token-list'],
           refetchType: 'none',
         }),
         queryClient.invalidateQueries({
-          queryKey: ['demo-xlm-balances'],
+          queryKey: ['xlm-balance'],
         }),
       ])
     } catch (err) {

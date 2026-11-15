@@ -15,8 +15,8 @@ AstroGate is a Web3 token launchpad and automated market maker (AMM) operating d
 - ASTRO/XLM AMM Pair: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
 - LP Burn Address: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
 - Token WASM Hash: a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7
-- Launchpad Contract (v2): CB5LMSJ2Y2KEZEO2BXTRNA2OPFALVU6AVIOASVPZTQ66GRT3UEKOQ3O4
-- Launchpad WASM Hash (v2): 379575a09e323cd3244780ac7f2441a38cb85cd34ebcce84736802e081956125
+- Launchpad Contract (v2): CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC
+- Launchpad WASM Hash (v2): 8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542
 
 ## AI Agent Integration & SDK
 Developers and autonomous AI agents can interact with the protocol programmatically using the `@astrogate/sdk` modules located at `src/sdk/index.ts`:

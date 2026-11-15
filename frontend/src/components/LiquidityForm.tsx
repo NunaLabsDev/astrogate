@@ -167,7 +167,10 @@ export function LiquidityForm({
           queryKey: ['lp-position', token.id],
         }),
         queryClient.invalidateQueries({
-          queryKey: ['demo-xlm-balances'],
+          queryKey: ['lp-burn'],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['xlm-balance'],
         }),
       ])
     } catch (err) {

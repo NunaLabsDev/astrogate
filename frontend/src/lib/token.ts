@@ -117,7 +117,7 @@ export async function launchTokenAtomic(params: {
 }
 
 /**
- * Minimalist fair launch (`launch_fair`): supply (1B), decimals (7), and
+ * Minimalist fair launch (`launch_fair`): supply (100M), decimals (7), and
  * 99.5% burned LP are enforced on-chain; stores optional compact JSON metadata.
  */
 export async function launchFairAtomic(params: {

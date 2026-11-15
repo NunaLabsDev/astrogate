@@ -1,11 +1,31 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 15 2026, sesión 27 — Supply 100M, Anti-Whale/Sniper, Holders, WebP/IPFS & Keep-Alive Testnet)
+Upgrade integral de tokenomics, analítica de riesgo, UX minimalista y automatización gratuita en Stellar Testnet. *AI-generated; revisión humana pendiente.*
+- **Contrato Launchpad v2 redesplegado a 100M (`CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC`)**:
+  - WASM hash `8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542` (`16764 bytes`).
+  - `FAIR_INITIAL_SUPPLY`: `100,000,000` (`1_000_000_000_000_000` con 7 decimales); `99,500,000` (`99.5%`) al pool AMM de Soroswap + `500,000` (`0.5%`) al creador; umbral de ballena `1%` = `1,000,000`.
+- **Modelo 100% Developer-Only Fees (`tokenomics.ts`)**:
+  - Eliminado `CREATOR_GRADUATION_REWARD_XLM`; `DEVELOPER_TRADING_FEE_BPS` (`100n`) y `DEVELOPER_GRADUATION_FEE_XLM` (`20`) corresponden al treasury developer.
+- **Nuevos módulos gratuitos / cero-backend**:
+  - `frontend/src/lib/holders.ts` + `TokenPage.tsx` (`Holders & Risk` tab + alerta de graduación): análisis de concentración de holders on-chain vía Horizon/RPC.
+  - `frontend/src/lib/image-upload.ts` + `CreateTokenForm.tsx`: compresión automática en navegador a `128×128` WebP (fallback JPEG) + pinning opcional IPFS Pinata (`VITE_PINATA_JWT`).
+  - `frontend/src/lib/alerts.ts` + `CreateTokenForm.tsx` / `SwapCard.tsx`: alertas no bloqueantes opcionales de lanzamiento, ballenas y graduación (`>=80%`) vía Telegram (`VITE_TELEGRAM_BOT_TOKEN` + `VITE_TELEGRAM_CHAT_ID`) o Webhook (`VITE_ALERT_WEBHOOK_URL`), con paridad CSP en `vercel.json`, `public/_headers` y `nginx.conf`.
+  - `frontend/scripts/keepalive-ttl.mjs` (`npm run keepalive:ttl`) + `.github/workflows/keepalive-ttl.yml` (cron `0 6 * * 1,4` + `workflow_dispatch`): renovación automática gratuita de TTL a 90 días en Testnet usando `STELLAR_SECRET` o Friendbot.
+- **Mejoras UX/UI**:
+  - `ReserveChart.tsx` (selector MCap/Precio USD + crosshair interactivo + línea de graduación), `MarketList.tsx` (alertas visuales de tokens por graduarse), `SwapCard.tsx` (protecciones anti-ballena), `CreateTokenForm.tsx` (vista previa anti-sniper `10%` del pool y upload WebP/IPFS).
+- **Verificación verde (post-edición)**:
+  - `cd frontend && npm run check`: `tsc -b` + `vite build`, `oxlint` (`0 warnings`, `0 errors` en `121` archivos), `vitest` (`25` archivos / `179` tests), `smoke:render`, `verify:pwa` y `check:csp` OK.
+  - Rust workspace: `cargo test --workspace` (`29/29`: `10` launchpad + `19` astro-token), `cargo clippy --workspace --all-targets -- -D warnings` y `cargo fmt --all -- --check` OK.
+  - Testnet en vivo: `npm run verify:demo` OK (token `CBZKEWPRC7B4QVUD4BWBYMNJHUXA6NMFMPIPBUZEAEMVUUTSOZ57F64B`), `npm run keepalive:ttl` OK (`0` fallos), `npm run verify:discovery` OK (`3` listados).
+- **Opcional en producción (Vercel)**: configurar `VITE_PINATA_JWT` y/o webhook público de alertas; no subir secrets de Telegram con privilegios directamente a variables `VITE_*` públicas del cliente.
+
 ## Handoff rápido (Nov 12 2026, sesión 26 — Launchpad v2 on-chain + Rediseño Minimalista Pump.fun)
 Upgrade full-stack (Soroban v2 + Frontend/SDK minimalista sin backend). *AI-generated; revisión humana pendiente.*
 - **Contratos desplegados y verificados en Testnet**:
   - `astro_token.wasm`: hash `a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7` (fixes `FungibleBurnable` `Capped::burn`/`burn_from` + extensión automática de TTL a 90 días).
-  - `astro_launchpad_contract.wasm` v2: hash `379575a09e323cd3244780ac7f2441a38cb85cd34ebcce84736802e081956125`, desplegado e inicializado en `CB5LMSJ2Y2KEZEO2BXTRNA2OPFALVU6AVIOASVPZTQ66GRT3UEKOQ3O4`.
-  - Nuevos endpoints v2: `launch_fair` (supply fijo 1B, 7 decimales, 99.5% LP quemado, `meta` ≤ 512 bytes), registro persistente on-chain (`LaunchRecord`, `get_launch_count`, `get_launches`, `get_launch`), Burn-to-Chat real on-chain (`burn_shout`, `get_shouts`, `ShoutEvent`, tope 15 por token) y TTL unificado a 90 días (`extend_ttl`, `extend_launch_ttl`).
+  - `astro_launchpad_contract.wasm` v2: hash `8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542`, desplegado e inicializado en `CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC`.
+  - Nuevos endpoints v2: `launch_fair` (supply fijo 100M, 7 decimales, 99.5% LP quemado, `meta` ≤ 512 bytes), registro persistente on-chain (`LaunchRecord`, `get_launch_count`, `get_launches`, `get_launch`), Burn-to-Chat real on-chain (`burn_shout`, `get_shouts`, `ShoutEvent`, tope 15 por token) y TTL unificado a 90 días (`extend_ttl`, `extend_launch_ttl`).
   - Smoke test live en Testnet exitoso (`Orbital Spark` / `ORBIT` en `CDCTN4CE3FZ7MIGXUVA6MHDGIRNOMA7XWPLGZSCT7DC6C6CVN2BOI4TN`, par `CCF65IMFNAO3SEWPARZ6AYZI6ACWNJL44ELC2S36KCLVHOVHBKNEEUDB`, `burn_shout` + `get_launches` + `get_shouts` verificados on-chain).
 - **Backend-client & SDK (`network.ts`, `soroswap.ts`, `discovery.ts`, `token-metadata.ts`, `token.ts`, `token-events.ts`, `sdk/index.ts`, `format.ts`)**:
   - Cotización instantánea determinista `997/1000` (0ms lag: `localAmountOut`, `localQuoteXlmForToken`, `localQuoteTokenForXlm`).

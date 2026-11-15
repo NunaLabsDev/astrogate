@@ -1,14 +1,21 @@
 import { CreateTokenForm } from '../components/CreateTokenForm'
 import { useCreatedTokens } from '../store/creations'
-import type { LaunchpadToken } from '../lib/token'
 
 export function CreatePage() {
   const addCreatedToken = useCreatedTokens((state) => state.add)
 
-  function onCreated(token: LaunchpadToken) {
+  function onCreated(token: {
+    id: string
+    decimals: number
+    symbol?: string
+    name?: string
+    creator?: string
+  }) {
     addCreatedToken({
       id: token.id,
       symbol: token.symbol,
+      name: token.name,
+      creator: token.creator,
       decimals: token.decimals,
     })
   }

@@ -103,7 +103,7 @@ try {
   const decimals = 7
   const unit = 10n ** BigInt(decimals)
 
-  // 1. Atomic Launchpad v2 Fair Launch (1 tx: 1B supply, 99.5% LP burned, ownership renounced)
+  // 1. Atomic Launchpad v2 Fair Launch (1 tx: 100M supply, 99.5% LP burned, ownership renounced)
   const fairMeta = metadataLib.encodeOnChainMeta({
     description: 'Automated Launchpad v2 E2E Fair Launch',
   })
@@ -129,13 +129,13 @@ try {
   if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.lpBurned || !audit.ownershipRenounced) {
     throw new Error(`verifyAntiRug fallo: ${JSON.stringify(audit)}`)
   }
-  if (supplyInitial.result !== 1_000_000_000n * unit) {
+  if (supplyInitial.result !== 100_000_000n * unit) {
     throw new Error(`supply inicial inesperado: ${supplyInitial.result.toString()}`)
   }
-  if (creatorBalInitial !== 5_000_000n * unit) {
+  if (creatorBalInitial !== 500_000n * unit) {
     throw new Error(`asignacion 0.5% creador inesperada: ${creatorBalInitial.toString()}`)
   }
-  console.log('verifyAntiRug + registro v2 OK (5M creator, 995M pool, LP quemado, owner renunciado)')
+  console.log('verifyAntiRug + registro v2 OK (500K creator, 99.5M pool, LP quemado, owner renunciado)')
 
   // 2. Transfer A -> B + B compra via Soroswap con cotizacion local 0ms
   const transfer = await tokenLib.tokenClient(token, signerA).transfer({
@@ -172,7 +172,7 @@ try {
 
   // 3. A anade y retira liquidez comunitaria (remove_liquidity atomico)
   const poolForLp = await soroswap.fetchPoolState(token)
-  const lpTokenIn = 2_000_000n * unit
+  const lpTokenIn = 200_000n * unit
   const matchedXlm = (lpTokenIn * poolForLp.reserveXlm) / poolForLp.reserveToken
   const addedLp = await soroswap.addLiquidity({
     tokenId: token,

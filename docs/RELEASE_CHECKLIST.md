@@ -1,4 +1,4 @@
-# Release checklist — Floodgate testnet
+# Release checklist — AstroGate testnet
 
 Este documento es para publicar el frontend en Cloudflare y verificar el flujo
 completo. **Solo testnet.** No usar fondos reales.
@@ -47,7 +47,7 @@ npx wrangler@latest whoami
 npm run deploy
 ```
 
-- El Worker está definido en `frontend/wrangler.jsonc` (`floodgate-stellar`).
+- El Worker está definido en `frontend/wrangler.jsonc` (`astrogate-stellar`).
 - El deploy sube `dist/` como assets estáticos y aplica el SPA fallback.
 - No hay variables secretas en el frontend; si se añade una integración futura,
   debe ir en el Worker, nunca en el bundle.
@@ -57,7 +57,7 @@ npm run deploy
 Con la URL del Worker:
 
 ```bash
-URL="https://floodgate-stellar.pepepop2000.workers.dev"
+URL="https://astrogate-stellar.workers.dev"
 for path in / /sw.js /manifest.webmanifest \
   /token/CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE; do
   curl -sS -o /dev/null -w "%{http_code} $path\n" "$URL$path"
@@ -76,12 +76,16 @@ Flujo manual en navegador (idealmente dos cuentas):
 
 - [ ] Conectar wallet real de testnet y leer balance.
 - [ ] Activar modo prueba; crear 3 cuentas; cambiar de usuario.
-- [ ] Crear token; añadir liquidez; ver LP y par en explorer.
-- [ ] Vender token → XLM; comprobar mínimo e impacto.
-- [ ] Comprar token con XLM; comprobar balance XLM y token.
-- [ ] Transferir, mintear (owner) y quemar; comprobar supply.
-- [ ] Retirar liquidez; comprobar LP quemados y ambos activos.
-- [ ] Recargar en `/token/:id` y `/market` (deep links).
+- [ ] Crear token (`launch_fair`): comprobar 1,000,000,000 supply fijo (`cap`),
+      99.5% (995M) + XLM seed en Soroswap Pool, 0.5% (5M) en wallet creadora,
+      100% LP retirables quemados en `GAAAA...WHF` y ownership renunciado.
+- [ ] Vender token → XLM; comprobar mínimo, slippage, share del pool e impacto.
+- [ ] Comprar token con XLM; comprobar actualización de balance XLM y token.
+- [ ] Burn-to-Chat (`burn_shout`), transferir o quemar token; comprobar descenso
+      de `total_supply`.
+- [ ] Añadir y retirar liquidez manual (con LP propio); comprobar LP quemados y
+      ambos activos devueltos.
+- [ ] Recargar en `/token/:id`, `/portfolio`, `/create` y `/market` (deep links).
 - [ ] Instalar PWA / probar offline: el shell carga, pero no se pueden firmar
       transacciones sin red.
 
@@ -109,4 +113,4 @@ el hash y actúa en testnet.
 - `git push --force` a `main`/`release`.
 - Publicar sin `npm run check` verde.
 - Commitear semillas, tokens de Cloudflare/GitHub o `.env`.
-- Prometer mainnet, auditoría o supply fijo: este MVP no los tiene.
+- Usar el despliegue de testnet con claves o fondos de mainnet sin auditoría externa completa.

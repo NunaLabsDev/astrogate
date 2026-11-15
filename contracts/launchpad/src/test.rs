@@ -557,9 +557,9 @@ fn test_launch_fair_and_registry() {
 
     let tok_one = AstroTokenClient::new(&e, &res_one.token);
     assert_eq!(tok_one.decimals(), 7);
-    assert_eq!(tok_one.total_supply(), 10_000_000_000_000_000_i128);
-    assert_eq!(tok_one.balance(&creator), 50_000_000_000_000_i128);
-    assert_eq!(tok_one.balance(&res_one.pair), 9_950_000_000_000_000_i128);
+    assert_eq!(tok_one.total_supply(), 1_000_000_000_000_000_i128);
+    assert_eq!(tok_one.balance(&creator), 5_000_000_000_000_i128);
+    assert_eq!(tok_one.balance(&res_one.pair), 995_000_000_000_000_i128);
     assert_eq!(tok_one.get_owner(), None);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &res_one.pair).lp_recipient(),

@@ -44,7 +44,7 @@ pub struct LaunchParams {
     pub salt: BytesN<32>,
 }
 
-/// Minimalist fair-launch parameters: supply (1B), decimals (7), and 99.5% LP
+/// Minimalist fair-launch parameters: supply (100M), decimals (7), and 99.5% LP
 /// allocation are enforced on-chain, reducing user input to identity + seed XLM.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -161,10 +161,10 @@ const MIN_LP_ALLOCATION_BPS: i128 = 9_950;
 /// Basis points denominator (100% = 10,000 bps).
 const BPS_DENOMINATOR: i128 = 10_000;
 
-/// Fixed fair-launch defaults used by `launch_fair`: 1B supply, 7 decimals, 99.5% LP.
+/// Fixed fair-launch defaults used by `launch_fair`: 100M supply, 7 decimals, 99.5% LP.
 const FAIR_DECIMALS: u32 = 7;
-const FAIR_INITIAL_SUPPLY: i128 = 10_000_000_000_000_000;
-const FAIR_TOKEN_LP_AMOUNT: i128 = 9_950_000_000_000_000;
+const FAIR_INITIAL_SUPPLY: i128 = 1_000_000_000_000_000;
+const FAIR_TOKEN_LP_AMOUNT: i128 = 995_000_000_000_000;
 
 const MAX_OFFCHAIN_META_BYTES: u32 = 512;
 const MAX_SHOUT_BYTES: u32 = 160;
@@ -197,7 +197,7 @@ impl Launchpad {
         Self::extend_ttl(e);
     }
 
-    /// Minimalist fair launch: enforces fixed 1B supply (7 decimals) and 99.5%
+    /// Minimalist fair launch: enforces fixed 100M supply (7 decimals) and 99.5%
     /// burned LP while storing optional compact metadata on-chain for discovery.
     pub fn launch_fair(e: &Env, params: FairLaunchParams) -> Result<LaunchResult, LaunchpadError> {
         params.creator.require_auth();
