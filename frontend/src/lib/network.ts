@@ -66,6 +66,13 @@ export const LAUNCHPAD_WASM_HASH =
   '8b5edb418fa5f562c73a86f9ed028829900cf6f1d5d228f5235fd2a4ac641542'
 
 /**
+ * Official AstroGate Developers Treasury address on Stellar Testnet.
+ */
+export const DEVELOPER_TREASURY_ADDRESS =
+  (import.meta.env.VITE_DEVELOPER_TREASURY_ADDRESS as string | undefined) ||
+  'GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE'
+
+/**
  * Standard event polling ledger window (~14h on testnet, 5s ledgers).
  * Single source of truth for discovery.ts and token-events.ts.
  */

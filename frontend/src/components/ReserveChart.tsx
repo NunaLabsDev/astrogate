@@ -140,17 +140,25 @@ export function ReserveChart({
     [decimals, metric, activeSnapshots, totalSupplyWhole, effectiveXlmUsd],
   )
 
+  const maxRawValue = useMemo(
+    () => (values.length > 0 ? Math.max(...values) : 0),
+    [values],
+  )
+  const isLiquidityBelowTarget =
+    metric === 'liquidity' && maxRawValue > 0 && maxRawValue < GRADUATION_TARGET_XLM
+  const seriesPadding = isLiquidityBelowTarget ? 24 : PADDING
+
   const series = useMemo(
-    () => toChartPoints(values, chartWidth, HEIGHT, PADDING),
-    [values, chartWidth],
+    () => toChartPoints(values, chartWidth, HEIGHT, seriesPadding),
+    [values, chartWidth, seriesPadding],
   )
 
   const points = series.points
     .map((point) => `${point.x.toFixed(2)},${point.y.toFixed(2)}`)
     .join(' ')
   const area = points
-    ? `${PADDING},${HEIGHT - PADDING} ${points} ${chartWidth - PADDING},${
-        HEIGHT - PADDING
+    ? `${seriesPadding},${HEIGHT - seriesPadding} ${points} ${chartWidth - seriesPadding},${
+        HEIGHT - seriesPadding
       }`
     : ''
 
@@ -164,16 +172,16 @@ export function ReserveChart({
         ? `Price (XLM per ${symbol ?? 'token'})`
         : 'Liquidity (XLM)'
 
-  // Target line for graduation in liquidity view
+  // Target line for graduation in liquidity view aligned with toChartPoints Y scale
   const targetY = useMemo(() => {
     if (metric !== 'liquidity' || series.max <= 0) return null
-    const effectiveMax = Math.max(series.max, GRADUATION_TARGET_XLM)
-    const effectiveMin = Math.min(series.min, 0)
-    const span = effectiveMax - effectiveMin
-    if (span <= 0) return null
-    const ratio = (GRADUATION_TARGET_XLM - effectiveMin) / span
-    return HEIGHT - PADDING - ratio * (HEIGHT - PADDING * 2)
-  }, [metric, series.max, series.min])
+    if (series.max < GRADUATION_TARGET_XLM) return 12
+    const span = series.max - series.min
+    const normalized =
+      span === 0 ? 0.5 : (GRADUATION_TARGET_XLM - series.min) / span
+    const rawY = seriesPadding + (1 - normalized) * (HEIGHT - seriesPadding * 2)
+    return Math.max(12, Math.min(HEIGHT - seriesPadding, rawY))
+  }, [metric, series.max, series.min, seriesPadding])
 
   const selectedPoint =
     selectedPointIndex !== null && series.points[selectedPointIndex]
@@ -341,17 +349,17 @@ export function ReserveChart({
               {targetY !== null && targetY >= 0 && targetY <= HEIGHT ? (
                 <g>
                   <line
-                    x1={PADDING}
+                    x1={seriesPadding}
                     y1={targetY}
-                    x2={chartWidth - PADDING}
+                    x2={chartWidth - seriesPadding}
                     y2={targetY}
                     stroke="#f59e0b"
                     strokeWidth="1.5"
                     strokeDasharray="4 4"
                   />
                   <text
-                    x={chartWidth - PADDING - 4}
-                    y={targetY - 4}
+                    x={chartWidth - seriesPadding - 4}
+                    y={Math.max(9, targetY - 3)}
                     fill="#f59e0b"
                     fontSize="9"
                     fontFamily="monospace"
@@ -366,9 +374,9 @@ export function ReserveChart({
               {selectedPoint ? (
                 <line
                   x1={selectedPoint.point.x}
-                  y1={PADDING}
+                  y1={seriesPadding}
                   x2={selectedPoint.point.x}
-                  y2={HEIGHT - PADDING}
+                  y2={HEIGHT - seriesPadding}
                   stroke="#38bdf8"
                   strokeWidth="1"
                   strokeDasharray="3 3"

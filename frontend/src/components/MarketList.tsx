@@ -31,7 +31,7 @@ type Props = {
 function Price({ token }: { token: TokenListing }) {
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
   // Número en coma flotante: los fair launch cotizan por debajo de 1 stroop
-  // (995M tokens contra < 99.5 XLM) y la versión bigint truncaría a 0.
+  // (99.5M tokens contra < 9.95 XLM) y la versión bigint truncaría a 0.
   const price = tokenPriceInXlmNumber(token.pool, token.decimals)
   if (price <= 0) return <span className="text-slate-500">—</span>
   const priceUsd = price * xlmUsd

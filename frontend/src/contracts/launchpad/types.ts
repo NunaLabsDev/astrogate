@@ -91,7 +91,7 @@ export const LaunchpadError = {
 }
 
 /**
- * Minimalist fair-launch parameters: supply (1B), decimals (7), and 99.5% LP
+ * Minimalist fair-launch parameters: supply (100M), decimals (7), and 99.5% LP
  * allocation are enforced on-chain, reducing user input to identity + seed XLM.
  */
 export interface FairLaunchParams {

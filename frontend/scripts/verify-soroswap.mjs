@@ -11,20 +11,21 @@
 import { Address, Keypair, Operation, TransactionBuilder, nativeToScVal } from '@stellar/stellar-sdk'
 import { Client, KeypairSigner } from '@stellar/stellar-sdk/contract'
 import { Server } from '@stellar/stellar-sdk/rpc'
+import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const RPC_URL = 'https://soroban-testnet.stellar.org'
 const PASSPHRASE = 'Test SDF Network ; September 2015'
 const FACTORY = 'CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY'
 const ROUTER = 'CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD'
 const XLM_SAC = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'
-const WASM_HASH = '438d12a79855dd42c353d12bb42e6b57ed513eed47b7008094683ba33f971286'
+const WASM_HASH = 'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
 
 const DECIMALS = 7
 const APPROVAL_WINDOW = 60
 
-const secret = process.env.STELLAR_SECRET
+const { secret } = loadStellarSecret()
 if (!secret) {
-  console.error('Falta STELLAR_SECRET')
+  console.error('Falta STELLAR_SECRET (env o ~/.secrets/astrogate/developer-accounts.env)')
   process.exit(1)
 }
 

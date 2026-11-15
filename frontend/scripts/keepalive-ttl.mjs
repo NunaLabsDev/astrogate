@@ -13,14 +13,15 @@
 import { createServer } from 'vite'
 import { Keypair } from '@stellar/stellar-sdk'
 import { KeypairSigner } from '@stellar/stellar-sdk/contract'
+import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const FRIENDBOT_URL = 'https://friendbot.stellar.org'
 const MAX_LAUNCHED_TOKENS = 10
 
 async function getFundedKeypair() {
-  const envSecret = process.env.STELLAR_SECRET?.trim()
-  if (envSecret) {
-    return { keypair: Keypair.fromSecret(envSecret), source: 'env' }
+  const { secret, source } = loadStellarSecret()
+  if (secret) {
+    return { keypair: Keypair.fromSecret(secret), source: source ?? 'env' }
   }
   const keypair = Keypair.random()
   const res = await fetch(`${FRIENDBOT_URL}?addr=${encodeURIComponent(keypair.publicKey())}`)

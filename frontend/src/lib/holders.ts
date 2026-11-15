@@ -1,3 +1,4 @@
+import { LAUNCHPAD_CONTRACT_ID } from './network'
 import type { TokenEvent } from './token-events'
 import { calculateSupplySharePercent, STELLAR_BURN_ADDRESS } from './tokenomics'
 
@@ -33,6 +34,8 @@ export function analyzeTokenHolders(params: {
   pairId?: string | null
   creator?: string | null
   creatorBalance?: bigint
+  userAddress?: string | null
+  userBalance?: bigint
   events?: readonly TokenEvent[]
 }): HolderAnalysis {
   const {
@@ -41,6 +44,8 @@ export function analyzeTokenHolders(params: {
     pairId,
     creator,
     creatorBalance,
+    userAddress,
+    userBalance,
     events = [],
   } = params
 
@@ -58,8 +63,12 @@ export function analyzeTokenHolders(params: {
     }
   }
 
-  // 1. Replay observed SEP-41 events in chronological order (ascending ledger).
-  const chronological = [...events].sort((a, b) => a.ledger - b.ledger)
+  // 1. Replay observed SEP-41 events in chronological order (oldest-first).
+  // fetchTokenEvents returns newest-first; reverse first so intra-ledger order
+  // is preserved alongside explicit ledger + id sorting.
+  const chronological = [...events]
+    .reverse()
+    .sort((a, b) => a.ledger - b.ledger || a.id.localeCompare(b.id))
   const netBalances = new Map<string, bigint>()
 
   for (const ev of chronological) {
@@ -80,12 +89,55 @@ export function analyzeTokenHolders(params: {
     }
   }
 
-  // 2. Apply authoritative on-chain balances for AMM Pool & Creator.
+  // Launchpad is only a transient mint/split orchestrator during launch_fair.
+  netBalances.delete(LAUNCHPAD_CONTRACT_ID)
+
+  // 2. Apply authoritative on-chain balances for AMM Pool, Creator & Connected User.
+  const authoritativeAddresses = new Set<string>()
   if (pairId) {
     netBalances.set(pairId, reserveToken > 0n ? reserveToken : 0n)
+    authoritativeAddresses.add(pairId)
   }
   if (creator && creatorBalance !== undefined) {
     netBalances.set(creator, creatorBalance > 0n ? creatorBalance : 0n)
+    authoritativeAddresses.add(creator)
+  }
+  if (
+    userAddress &&
+    userBalance !== undefined &&
+    userAddress !== pairId &&
+    !(userAddress === creator && creatorBalance !== undefined)
+  ) {
+    netBalances.set(userAddress, userBalance > 0n ? userBalance : 0n)
+    authoritativeAddresses.add(userAddress)
+  }
+
+  // Enforce strict supply conservation when bounded event windows miss sells.
+  const poolAmount = reserveToken > 0n ? reserveToken : 0n
+  let authExternalSum = 0n
+  for (const addr of authoritativeAddresses) {
+    if (pairId && addr === pairId) continue
+    authExternalSum += netBalances.get(addr) ?? 0n
+  }
+  const accountedSupply = poolAmount + authExternalSum
+  const remainingOutsideBase =
+    totalSupply > accountedSupply ? totalSupply - accountedSupply : 0n
+
+  let nonAuthSum = 0n
+  for (const [addr, bal] of netBalances.entries()) {
+    if (authoritativeAddresses.has(addr) || bal <= 0n) continue
+    nonAuthSum += bal
+  }
+
+  if (nonAuthSum > remainingOutsideBase) {
+    for (const [addr, bal] of netBalances.entries()) {
+      if (authoritativeAddresses.has(addr) || bal <= 0n) continue
+      if (remainingOutsideBase === 0n) {
+        netBalances.set(addr, 0n)
+      } else {
+        netBalances.set(addr, (bal * remainingOutsideBase) / nonAuthSum)
+      }
+    }
   }
 
   // 3. Build sorted list of positive-balance entries.

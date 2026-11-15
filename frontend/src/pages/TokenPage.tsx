@@ -42,6 +42,7 @@ import { isValidContractAddress } from '../lib/address'
 import { analyzeTokenHolders, type HolderRiskLevel } from '../lib/holders'
 import {
   calculateSupplySharePercent,
+  DEVELOPER_TREASURY_ADDRESS,
   GRADUATION_TARGET_XLM,
   graduationProgress,
   rugProofStatus,
@@ -160,6 +161,8 @@ export function TokenPage() {
         pairId: pool.data?.pairId,
         creator: info.data?.creator,
         creatorBalance: creatorBalance.data,
+        userAddress: publicKey,
+        userBalance: userBalance.data,
         events: events.data,
       }),
     [
@@ -168,6 +171,8 @@ export function TokenPage() {
       pool.data?.pairId,
       info.data?.creator,
       creatorBalance.data,
+      publicKey,
+      userBalance.data,
       events.data,
     ],
   )
@@ -920,6 +925,17 @@ export function TokenPage() {
                       <span className="text-slate-300">
                         {SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax
                       </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Developer Treasury</span>
+                      <a
+                        href={explorerAccountUrl(DEVELOPER_TREASURY_ADDRESS)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-sky-400 hover:text-sky-300"
+                      >
+                        {shortAddress(DEVELOPER_TREASURY_ADDRESS)} ↗
+                      </a>
                     </div>
                   </div>
                 </div>

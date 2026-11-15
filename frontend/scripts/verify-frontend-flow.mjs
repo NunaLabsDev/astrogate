@@ -10,14 +10,15 @@
 import { createServer } from 'vite'
 import { Keypair } from '@stellar/stellar-sdk'
 import { KeypairSigner } from '@stellar/stellar-sdk/contract'
+import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const PASSPHRASE = 'Test SDF Network ; September 2015'
 const ASTRO = 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE'
 const DECIMALS = 7
 
-const secret = process.env.STELLAR_SECRET
+const { secret } = loadStellarSecret()
 if (!secret) {
-  console.error('Falta STELLAR_SECRET')
+  console.error('Falta STELLAR_SECRET (env o ~/.secrets/astrogate/developer-accounts.env)')
   process.exit(1)
 }
 
@@ -39,7 +40,7 @@ try {
   const discovery = await vite.ssrLoadModule('/src/lib/discovery.ts')
 
   // 1. Estado del par (lectura).
-  const pool = await soroswap.fetchPoolState(ASTRO)
+  let pool = await soroswap.fetchPoolState(ASTRO)
   console.log('par:', pool.pairId, '| existe:', pool.exists)
   console.log(
     'reservas:',
@@ -53,8 +54,27 @@ try {
     throw new Error('el par no tiene reservas')
   }
 
-  // 2. Cotizacion.
+  // 1b. Si la cuenta ops tiene menos ASTRO del necesario (1 swap + ~10% pool LP),
+  // compra ASTRO con XLM primero para cubrir todo el flujo sin depender de balance previo.
   const amountIn = 10n ** BigInt(DECIMALS) // 1 ASTRO
+  const requiredAstro = amountIn + pool.reserveToken / 8n
+  const initialAstroBal = await tokenLib.fetchTokenBalance(ASTRO, keypair.publicKey())
+  console.log('balance ASTRO:', initialAstroBal.toString())
+  if (initialAstroBal < requiredAstro) {
+    const buyXlmIn = pool.reserveXlm / 4n > 10n ** BigInt(DECIMALS) ? pool.reserveXlm / 4n : 4n * 10n ** BigInt(DECIMALS)
+    const buyQuote = await soroswap.quoteXlmForToken(buyXlmIn, pool)
+    if (buyQuote <= 0n) throw new Error('la cotizacion XLM->ASTRO es 0')
+    const buyAmounts = await soroswap.swapXlmForToken({
+      tokenId: ASTRO,
+      amountIn: buyXlmIn,
+      amountOutMin: soroswap.withSlippage(buyQuote),
+      signer,
+    })
+    console.log('compra XLM->ASTRO -> in:', buyAmounts[0]?.toString(), 'out:', buyAmounts[1]?.toString())
+    pool = await soroswap.fetchPoolState(ASTRO)
+  }
+
+  // 2. Cotizacion.
   const quote = await soroswap.quoteTokenForXlm(amountIn, pool)
   console.log('cotizacion 1 ASTRO ->', quote.toString(), 'XLM (base units)')
   if (quote <= 0n) throw new Error('la cotizacion es 0')
@@ -168,47 +188,43 @@ try {
     poolAfterWithdraw.reserveXlm.toString(),
   )
 
-  // 5. Camino completo de un token nuevo: desplegar -> par -> liquidez -> swap.
-  const token = await tokenLib.deployToken({
+  // 5. Camino completo de un token nuevo (v2 launch_fair): lanzar -> par seed -> quote -> swap.
+  const launched = await tokenLib.launchFairAtomic({
     name: `Flow ${Date.now()}`,
     symbol: 'FLOW',
-    decimals: DECIMALS,
-    initialSupply: 1000n * 10n ** BigInt(DECIMALS),
+    xlmLpAmount: 5n * 10n ** BigInt(DECIMALS),
     signer,
   })
-  console.log('\ntoken nuevo:', token)
-
-  const freshPool = await soroswap.fetchPoolState(token)
-  if (freshPool.exists) throw new Error('el token nuevo ya tenia par')
-  console.log('sin par todavia: OK')
-
-  const newLp = await soroswap.addLiquidity({
-    tokenId: token,
-    amountToken: 100n * 10n ** BigInt(DECIMALS),
-    amountXlm: 10n * 10n ** BigInt(DECIMALS),
-    signer,
-  })
+  const token = launched.token
   console.log(
-    'liquidez del par nuevo:',
-    newLp.tokenAmount.toString(),
-    'token /',
-    newLp.xlmAmount.toString(),
-    'XLM / par',
-    newLp.pair,
+    '\ntoken nuevo:',
+    token,
+    '| par:',
+    launched.pair,
+    '| LP quemados:',
+    launched.lpMinted.toString(),
   )
 
   const newPool = await soroswap.fetchPoolState(token)
-  if (!newPool.exists) throw new Error('el par nuevo no se creo')
-  const newQuote = await soroswap.quoteTokenForXlm(
-    10n ** BigInt(DECIMALS),
-    newPool,
+  if (!newPool.exists || newPool.reserveToken <= 0n || newPool.reserveXlm <= 0n) {
+    throw new Error('el par nuevo de launch_fair no existe o tiene reservas 0')
+  }
+  console.log(
+    'reservas del par nuevo:',
+    newPool.reserveToken.toString(),
+    '/',
+    newPool.reserveXlm.toString(),
   )
-  console.log('cotizacion 1 token ->', newQuote.toString(), 'XLM (base units)')
+  // 1,000 tokens de los 500,000 del creador (~0.2%): en un pool 99.5M / 5 XLM
+  // 1 token vale < 1 stroop (se redondea a 0 en el AMM), mientras 1,000 tokens cotizan ~500 stroops.
+  const sellAmount = 1_000n * 10n ** BigInt(DECIMALS)
+  const newQuote = await soroswap.quoteTokenForXlm(sellAmount, newPool)
+  console.log('cotizacion 1,000 token ->', newQuote.toString(), 'XLM (base units)')
   if (newQuote <= 0n) throw new Error('la cotizacion del par nuevo es 0')
 
   const newSwap = await soroswap.swapTokenForXlm({
     tokenId: token,
-    amountIn: 10n ** BigInt(DECIMALS),
+    amountIn: sellAmount,
     amountOutMin: soroswap.withSlippage(newQuote),
     signer,
   })

@@ -235,7 +235,7 @@ export function CreateTokenForm({
     const initialSupply = parseAmount(
       String(FAIR_LAUNCH_TOTAL_BASIS),
       targetDecimals,
-    ) // 1 Billion (fixed on-chain by launch_fair)
+    ) // 100 Million (fixed on-chain by launch_fair)
     const seedXlm = seedXlmStroops
     if (seedXlm < 10_000_000n) {
       setError('Minimum initial liquidity is 1 XLM.')

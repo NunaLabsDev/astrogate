@@ -36,6 +36,7 @@ import {
   ASTRO_TOKEN_ID,
   ASTRO_WASM_HASH,
   checkRpcHealth,
+  DEVELOPER_TREASURY_ADDRESS,
   executeWithRpcFailover,
   LAUNCHPAD_CONTRACT_ID,
   LAUNCHPAD_WASM_HASH,
@@ -377,6 +378,7 @@ export const AstroGateConstants = {
   ASTRO_WASM_HASH,
   LAUNCHPAD_CONTRACT_ID,
   LAUNCHPAD_WASM_HASH,
+  DEVELOPER_TREASURY_ADDRESS,
   STELLAR_BURN_ADDRESS,
 }
 
@@ -384,6 +386,7 @@ export {
   checkRpcHealth,
   classifyTokenEvent,
   decodeOnChainMeta,
+  DEVELOPER_TREASURY_ADDRESS,
   encodeOnChainMeta,
   executeWithRpcFailover,
   extendTokenTtl,

@@ -16,6 +16,8 @@
 import type { PoolState } from './soroswap'
 import { DEFAULT_XLM_USD_PRICE } from './xlm'
 
+export { DEVELOPER_TREASURY_ADDRESS } from './network'
+
 /** Total supply in readable units for a standard fair launch (100M, 7 decimals). */
 export const FAIR_LAUNCH_TOTAL_BASIS = 100_000_000n
 

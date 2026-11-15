@@ -1,5 +1,22 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 28 — Auditoría E2E Testnet, Cuentas Oficiales Developer & Hardening Holders/Chart/Bindings)
+Auditoría completa post-upgrade 100M, creación de cuentas oficiales de Testnet, correcciones de matemáticas/lógica, sincronización de bindings TS y verificación E2E en vivo. *AI-generated; revisión humana pendiente.*
+- **Cuentas oficiales Testnet (seguras y fuera de git)**:
+  - **Developer Treasury (`astrogate-treasury`)**: `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE` (exportada como `DEVELOPER_TREASURY_ADDRESS` en `network.ts`, `tokenomics.ts`, `sdk/index.ts` y enlazada en la pestaña *Audit & Contract* de `TokenPage.tsx`; sobrescribible con `VITE_DEVELOPER_TREASURY_ADDRESS`).
+  - **Deployer / Ops (`astrogate-deployer`)**: `GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA` (usada por scripts CLI/E2E vía `STELLAR_SECRET`).
+  - Ambas cuentas fondeadas en Testnet, registradas en `stellar keys` (`astrogate-treasury`, `astrogate-deployer`) y almacenadas con permisos `0700`/`0600` en `~/.secrets/astrogate/developer-accounts.{json,env}` y en `.secrets/` (ignorado por `.gitignore`).
+- **Correcciones matemáticas, lógicas y de bindings**:
+  - `frontend/src/lib/holders.ts` + `holders.test.ts`: corregido orden de replay intra-ledger (reversión previa a orden por `ledger` + `id` para eventos `newest-first` de `fetchTokenEvents`), excluido `LAUNCHPAD_CONTRACT_ID` como intermediario transitorio, añadido soporte de `userAddress`/`userBalance` autoritativo y aplicado ajuste proporcional para conservación estricta de `totalSupply`.
+  - `frontend/src/components/ReserveChart.tsx`: alineada la línea de graduación `targetY` (`GRADUATION_TARGET_XLM`) a la misma escala de `toChartPoints`, separando `targetY = 12` y `seriesPadding = 24` cuando el pool aún está debajo del objetivo.
+  - Regenerados bindings TypeScript (`npm run bindings`) sincronizando `frontend/src/contracts/launchpad/{client,types}.ts` con el contrato v2 de `100M` (`CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC`).
+  - Scripts (`frontend/scripts/lib/load-secret.mjs`, `verify-launchpad.mjs`, `verify-soroswap.mjs`, `verify-frontend-flow.mjs`, `keepalive-ttl.mjs`): carga automática de `STELLAR_SECRET`, WASM hash actualizado (`a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7`), migración de `verify-frontend-flow.mjs` a `launchFairAtomic` + compra previa XLM→ASTRO cuando el balance inicial es 0 + venta mínima ≥ 1 stroop (`1,000` tokens), y limpieza de comentarios `1B`/`995M`/`5M` en frontend y docs (`README.md`, `AGENTS.md`, `GEMINI.md`, `RELEASE_CHECKLIST.md`, `public/llms.txt`, `.env.example`).
+- **Verificación en verde (post-edición)**:
+  - Rust: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` (`29/29`: `10` launchpad + `19` astro-token).
+  - Frontend: `cd frontend && npm run check` (`tsc -b`, `vite build`, `oxlint` `0 warnings`/`0 errors` en `122` archivos, `vitest` `25` suites / `181` tests, `smoke:render`, `verify:pwa`, `check:csp`).
+  - Testnet en vivo: `verify:launchpad` (`CAQCYLLDXIFVPGBH5WJV6C3WFDK3WZC4JO5EI4KZNVEGVMVTO64ABIUF`), `verify:discovery`, `verify:token-events`, `keepalive:ttl` (`0` fallos: `edc07c83...`, `4e290cf7...`, `339fb459...`), `verify:soroswap` (`CBHNNUE5R64WS2OLMLWNTLYKMDABSO3OF6RRB6ZBNN4N2YW4SAMI3MLO` / par `CDHRGX62H5TLSEVDTRBW6VPSFC2WHQIAOK2BBEUJWSQE36FTWXYSNAWK`), `verify:demo` (`CDEVCVWC354OZKJ6W3GQYQTDRESBMP66RXCOIVIQTW6DTGR3YMBWNMEL` / par `CBECZ7OI6OTD6KVNZFCOHS2QS6C7ZNBPGYTQ4L62OLY7PEE7HZB57RGU`) y `verify:frontend` (`CCFX5I4L3HASQTXRPDV2EKCD2Q7TAADCWIALLSEHAR3CLU5NO2BNKWOX` / par `CDYW5OXCV3UXC6OZRPIGORDWDTWCLW53TNJVGTHWLZP7U5ZHBLGVXSXF`).
+- **Nota de despliegue web**: rama `main` sincronizada y empujada a `origin/main` (junto con `ai/audit-hardening`); si se despliega en Cloudflare Workers manualmente, configurar `~/.config/cloudflare/cf-api-token` o `CLOUDFLARE_API_TOKEN` o usar integración Git en Vercel/Cloudflare.
+
 ## Handoff rápido (Nov 15 2026, sesión 27 — Supply 100M, Anti-Whale/Sniper, Holders, WebP/IPFS & Keep-Alive Testnet)
 Upgrade integral de tokenomics, analítica de riesgo, UX minimalista y automatización gratuita en Stellar Testnet. *AI-generated; revisión humana pendiente.*
 - **Contrato Launchpad v2 redesplegado a 100M (`CDCU4QD6WH6ATW6FO2KCMMVASNOM34QMWSJFKPH2YORL7IQC6SXBYHSC`)**:

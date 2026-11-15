@@ -31,7 +31,7 @@ export function KingOfTheHill({
 }) {
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
   const king = tokens && tokens.length > 0 ? pickKing(tokens) : null
-  // Supply real on-chain: no todos los pares descubiertos son fair launch de 1B.
+  // Supply real on-chain: no todos los pares descubiertos son fair launch de 100M.
   const kingInfo = useTokenInfo(king?.id ?? '')
   const kingMeta = useTokenMetadata(king?.id ?? '')
 
