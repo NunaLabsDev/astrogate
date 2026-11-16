@@ -27,7 +27,7 @@ export function HomePage() {
             Memecoin Market
           </h1>
           <p className="mt-1 max-w-2xl text-xs sm:text-sm text-slate-400">
-            10M fixed supply · Fair-Flywheel Curve (3,000 vXLM → 1,000 XLM) · 29.7% Proof-of-Burn · 100% LP burned on Soroswap.
+            10M fixed supply · Fair-Flywheel Curve (1,250 vXLM → 1,000 XLM) · 29.7% Proof-of-Burn · 100% LP burned on Soroswap.
           </p>
         </div>
 

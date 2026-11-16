@@ -188,8 +188,14 @@ export function TokenPage() {
     () =>
       analyzeTokenHolders({
         totalSupply: info.data?.totalSupply ?? 0n,
-        reserveToken: pool.data?.reserveToken ?? 0n,
-        pairId: pool.data?.pairId,
+        reserveToken: isBondingCurve
+          ? info.data && curve.data && info.data.totalSupply > curve.data.tokens_sold
+            ? info.data.totalSupply - curve.data.tokens_sold
+            : 0n
+          : (pool.data?.reserveToken ?? 0n),
+        pairId: isBondingCurve ? null : pool.data?.pairId,
+        isBondingCurve,
+        minHealthyPoolPercent: curve.data ? 20 : 50,
         creator: info.data?.creator,
         creatorBalance: creatorBalance.data,
         userAddress: publicKey,
@@ -197,10 +203,11 @@ export function TokenPage() {
         events: events.data,
       }),
     [
-      info.data?.totalSupply,
+      info.data,
+      curve.data,
+      isBondingCurve,
       pool.data?.reserveToken,
       pool.data?.pairId,
-      info.data?.creator,
       creatorBalance.data,
       publicKey,
       userBalance.data,
@@ -296,13 +303,15 @@ export function TokenPage() {
     symbol: info.data?.symbol,
   }
 
+  const tradePairScope = isBondingCurve ? null : pool.data?.pairId
+
   const trades = useMemo(() => {
     if (!events.data) return []
     return events.data.filter((ev) => {
-      const role = classifyTokenEvent(ev, pool.data?.pairId)
+      const role = classifyTokenEvent(ev, tradePairScope)
       return role === 'buy' || role === 'sell'
     })
-  }, [events.data, pool.data?.pairId])
+  }, [events.data, tradePairScope])
 
   if (!validId) return <NotFoundPage />
 
@@ -640,7 +649,7 @@ export function TokenPage() {
           </p>
           <p className="text-[11px] text-slate-400">
             {isBondingCurve && curve.data
-              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} bought · 3M DEX locked`
+              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} bought · 2.5M DEX locked`
               : pool.data?.exists
                 ? `${poolSupplyPct.toFixed(2)}% of total supply`
                 : '100% outside pool'}
@@ -1153,7 +1162,7 @@ export function TokenPage() {
                 ) : (
                   <div className="divide-y divide-slate-800/50 max-h-72 overflow-y-auto">
                     {trades.map((ev) => {
-                      const isBuy = classifyTokenEvent(ev, pool.data?.pairId) === 'buy'
+                      const isBuy = classifyTokenEvent(ev, tradePairScope) === 'buy'
                       const isWhale = ev.amount >= whaleThreshold
                       return (
                         <div

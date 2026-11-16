@@ -25,8 +25,8 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (Fair-Flywheel v4: 40 / 30 / 29.7 / 0.3)', () => {
-  it('reparte 40% curva, 30% DEX, 29.7% quema, 0.3% vesting sobre 10M', () => {
+describe('allocation math (Fair-Flywheel v4.1: 45 / 25 / 29.7 / 0.3)', () => {
+  it('reparte 45% curva, 25% DEX, 29.7% quema, 0.3% vesting sobre 10M', () => {
     expect(
       CURVE_TOKENS_ALLOC_BASE +
         DEX_TOKENS_ALLOC_BASE +
@@ -48,36 +48,37 @@ describe('allocation math (Fair-Flywheel v4: 40 / 30 / 29.7 / 0.3)', () => {
   })
 })
 
-describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust)', () => {
-  it('aplica fee estándar 80 bps (0.50% treasury + 0.30% floor) bajo <= 2% de vXLM', () => {
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.1)', () => {
+  it('aplica fee estándar 80 bps (0.50% treasury + 0.30% floor) bajo <= 2% de vXLM (25 XLM)', () => {
     const q = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
     expect(q).not.toBeNull()
     expect(q!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
     expect(q!.treasury_fee).toBe(500_000n)
     expect(q!.floor_bonus).toBe(300_000n)
     expect(q!.will_graduate).toBe(false)
-    expect(q!.tokens_out).toBeGreaterThan(50_000n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBeLessThan(60_000n * STROOPS_PER_UNIT)
+    // At 1,250 vXLM / 10.125M vTok, 10 XLM buys ~79.7K tokens
+    expect(q!.tokens_out).toBeGreaterThan(78_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBeLessThan(82_000n * STROOPS_PER_UNIT)
   })
 
   it('aplica recargo anti-ballena progresivo en compras > 2% de vXLM hacia el floor', () => {
-    // 200 XLM sobre 3,000 vXLM = 666 bps (> 200 bps) -> whale = (666 - 200) / 2 = 233 bps
+    // 200 XLM sobre 1,250 vXLM = 1,600 bps (> 200 bps) -> whale = (1,600 - 200) / 2 = 700 -> capped 500 bps
     const q = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
     expect(q).not.toBeNull()
-    expect(q!.total_fee_bps).toBe(80n + 233n)
+    expect(q!.total_fee_bps).toBe(80n + 500n)
     expect(q!.floor_bonus).toBeGreaterThan(q!.treasury_fee)
   })
 
-  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva', () => {
+  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (4.5M)', () => {
     const q = localCurveQuoteBuy(
       950n * STROOPS_PER_UNIT,
-      3_800_000n * STROOPS_PER_UNIT,
+      4_200_000n * STROOPS_PER_UNIT,
       100n * STROOPS_PER_UNIT,
     )
     expect(q).not.toBeNull()
     expect(q!.will_graduate).toBe(true)
     expect(q!.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBe(200_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBe(300_000n * STROOPS_PER_UNIT)
     expect(q!.total_xlm_charged).toBeLessThan(100n * STROOPS_PER_UNIT)
   })
 

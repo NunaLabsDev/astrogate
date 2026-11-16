@@ -64,7 +64,7 @@ export function formatLaunchAlertMessage(payload: LaunchAlertPayload): string {
   const formattedCap = Number(FAIR_LAUNCH_TOTAL_BASIS).toLocaleString('en-US')
   const lines = [
     `🚀 New AstroGate Fair Launch: $${payload.symbol} (${payload.name})`,
-    `Supply: ${formattedCap} fixed · 40% Curve / 30% DEX / 29.7% Burn Vault / 0.3% 15d Vesting`,
+    `Supply: ${formattedCap} fixed · 45% Curve / 25% DEX / 29.7% Burn Vault / 0.3% 15d Vesting`,
     `Seed Pool: ${payload.seedXlm} XLM`,
     `Token: ${payload.tokenId}`,
     `Creator: ${payload.creator}`,

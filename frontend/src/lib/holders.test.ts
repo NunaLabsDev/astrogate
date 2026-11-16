@@ -268,4 +268,35 @@ describe('analyzeTokenHolders', () => {
     expect(result.holders.find((h) => h.address === charlie)).toBeUndefined()
     expect(result.riskLevel).toBe('low')
   })
+
+  it('classifies Fair-Flywheel v4.1 bonding curve and graduated 25%-DEX tokens as low risk when no whale holds >= 10%', () => {
+    const curveRes = analyzeTokenHolders({
+      totalSupply: TOTAL,
+      reserveToken: 9_800_000n * UNIT,
+      pairId: null,
+      isBondingCurve: true,
+      creator: CREATOR,
+      creatorBalance: 50_000n * UNIT,
+      userAddress: ALICE,
+      userBalance: 150_000n * UNIT,
+      events: [],
+    })
+    expect(curveRes.riskLevel).toBe('low')
+    expect(curveRes.riskLabel).toBe('Healthy Distribution')
+
+    // Graduated v4.1 token: 8.515M supply (post-M1 burn), 2.5M DEX LP (~29.4% pool)
+    const gradRes = analyzeTokenHolders({
+      totalSupply: 8_515_000n * UNIT,
+      reserveToken: 2_500_000n * UNIT,
+      pairId: PAIR,
+      minHealthyPoolPercent: 20,
+      creator: CREATOR,
+      creatorBalance: 30_000n * UNIT,
+      userAddress: ALICE,
+      userBalance: 500_000n * UNIT,
+      events: [],
+    })
+    expect(gradRes.riskLevel).toBe('low')
+    expect(gradRes.riskLabel).toBe('Healthy Distribution')
+  })
 })

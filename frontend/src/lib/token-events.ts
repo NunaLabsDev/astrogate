@@ -123,6 +123,12 @@ export function tokenEventSummary(
       }
       return `Seller / LP ${shortAddress(event.from ?? '')} → Soroswap Pool`
     }
+    if (!pairId && event.from === LAUNCHPAD_CONTRACT_ID) {
+      return `Buyer ${shortAddress(event.to ?? '')} ← Bonding Curve`
+    }
+    if (!pairId && event.to === LAUNCHPAD_CONTRACT_ID) {
+      return `Seller ${shortAddress(event.from ?? '')} → Bonding Curve`
+    }
     return `${shortAddress(event.from ?? '')} → ${shortAddress(event.to ?? '')}`
   }
   if (event.kind === 'mint') {
@@ -134,20 +140,24 @@ export function tokenEventSummary(
 export type TokenTradeRole = 'buy' | 'sell' | 'transfer' | 'mint' | 'burn'
 
 /**
- * Classifies SEP-41 event relative to pairId:
- * - If tokens move out of pair (`from === pairId`), it's a BUY (`buy`).
- * - If tokens move into pair (`to === pairId`), it's a SELL / LP deposit (`sell`),
- *   except the atomic Fair Launch initial seed from LAUNCHPAD_CONTRACT_ID (`transfer`).
+ * Classifies SEP-41 event relative to pairId (or Launchpad Bonding Curve when `!pairId`):
+ * - Pool/Curve outflow -> `buy`
+ * - Pool/Curve inflow -> `sell` (except Launchpad's graduation seed to `pairId`)
  */
 export function classifyTokenEvent(
   event: TokenEvent,
   pairId?: string | null,
 ): TokenTradeRole {
-  if (event.kind === 'transfer' && pairId) {
-    if (event.from === pairId) return 'buy'
-    if (event.to === pairId) {
-      if (event.from === LAUNCHPAD_CONTRACT_ID) return 'transfer'
-      return 'sell'
+  if (event.kind === 'transfer') {
+    if (pairId) {
+      if (event.from === pairId) return 'buy'
+      if (event.to === pairId) {
+        if (event.from === LAUNCHPAD_CONTRACT_ID) return 'transfer'
+        return 'sell'
+      }
+    } else {
+      if (event.from === LAUNCHPAD_CONTRACT_ID) return 'buy'
+      if (event.to === LAUNCHPAD_CONTRACT_ID) return 'sell'
     }
   }
   return event.kind
@@ -172,14 +182,14 @@ export function reconstructSnapshotsFromEvents(
   if (
     !pool ||
     !pool.exists ||
-    !pool.pairId ||
     pool.reserveToken <= 0n ||
     pool.reserveXlm <= 0n
   ) {
     return []
   }
 
-  const pairId = pool.pairId
+  const counterParty = pool.pairId || LAUNCHPAD_CONTRACT_ID
+  const isGraduatedPair = Boolean(pool.pairId)
   const k = pool.reserveToken * pool.reserveXlm
 
   const poolEvents = events.filter(
@@ -187,8 +197,8 @@ export function reconstructSnapshotsFromEvents(
       e.kind === 'transfer' &&
       e.amount > 0n &&
       e.from !== e.to &&
-      e.from !== LAUNCHPAD_CONTRACT_ID &&
-      (e.from === pairId || e.to === pairId),
+      (!isGraduatedPair || e.from !== LAUNCHPAD_CONTRACT_ID) &&
+      (e.from === counterParty || e.to === counterParty),
   )
 
   let curToken = pool.reserveToken
@@ -204,10 +214,10 @@ export function reconstructSnapshotsFromEvents(
       token: curToken.toString(),
     })
 
-    if (ev.from === pairId) {
+    if (ev.from === counterParty) {
       curToken = curToken + ev.amount
       curXlm = curToken > 0n ? k / curToken : curXlm
-    } else if (ev.to === pairId && curToken > ev.amount) {
+    } else if (ev.to === counterParty && curToken > ev.amount) {
       const nextToken = curToken - ev.amount
       if (nextToken > 1000n) {
         curToken = nextToken

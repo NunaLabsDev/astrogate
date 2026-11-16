@@ -14,6 +14,7 @@ import {
   BURN_VAULT_ALLOCATION_BPS,
   CREATOR_ALLOCATION_BPS,
   CURVE_ALLOCATION_BPS,
+  curveCostForTotalSupplyShareXlm,
   CURVE_VIRTUAL_TOKEN_START_BASE,
   CURVE_VIRTUAL_XLM_START_STROOPS,
   DEFAULT_OPTIMIZED_SEED_XLM,
@@ -154,7 +155,7 @@ export function CreateTokenForm({
   const initialMarketCapXlm =
     spotPriceXlm * Number(FAIR_LAUNCH_TOTAL_BASIS)
   const initialMarketCapUsd = initialMarketCapXlm * xlmUsd
-  const sniperCost10PctXlm = Number(CURVE_VIRTUAL_XLM_START_STROOPS) / 1e7 * 0.1
+  const sniperCost10PctXlm = curveCostForTotalSupplyShareXlm(0n, 0n, 10)
   const sniperCost10PctUsd = sniperCost10PctXlm * xlmUsd
 
   const [name, setName] = useState('')
@@ -457,7 +458,7 @@ export function CreateTokenForm({
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white truncate">Create & Launch</h2>
             <p className="mt-0.5 text-xs text-slate-400">
-              10M fixed supply · 40% Fair Curve · 30% Soroswap · 29.7% Milestone Burn · 0.3% 15d Vesting
+              10M fixed supply · 45% Fair Curve · 25% Soroswap · 29.7% Milestone Burn · 0.3% 15d Vesting
             </p>
           </div>
         </div>
@@ -492,7 +493,7 @@ export function CreateTokenForm({
                     : `Phase: Virtual Bonding Curve (Graduates to Soroswap at ${GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)`}
                 </p>
                 <p className="text-xs text-emerald-200/90">
-                  ✓ 4,000,000 ${createdLaunch.symbol} Curve (3,000 vXLM) · 3,000,000 Soroswap Reserve · 2,970,000 Proof-of-Burn Vault · 30,000 (0.3%) Creator 15d Vesting
+                  ✓ 4,500,000 ${createdLaunch.symbol} Curve (1,250 vXLM) · 2,500,000 Soroswap Reserve · 2,970,000 Proof-of-Burn Vault · 30,000 (0.3%) Creator 15d Vesting
                 </p>
               </div>
             </div>
@@ -747,7 +748,7 @@ export function CreateTokenForm({
                 {
                   label: 'Single-Transaction Fair Launch',
                   status: 'active',
-                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 40% curve / 30% Soroswap / 29.7% burn vault / 0.3% 15d vesting locked, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy executed, and mint ownership renounced in 1 signature.`,
+                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 45% curve / 25% Soroswap / 29.7% burn vault / 0.3% 15d vesting locked, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy executed, and mint ownership renounced in 1 signature.`,
                 },
               ]}
             />
@@ -808,7 +809,7 @@ export function CreateTokenForm({
           <div className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-slate-200">
-                🔍 Fair-Flywheel v4 Split (40 / 30 / 29.7 / 0.3 — 3,000 vXLM → {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
+                🔍 Fair-Flywheel v4.1 Split (45 / 25 / 29.7 / 0.3 — 1,250 vXLM → {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
               </span>
               <span className="font-mono text-[11px] text-emerald-400">
                 {symbol || 'TOKEN'} Total Cap: 10,000,000
@@ -818,7 +819,7 @@ export function CreateTokenForm({
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 font-mono">
               <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  40% Bonding Curve + 30% DEX
+                  45% Bonding Curve + 25% DEX
                 </p>
                 <p className="mt-1 font-bold text-white">
                   {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}

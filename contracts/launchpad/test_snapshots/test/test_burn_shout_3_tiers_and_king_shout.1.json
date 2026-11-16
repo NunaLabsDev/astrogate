@@ -298,7 +298,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "hello curve"
@@ -317,7 +317,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -345,7 +345,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "10000000000"
+                  "i128": "50000000000"
                 },
                 {
                   "string": "First King"
@@ -364,7 +364,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "10000000000"
+                      "i128": "50000000000"
                     }
                   ]
                 }
@@ -392,7 +392,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "10000000000"
+                  "i128": "50000000000"
                 },
                 {
                   "string": "Tie fails"
@@ -411,7 +411,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                     },
                     {
-                      "i128": "10000000000"
+                      "i128": "50000000000"
                     }
                   ]
                 }
@@ -439,7 +439,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "15000000000"
+                  "i128": "75000000000"
                 },
                 {
                   "string": "New King"
@@ -458,7 +458,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                     },
                     {
-                      "i128": "15000000000"
+                      "i128": "75000000000"
                     }
                   ]
                 }
@@ -486,7 +486,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -505,7 +505,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -532,7 +532,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -551,7 +551,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -578,7 +578,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -597,7 +597,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -624,7 +624,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -643,7 +643,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -670,7 +670,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -689,7 +689,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -716,7 +716,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -735,7 +735,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -762,7 +762,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -781,7 +781,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -808,7 +808,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -827,7 +827,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -854,7 +854,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -873,7 +873,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -900,7 +900,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -919,7 +919,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -946,7 +946,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -965,7 +965,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -992,7 +992,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -1011,7 +1011,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -1038,7 +1038,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -1057,7 +1057,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -1084,7 +1084,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -1103,7 +1103,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -1130,7 +1130,7 @@
                   "address": "CCRSX5TEKWP4HE2FHKX4XE7MHWMXJQLRXMELABRFNOKCPFD66HPHWQ43"
                 },
                 {
-                  "i128": "250000000"
+                  "i128": "500000000"
                 },
                 {
                   "string": "spam"
@@ -1149,7 +1149,7 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     },
                     {
-                      "i128": "250000000"
+                      "i128": "500000000"
                     }
                   ]
                 }
@@ -1434,7 +1434,7 @@
                       "symbol": "curve_xlm_net"
                     },
                     "val": {
-                      "i128": "1041600000"
+                      "i128": "1032100000"
                     }
                   },
                   {
@@ -1488,7 +1488,7 @@
                       "symbol": "tokens_sold"
                     },
                     "val": {
-                      "i128": "5368795422915"
+                      "i128": "7722387877712"
                     }
                   }
                 ]
@@ -1524,7 +1524,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "15000000000"
+                      "i128": "75000000000"
                     }
                   },
                   {
@@ -1686,7 +1686,7 @@
                       "symbol": "token_lp_amount"
                     },
                     "val": {
-                      "i128": "30000000000000"
+                      "i128": "25000000000000"
                     }
                   },
                   {
@@ -1759,7 +1759,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -1803,7 +1803,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -1847,7 +1847,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -1891,7 +1891,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -1935,7 +1935,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -1979,7 +1979,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2023,7 +2023,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2067,7 +2067,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2111,7 +2111,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2155,7 +2155,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2199,7 +2199,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2243,7 +2243,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2287,7 +2287,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2331,7 +2331,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -2375,7 +2375,7 @@
                           "symbol": "amount"
                         },
                         "val": {
-                          "i128": "250000000"
+                          "i128": "500000000"
                         }
                       },
                       {
@@ -3338,7 +3338,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "94631204577085"
+                "i128": "92277612122288"
               }
             }
           },
@@ -3365,7 +3365,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "264096693466"
+                "i128": "400172117039"
               }
             }
           },
@@ -3392,7 +3392,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2579794459432"
+                "i128": "3739533710507"
               }
             }
           },
@@ -3419,7 +3419,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2485904270017"
+                "i128": "3399682050166"
               }
             }
           },
@@ -3443,7 +3443,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "99961000000000"
+                "i128": "99817000000000"
               }
             }
           },

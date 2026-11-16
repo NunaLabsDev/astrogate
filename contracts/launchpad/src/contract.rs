@@ -276,18 +276,18 @@ const MIN_LP_ALLOCATION_BPS: i128 = 9_950;
 /// Minimum 2 XLM (`20_000_000` stroops) initial buy / seed.
 const MIN_XLM_LP_STROOPS: i128 = 20_000_000;
 
-/// Fair-Flywheel v4 constants (10M supply, 7 decimals, 40 / 30 / 29.7 / 0.3).
+/// Fair-Flywheel v4.1 constants (10M supply, 7 decimals, 45 / 25 / 29.7 / 0.3).
 const FAIR_DECIMALS: u32 = 7;
 const FAIR_INITIAL_SUPPLY: i128 = 10_000_000 * STROOPS_PER_UNIT; // 100_000_000_000_000
-const CURVE_TOKENS_ALLOC: i128 = 4_000_000 * STROOPS_PER_UNIT; // 40.0%
-const DEX_TOKENS_ALLOC: i128 = 3_000_000 * STROOPS_PER_UNIT; // 30.0%
+const CURVE_TOKENS_ALLOC: i128 = 4_500_000 * STROOPS_PER_UNIT; // 45.0%
+const DEX_TOKENS_ALLOC: i128 = 2_500_000 * STROOPS_PER_UNIT; // 25.0%
 const BURN_VAULT_TOKENS_ALLOC: i128 = 2_970_000 * STROOPS_PER_UNIT; // 29.7%
 const CREATOR_VESTING_ALLOC: i128 = 30_000 * STROOPS_PER_UNIT; // 0.3%
 
-/// Virtual LP parameters (`3,000 vXLM -> 1,000 real XLM goal`, `M = 1/3`, 0.00% graduation cliff).
-const CURVE_VIRTUAL_XLM_START: i128 = 3_000 * STROOPS_PER_UNIT; // 30_000_000_000
+/// Virtual LP parameters (`1,250 vXLM -> 1,000 real XLM goal`, `3.24x` curve, `0.00%` graduation cliff).
+const CURVE_VIRTUAL_XLM_START: i128 = 1_250 * STROOPS_PER_UNIT; // 12_500_000_000
 const CURVE_REAL_XLM_GOAL: i128 = 1_000 * STROOPS_PER_UNIT; // 10_000_000_000
-const CURVE_VIRTUAL_TOKEN_START: i128 = 16_000_000 * STROOPS_PER_UNIT; // 160_000_000_000_000
+const CURVE_VIRTUAL_TOKEN_START: i128 = 10_125_000 * STROOPS_PER_UNIT; // 101_250_000_000_000
 
 /// Curve fees: 0.50% treasury + 0.30% base pool floor + up to +5.00% progressive anti-whale floor bonus.
 const TREASURY_FEE_BPS: i128 = 50;
@@ -295,16 +295,16 @@ const POOL_FLOOR_FEE_BPS: i128 = 30;
 const WHALE_FREE_SHARE_BPS: i128 = 200; // <= 2% of current virtual XLM pays zero whale surcharge
 const MAX_WHALE_SURCHARGE_BPS: i128 = 500; // cap +5.00% surcharge (100% into real_xlm_vault)
 
-/// Milestone 2 burn trigger: Soroswap pair real XLM reserve >= 2,500 XLM.
-const MILESTONE_2_PAIR_XLM: i128 = 2_500 * STROOPS_PER_UNIT;
+/// Milestone 2 burn trigger: Soroswap pair real XLM reserve >= 1,800 XLM.
+const MILESTONE_2_PAIR_XLM: i128 = 1_800 * STROOPS_PER_UNIT;
 
 /// Post-graduation creator vesting: 5 tranches of 20% (6,000 tokens) every 3 days (15 days total).
 const VESTING_INTERVAL_SECONDS: u64 = 3 * 86_400;
 const VESTING_PHASES: u64 = 5;
 
-/// 3-tier Burn-to-Chat: minimum 25 tokens, King Shout throne >= 1,000 tokens.
-const MIN_SHOUT_BURN: i128 = 25 * STROOPS_PER_UNIT;
-const KING_SHOUT_MIN_BURN: i128 = 1_000 * STROOPS_PER_UNIT;
+/// 3-tier Burn-to-Chat: minimum 50 tokens, King Shout throne >= 5,000 tokens.
+const MIN_SHOUT_BURN: i128 = 50 * STROOPS_PER_UNIT;
+const KING_SHOUT_MIN_BURN: i128 = 5_000 * STROOPS_PER_UNIT;
 
 const MAX_OFFCHAIN_META_BYTES: u32 = 512;
 const MAX_SHOUT_BYTES: u32 = 160;
@@ -576,7 +576,7 @@ impl Launchpad {
     }
 
     /// Permissionlessly burns Milestone 2 (`1,485,000` tokens) once a graduated token's
-    /// Soroswap pool reaches `>= 2,500 XLM` in real XLM reserves.
+    /// Soroswap pool reaches `>= 1,800 XLM` in real XLM reserves.
     pub fn trigger_milestone_burn(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
         Self::extend_ttl(e);
         let curve_key = DataKey::Curve(token.clone());
@@ -778,8 +778,8 @@ impl Launchpad {
         })
     }
 
-    /// 3-tier Burn-to-Chat: permanently burns holder tokens (`>= 25` tokens) via `token.burn()`,
-    /// records up to 15 recent messages, and crowns a new `KingShout` when `>= 1,000` tokens
+    /// 3-tier Burn-to-Chat: permanently burns holder tokens (`>= 50` tokens) via `token.burn()`,
+    /// records up to 15 recent messages, and crowns a new `KingShout` when `>= 5,000` tokens
     /// surpass the previous King burn amount.
     pub fn burn_shout(
         e: &Env,

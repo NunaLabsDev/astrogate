@@ -37,6 +37,10 @@ export function analyzeTokenHolders(params: {
   userAddress?: string | null
   userBalance?: bigint
   events?: readonly TokenEvent[]
+  /** True while actively trading inside Launchpad's Fair-Flywheel Bonding Curve. */
+  isBondingCurve?: boolean
+  /** Minimum DEX pool reserve % considered healthy (defaults to 50%, or 20% for 25%-DEX Fair-Flywheel tokens). */
+  minHealthyPoolPercent?: number
 }): HolderAnalysis {
   const {
     totalSupply,
@@ -47,6 +51,8 @@ export function analyzeTokenHolders(params: {
     userAddress,
     userBalance,
     events = [],
+    isBondingCurve = false,
+    minHealthyPoolPercent = 50,
   } = params
 
   if (totalSupply <= 0n) {
@@ -201,9 +207,14 @@ export function analyzeTokenHolders(params: {
   let riskLabel: string
   let riskSummary: string
 
+  const checkPoolFloor = !isBondingCurve && poolSharePercent > 0
+
+  const mediumPoolThreshold =
+    minHealthyPoolPercent >= 50 ? 70 : minHealthyPoolPercent + 5
+
   if (
     topSingleWalletPercent >= 20 ||
-    (poolSharePercent > 0 && poolSharePercent < 50)
+    (checkPoolFloor && poolSharePercent < minHealthyPoolPercent)
   ) {
     riskLevel = 'high'
     riskLabel = 'High Whale Risk'
@@ -213,7 +224,7 @@ export function analyzeTokenHolders(params: {
         : `Only ${poolSharePercent.toFixed(1)}% of supply remains in the AMM pool, indicating heavy external accumulation.`
   } else if (
     topSingleWalletPercent >= 10 ||
-    (poolSharePercent > 0 && poolSharePercent < 70)
+    (checkPoolFloor && poolSharePercent < mediumPoolThreshold)
   ) {
     riskLevel = 'medium'
     riskLabel = 'Medium Concentration'
@@ -224,8 +235,9 @@ export function analyzeTokenHolders(params: {
   } else {
     riskLevel = 'low'
     riskLabel = 'Healthy Distribution'
-    riskSummary =
-      poolSharePercent > 0
+    riskSummary = isBondingCurve
+      ? 'Reserves stay contract-locked inside the Fair-Flywheel Bonding Curve; no single wallet exceeds 10%.'
+      : poolSharePercent > 0
         ? `${poolSharePercent.toFixed(1)}% of supply stays locked in AMM liquidity; no single wallet exceeds 10%.`
         : 'No single external wallet exceeds 10% in observed on-chain transfers.'
   }

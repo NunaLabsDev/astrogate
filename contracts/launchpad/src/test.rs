@@ -241,9 +241,9 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
     assert_eq!(tok.total_supply(), 10_000_000 * STROOPS);
     assert_eq!(tok.get_owner(), None);
 
-    // Creator holds ONLY the ~2 XLM worth of curve tokens (not the 0.3% locked vesting!)
+    // Creator holds ONLY the ~2 XLM worth of curve tokens (~16K at 1,250 vXLM depth)
     let creator_bal = tok.balance(&creator);
-    assert!(creator_bal > 10_000 * STROOPS && creator_bal < 11_000 * STROOPS);
+    assert!(creator_bal > 15_500 * STROOPS && creator_bal < 16_500 * STROOPS);
 
     let curve_0 = client.get_curve(&res.token).unwrap();
     assert!(!curve_0.graduated);
@@ -271,10 +271,10 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
 
     let b2 = client.buy_curve(&buyer_10x, &res.token, &(100 * STROOPS), &q_10x.tokens_out);
 
-    // Whale 100 XLM only acquires ~5.1% of 10M total supply (anti-hoarding by math!),
-    // and ratio b2 / b1 is ~9.4x (no unfair 1st-buyer 7M vs 2M gap!)
-    assert!(b2.tokens < 525_000 * STROOPS);
-    assert!(b2.tokens > b1.tokens * 9);
+    // Whale 100 XLM only acquires ~7.2% of 10M total supply (anti-hoarding by math!),
+    // and ratio b2 / b1 is ~9.0x (no unfair 1st-buyer 7M vs 2M gap!)
+    assert!(b2.tokens < 750_000 * STROOPS);
+    assert!(b2.tokens > b1.tokens * 8);
 
     // Vault solvency check: real contract XLM matches curve.real_xlm_vault exact!
     let curve_after = client.get_curve(&res.token).unwrap();
@@ -418,15 +418,15 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
 
     let curve_grad = client.get_curve(&launch.token).unwrap();
     assert!(curve_grad.graduated);
-    assert_eq!(curve_grad.tokens_sold, 4_000_000 * STROOPS);
+    assert_eq!(curve_grad.tokens_sold, 4_500_000 * STROOPS);
     assert_eq!(curve_grad.curve_xlm_net, 1_000 * STROOPS);
     assert_eq!(curve_grad.real_xlm_vault, 0);
     assert_eq!(curve_grad.burn_milestone_stage, 1);
     assert_eq!(curve_grad.burn_vault_remaining, 1_485_000 * STROOPS);
 
-    // Soroswap pair received 3,000,000 tokens + >1,000 XLM (including floor bonuses!), LP burned!
+    // Soroswap pair received 2,500,000 tokens + >1,000 XLM (including floor bonuses!), LP burned!
     let tok = AstroTokenClient::new(&e, &launch.token);
-    assert_eq!(tok.balance(&s.pair), 3_000_000 * STROOPS);
+    assert_eq!(tok.balance(&s.pair), 2_500_000 * STROOPS);
     assert!(xlm_tok.balance(&s.pair) > 1_000 * STROOPS);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &s.pair).lp_recipient(),
@@ -446,14 +446,14 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // Milestone 2 rejected while Soroswap XLM reserve < 2,500 XLM
+    // Milestone 2 rejected while Soroswap XLM reserve < 1,800 XLM
     assert_eq!(
         client.try_trigger_milestone_burn(&launch.token),
         Err(Ok(LaunchpadError::MilestoneNotReached))
     );
 
-    // Simulate organic trading growing Soroswap XLM reserve to 2,500 XLM -> Milestone 2 burns remaining 1.485M!
-    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(2_500 * STROOPS, 1_200_000 * STROOPS));
+    // Simulate organic trading growing Soroswap XLM reserve to 1,800 XLM -> Milestone 2 burns remaining 1.485M!
+    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(1_800 * STROOPS, 1_200_000 * STROOPS));
     let burned2 = client.trigger_milestone_burn(&launch.token);
     assert_eq!(burned2, 1_485_000 * STROOPS);
     assert_eq!(tok.total_supply(), 7_030_000 * STROOPS);
@@ -522,31 +522,31 @@ fn test_burn_shout_3_tiers_and_king_shout() {
     client.buy_curve(&user_a, &res.token, &(50 * STROOPS), &1);
     client.buy_curve(&user_b, &res.token, &(50 * STROOPS), &1);
 
-    // Below 25 tokens minimum -> InvalidAmount
+    // Below 50 tokens minimum -> InvalidAmount
     assert_eq!(
         client.try_burn_shout(
             &user_a,
             &res.token,
-            &(24 * STROOPS),
+            &(49 * STROOPS),
             &String::from_str(&e, "too cheap"),
         ),
         Err(Ok(LaunchpadError::InvalidAmount))
     );
 
-    // Normal shout (25 tokens): succeeds without crowning KingShout
+    // Normal shout (50 tokens): succeeds without crowning KingShout
     client.burn_shout(
         &user_a,
         &res.token,
-        &(25 * STROOPS),
+        &(50 * STROOPS),
         &String::from_str(&e, "hello curve"),
     );
     assert!(client.get_king_shout(&res.token).is_none());
 
-    // 1,000 tokens crowns KingShout!
+    // 5,000 tokens crowns KingShout!
     client.burn_shout(
         &user_a,
         &res.token,
-        &(1_000 * STROOPS),
+        &(5_000 * STROOPS),
         &String::from_str(&e, "First King"),
     );
     assert_eq!(
@@ -554,32 +554,32 @@ fn test_burn_shout_3_tiers_and_king_shout() {
         String::from_str(&e, "First King")
     );
 
-    // Equal 1,000 tokens does NOT dethrone current King
+    // Equal 5,000 tokens does NOT dethrone current King
     client.burn_shout(
         &user_b,
         &res.token,
-        &(1_000 * STROOPS),
+        &(5_000 * STROOPS),
         &String::from_str(&e, "Tie fails"),
     );
     assert_eq!(client.get_king_shout(&res.token).unwrap().sender, user_a);
 
-    // Strictly higher burn (1,500 tokens) dethrones King!
+    // Strictly higher burn (7,500 tokens) dethrones King!
     client.burn_shout(
         &user_b,
         &res.token,
-        &(1_500 * STROOPS),
+        &(7_500 * STROOPS),
         &String::from_str(&e, "New King"),
     );
     let king = client.get_king_shout(&res.token).unwrap();
     assert_eq!(king.sender, user_b);
-    assert_eq!(king.amount, 1_500 * STROOPS);
+    assert_eq!(king.amount, 7_500 * STROOPS);
 
     // History caps cleanly at 15 shouts
     for _ in 0..15 {
         client.burn_shout(
             &user_a,
             &res.token,
-            &(25 * STROOPS),
+            &(50 * STROOPS),
             &String::from_str(&e, "spam"),
         );
     }
@@ -677,7 +677,7 @@ fn test_adversarial_salt_frontrunning_and_pagination() {
         .try_burn_shout(
             &attacker,
             &res_creator.token,
-            &(25 * STROOPS),
+            &(50 * STROOPS),
             &String::from_str(&e, "free"),
         )
         .is_err());
@@ -722,7 +722,7 @@ fn test_adversarial_direct_graduating_launch_and_invalid_quotes() {
     assert_eq!(res.pair, Some(s.pair));
     let curve = client.get_curve(&res.token).unwrap();
     assert!(curve.graduated);
-    assert_eq!(curve.tokens_sold, 4_000_000 * STROOPS);
+    assert_eq!(curve.tokens_sold, 4_500_000 * STROOPS);
     assert_eq!(curve.curve_xlm_net, 1_000 * STROOPS);
     assert_eq!(curve.burn_milestone_stage, 1);
 
@@ -776,7 +776,7 @@ fn test_adversarial_auth_required_without_mock() {
         .try_burn_shout(
             &attacker,
             &Address::generate(&e),
-            &(25 * STROOPS),
+            &(50 * STROOPS),
             &String::from_str(&e, "hi")
         )
         .is_err());

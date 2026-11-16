@@ -1,5 +1,20 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 32 — Optimización Fair-Flywheel v4.1, Bugfixes UI/Holders/Charts & Deploy Final)
+Calibración óptima para la comunidad Stellar (**Fair-Flywheel v4.1**: `45 / 25 / 29.7 / 0.3`, `1,250 vXLM → 1,000 real XLM` [`3.24x` curva], Milestone 2 a `1,800 XLM`, Burn-to-Chat `50 / 500 / 5,000+`), corrección de 3 fallos en análisis de holders, cálculos anti-ballena y velas históricas en curva, redespliegue completo y análisis de necesidades reales de inversores Stellar en Telegram (*The Mystery School*). *AI-generated; revisión humana pendiente.*
+- **Contrato Launchpad v4.1 desplegado en Testnet**:
+  - **Contract ID**: `CDK7UNVNW4SBDRNRHJQ3SR3TEGH4BD5M3QTXMPEE3PNLBRZQJXTBKBCO` (WASM hash `458133493ff21f87c001244b3f91c79e328deeba176fdd1353913267daa52952`, `34635 bytes` optimizados, treasury `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE`).
+- **Correcciones clave aplicadas (tras auditoría matemática y de mercado)**:
+  - `holders.ts` + `TokenPage.tsx`: contabiliza reservas bloqueadas en curva (`isBondingCurve`) y ajusta umbral de pool post-graduación (`minHealthyPoolPercent: 20` para pools `25%` DEX), evitando falsos *High Whale Risk* en tokens Fair-Flywheel sanos.
+  - `tokenomics.ts` + `CreateTokenForm.tsx` + `SwapCard.tsx`: añadido `curveCostForTotalSupplyShareXlm` (`~137 XLM` reales para 10% del supply en vez de `300 XLM`) y `curveSafeOrderXlmStroops` (`<= 2% vXLM` para evitar recargo anti-ballena).
+  - `token-events.ts`: `classifyTokenEvent` y `reconstructSnapshotsFromEvents` ahora reconstruyen trades y velas históricas en curva vía `LAUNCHPAD_CONTRACT_ID` cuando `pairId === ''`.
+- **Deploy público actualizado (v4.1)**:
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`https://ba9cdcc8.astrogate.pages.dev`) + **Cloudflare Workers**: `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `cce12b09-7213-444a-b1d7-ad558b85db04`), `HTTP 200` en todas las rutas.
+- **Verificación completa en verde**:
+  - Rust: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test --workspace` (`33/33`: `10` launchpad + `23` token).
+  - Frontend: `npm run check` (`25` suites / `188` tests Vitest OK, `oxlint` `0` warnings/errors, `smoke:render`, `verify:pwa`, `check:csp`) + `npm-audit-ratchet.mjs` (`0` critical, `30` baseline).
+  - Testnet en vivo: `verify:launchpad`, `verify:soroswap`, `verify:frontend` (`CBD4UCP7IDUOL63R3PJV27LGKBZ3LZ767M3BGLTGULJBA6Y3FZFLVYDX`), `verify:demo` (`CDVA5JVILNRWSO3AEZRI2VFB4DNHKRWN4FBQH2JGDGGQLK6ECPF5KTQF`), `verify:adversarial` (`CAYBIUFALKHEVC546H57ACWIUR56FAZYXLJWS55H33OG2EHV3YNRFG2Z` graduado en vivo a `CAYZ726LI4O6LM7XH3ORFQWDBAQQE7Y2ROZZMXJ2IRID6JM7WQHIYFC6`) y `keepalive:ttl` (`0` fallos).
+
 ## Handoff rápido (Nov 16 2026, sesión 31 — Launchpad v4 "Fair-Flywheel 40 / 30 / 29.7 / 0.3" & Deploy Completo)
 Implementación completa end-to-end del modelo económico **Fair-Flywheel v4** (`40%` Curva Virtual `3,000 vXLM -> 1,000 XLM` / `30%` Soroswap DEX / `29.7%` Milestone Proof-of-Burn Vault / `0.3%` Vesting 15d post-graduación) en Soroban, SDK, UI, suite adversarial multi-cuenta y despliegue en vivo. *AI-generated; revisión humana pendiente.*
 - **Contrato Launchpad v4 desplegado en Testnet**:

@@ -25,6 +25,7 @@ import {
 import {
   calculateSupplySharePercent,
   costToBuyPoolShareStroops,
+  curveSafeOrderXlmStroops,
   curveVirtualReserves,
   GRADUATION_TARGET_XLM,
   graduationProgressForListing,
@@ -714,21 +715,29 @@ export function SwapCard({
 
                 {isBondingCurve && curveBuyQuote?.will_graduate ? (
                   <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-[11px] font-semibold text-emerald-200">
-                    🎓 Graduation Buy: Deposits 1,000 XLM + 3M tokens into Soroswap LP (100% burned) and burns 1,485,000 tokens via token.burn()!
+                    🎓 Graduation Buy: Deposits ≥ 1,000 XLM + 2.5M tokens into Soroswap LP (100% burned) and burns 1,485,000 tokens via token.burn()!
                   </div>
                 ) : null}
 
-                {isBuy && poolSharePct > 5 ? (
+                {isBuy && (isBondingCurve ? curveFeeBps > 80n : poolSharePct > 5) ? (
                   <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-2 text-[11px] text-amber-200 space-y-1.5">
                     <p className="font-medium">
-                      🛡️ Anti-Whale Guard: Buying {poolSharePct.toFixed(1)}% of {isBondingCurve ? 'curve' : 'pool'} {isBondingCurve ? 'triggers progressive floor fees' : 'creates heavy slippage & whale concentration'}.
+                      {isBondingCurve
+                        ? '🛡️ Anti-Whale Guard: Orders > 2% of virtual XLM trigger progressive floor fees (+vault bonus).'
+                        : `🛡️ Anti-Whale Guard: Buying ${poolSharePct.toFixed(1)}% of pool creates heavy slippage & whale concentration.`}
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {[2, 5].map((safePct) => {
-                        const safeXlmStroops = costToBuyPoolShareStroops(
-                          effectivePool?.reserveXlm ?? 0n,
-                          safePct,
-                        )
+                        const safeXlmStroops =
+                          isBondingCurve && curve.data
+                            ? curveSafeOrderXlmStroops(
+                                curve.data.curve_xlm_net,
+                                BigInt(safePct * 100),
+                              )
+                            : costToBuyPoolShareStroops(
+                                effectivePool?.reserveXlm ?? 0n,
+                                safePct,
+                              )
                         if (safeXlmStroops <= 0n) return null
                         const safeXlmText = formatAmount(safeXlmStroops, XLM_DECIMALS)
                         return (
@@ -739,7 +748,11 @@ export function SwapCard({
                             onClick={() => setAmount(safeXlmText)}
                             className="rounded-md border border-amber-400/50 bg-amber-500/20 px-2 py-1 font-mono font-bold text-amber-200 hover:bg-amber-500/30 transition"
                           >
-                            Cap to {safePct === 2 ? 'Safe 2%' : '5%'} ({safeXlmText} XLM)
+                            {isBondingCurve
+                              ? safePct === 2
+                                ? `No Whale Fee (${safeXlmText} XLM)`
+                                : `5% vXLM (${safeXlmText} XLM)`
+                              : `Cap to ${safePct === 2 ? 'Safe 2%' : '5%'} (${safeXlmText} XLM)`}
                           </button>
                         )
                       })}

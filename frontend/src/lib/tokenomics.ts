@@ -1,14 +1,14 @@
 /**
- * Fair-Flywheel v4 Tokenomics (AstroGate 40 / 30 / 29.7 / 0.3 on Stellar / Soroban).
+ * Fair-Flywheel v4.1 Tokenomics (AstroGate 45 / 25 / 29.7 / 0.3 on Stellar / Soroban).
  *
  * Anti-Fraud, Anti-Whale & Long-Term Flywheel Rules:
  * 1. Standard Supply: 10,000,000 tokens (7 decimals, aligned with 1 XLM = 10^7 stroops).
- * 2. 40.0% (4,000,000 tokens): Virtual Bonding Curve (`3,000 vXLM -> 1,000 real XLM goal`),
- *    preventing early monopoly while preserving healthy appreciation (`~3.15x` average/spot gain).
- * 3. 30.0% (3,000,000 tokens): Reserved for Soroswap DEX Pool at graduation + >= 1,000 real XLM,
- *    with 0.00% graduation price cliff and 100% LP burned to `GAAAA...WHF`.
+ * 2. 45.0% (4,500,000 tokens): Virtual Bonding Curve (`1,250 vXLM -> 1,000 real XLM goal`),
+ *    3.24x curve appreciation rewarding early buyers while blocking initial supply monopolies.
+ * 3. 25.0% (2,500,000 tokens): Reserved for Soroswap DEX Pool at graduation + >= 1,000 real XLM,
+ *    with 0.00% base graduation cliff and 100% LP burned to `GAAAA...WHF`.
  * 4. 29.7% (2,970,000 tokens): Milestone Proof-of-Burn Vault — 1,485,000 burned via `token.burn()`
- *    at graduation + 1,485,000 permissionlessly burned once Soroswap XLM reserve >= 2,500 XLM.
+ *    at graduation + 1,485,000 permissionlessly burned once Soroswap XLM reserve >= 1,800 XLM.
  * 5. 0.3% (30,000 tokens): 15-day post-graduation creator vesting (5 tranches of 6,000 every 3 days).
  * 6. Renounced Ownership: Minting is disabled forever on launch; burns strictly shrink `total_supply()`.
  */
@@ -23,7 +23,7 @@ export const STROOPS_PER_UNIT = 10_000_000n
 /** Total supply in readable units for a standard fair launch (10M, 7 decimals). */
 export const FAIR_LAUNCH_TOTAL_BASIS = 10_000_000n
 
-/** Minimum initial curve buy required by Launchpad v4 (`launch_fair`: 2 XLM). */
+/** Minimum initial curve buy required by Launchpad v4.1 (`launch_fair`: 2 XLM). */
 export const MIN_SEED_XLM = 2
 
 /** Minimum initial curve buy in XLM stroops (2 * 10^7). */
@@ -32,26 +32,26 @@ export const MIN_SEED_XLM_STROOPS = 20_000_000n
 /** Decimals of every token deployed by this launchpad (native Stellar convention). */
 export const FAIR_LAUNCH_DECIMALS = 7
 
-/** Fair-Flywheel v4 allocation breakdown in basis points (sum = 10,000 bps). */
-export const CURVE_ALLOCATION_BPS = 4_000n // 40.0% -> 4,000,000 tokens
-export const DEX_ALLOCATION_BPS = 3_000n // 30.0% -> 3,000,000 tokens
+/** Fair-Flywheel v4.1 allocation breakdown in basis points (sum = 10,000 bps). */
+export const CURVE_ALLOCATION_BPS = 4_500n // 45.0% -> 4,500,000 tokens
+export const DEX_ALLOCATION_BPS = 2_500n // 25.0% -> 2,500,000 tokens
 export const BURN_VAULT_ALLOCATION_BPS = 2_970n // 29.7% -> 2,970,000 tokens
 export const CREATOR_ALLOCATION_BPS = 30n // 0.3%  -> 30,000 tokens (15d vesting)
 
 /** Combined non-creator community/protocol pool (99.7% = 9,970 bps). */
 export const POOL_ALLOCATION_BPS = 9_970n
 
-/** Exact Fair-Flywheel v4 base-unit allocations (7 decimals). */
+/** Exact Fair-Flywheel v4.1 base-unit allocations (7 decimals). */
 export const FAIR_INITIAL_SUPPLY_BASE = FAIR_LAUNCH_TOTAL_BASIS * STROOPS_PER_UNIT
-export const CURVE_TOKENS_ALLOC_BASE = 4_000_000n * STROOPS_PER_UNIT
-export const DEX_TOKENS_ALLOC_BASE = 3_000_000n * STROOPS_PER_UNIT
+export const CURVE_TOKENS_ALLOC_BASE = 4_500_000n * STROOPS_PER_UNIT
+export const DEX_TOKENS_ALLOC_BASE = 2_500_000n * STROOPS_PER_UNIT
 export const BURN_VAULT_TOKENS_ALLOC_BASE = 2_970_000n * STROOPS_PER_UNIT
 export const CREATOR_VESTING_ALLOC_BASE = 30_000n * STROOPS_PER_UNIT
 
 /** Virtual Bonding Curve constants (1:1 parity with `contracts/launchpad/src/contract.rs`). */
-export const CURVE_VIRTUAL_XLM_START_STROOPS = 3_000n * STROOPS_PER_UNIT
+export const CURVE_VIRTUAL_XLM_START_STROOPS = 1_250n * STROOPS_PER_UNIT
 export const CURVE_REAL_XLM_GOAL_STROOPS = 1_000n * STROOPS_PER_UNIT
-export const CURVE_VIRTUAL_TOKEN_START_BASE = 16_000_000n * STROOPS_PER_UNIT
+export const CURVE_VIRTUAL_TOKEN_START_BASE = 10_125_000n * STROOPS_PER_UNIT
 
 /** Progressive Anti-Whale Curve Fees (1:1 parity with Rust contract). */
 export const TREASURY_FEE_BPS = 50n // 0.50% -> Developer Treasury
@@ -61,12 +61,12 @@ export const WHALE_FREE_SHARE_BPS = 200n // <= 2.00% of current vXLM pays 0 whal
 export const MAX_WHALE_SURCHARGE_BPS = 500n // max +5.00% surcharge (100% into real_xlm_vault)
 
 /** Milestone Proof-of-Burn Stage 2 trigger on graduated Soroswap pair. */
-export const MILESTONE_2_PAIR_XLM = 2_500
+export const MILESTONE_2_PAIR_XLM = 1_800
 
 /** 3-tier Burn-to-Chat thresholds in readable tokens. */
-export const MIN_SHOUT_BURN = 25
-export const HYPE_SHOUT_BURN = 250
-export const KING_SHOUT_BURN = 1_000
+export const MIN_SHOUT_BURN = 50
+export const HYPE_SHOUT_BURN = 500
+export const KING_SHOUT_BURN = 5_000
 
 /**
  * Stellar Canonical Burn Address (Blackhole / Dead Account):
@@ -448,9 +448,44 @@ export function localCurveQuoteSell(
 }
 
 /**
- * Default balanced initial buy on the Fair-Flywheel v4 Virtual Curve:
- * 10 XLM (~$1.55 USD) puts ~13.1K tokens in the creator's wallet at the fair floor price
- * (`~1,875 -> 1,887 stroops/token`), keeping 99.87% of supply democratized.
+ * Exact XLM cost (stroops) on the Virtual Curve to purchase `targetSharePercent` of the 10M total supply,
+ * before trading fees, using `k = vXlm * vTok`. Returns 0n if target exceeds remaining curve tokens.
+ */
+export function curveCostForTotalSupplyShareXlm(
+  curveXlmNet: bigint,
+  tokensSold: bigint,
+  targetSharePercent: number,
+): number {
+  if (!Number.isFinite(targetSharePercent) || targetSharePercent <= 0) return 0
+  const { virtualXlm, virtualTokens, remainingCurveTokens } =
+    curveVirtualReserves(curveXlmNet, tokensSold)
+  const wantedTokens =
+    (FAIR_INITIAL_SUPPLY_BASE * BigInt(Math.round(targetSharePercent * 100))) /
+    10_000n
+  if (wantedTokens <= 0n || wantedTokens > remainingCurveTokens) return 0
+  const newVTok = virtualTokens - wantedTokens
+  if (newVTok <= 0n) return 0
+  const netXlmNeeded = divCeil(virtualXlm * virtualTokens, newVTok) - virtualXlm
+  return Number(netXlmNeeded) / 1e7
+}
+
+/**
+ * Exact max XLM order size (in stroops) that fits inside `orderShareBps` of current virtual XLM.
+ * `200 bps` (2%) is the exact ceiling with ZERO progressive anti-whale surcharge in Launchpad v4.1.
+ */
+export function curveSafeOrderXlmStroops(
+  curveXlmNet: bigint,
+  orderShareBps: bigint = WHALE_FREE_SHARE_BPS,
+): bigint {
+  const safeNet = curveXlmNet < 0n ? 0n : curveXlmNet
+  const vXlm = CURVE_VIRTUAL_XLM_START_STROOPS + safeNet
+  return (vXlm * orderShareBps) / 10_000n
+}
+
+/**
+ * Default balanced initial buy on the Fair-Flywheel v4.1 Virtual Curve:
+ * 10 XLM (~$1.55 USD) puts ~79.7K tokens in the creator's wallet at the fair floor price
+ * (`~1,235 stroops/token`), keeping 99.2% of supply democratized.
  */
 export const DEFAULT_OPTIMIZED_SEED_XLM = 10
 

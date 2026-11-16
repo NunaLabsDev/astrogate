@@ -77,7 +77,7 @@ Flujo manual en navegador (idealmente dos cuentas):
 - [ ] Conectar wallet real de testnet y leer balance.
 - [ ] Activar modo prueba; crear 3 cuentas; cambiar de usuario.
 - [ ] Crear token (`launch_fair`): comprobar 10,000,000 supply fijo (`cap`),
-      split Fair-Flywheel v4 (40% curva virtual `3,000 vXLM → 1,000 XLM`, 30% Soroswap DEX,
+      split Fair-Flywheel v4.1 (45% curva virtual `1,250 vXLM → 1,000 XLM`, 25% Soroswap DEX,
       29.7% Milestone Proof-of-Burn Vault, 0.3% Creator 15d post-grad vesting) y ownership renunciado.
       Al graduar a 1,000 XLM: 100% LP quemados en `GAAAA...WHF` + quema Milestone 1 (`1,485,000`).
 - [ ] Vender token → XLM; comprobar mínimo, slippage, share del pool e impacto.

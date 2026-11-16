@@ -144,7 +144,7 @@ try {
   if (creatorBalInitial !== expectedCreatorTokens || creatorBalInitial !== curveInit.tokens_sold) {
     throw new Error(`compra inicial curva no coincide: ${creatorBalInitial.toString()} vs ${expectedCreatorTokens.toString()}`)
   }
-  console.log('verifyAntiRug + registro v4 OK (Curva 3K vXLM, creator compro', creatorBalInitial.toString(), 'base units)')
+  console.log('verifyAntiRug + registro v4.1 OK (Curva 1,250 vXLM, creator compro', creatorBalInitial.toString(), 'base units)')
 
   // 2. Transfer A -> B + B compra en Virtual Bonding Curve con paridad local 0ms vs RPC
   const transfer = await tokenLib.tokenClient(token, signerA).transfer({
@@ -181,7 +181,7 @@ try {
   }
   console.log('B compro', bought.toString(), 'base units en Bonding Curve (paridad 1:1 con RPC)')
 
-  // 3. B vende parte de sus tokens en Bonding Curve + Burn-to-Chat (min 25) + Extend TTL
+  // 3. B vende parte de sus tokens en Bonding Curve + Burn-to-Chat (min 50) + Extend TTL
   const sellAmount = 1_000n * unit
   const curveBeforeSell = await tokenLib.fetchCurveState(token)
   const localSell = tokenomics.localCurveQuoteSell(
@@ -204,11 +204,11 @@ try {
   }
   console.log('B vendio 1,000 DEMO en curva ->', sellRes.trade.xlm.toString(), 'stroops XLM')
 
-  const shoutText = `Live v4 E2E shout ${Date.now()}`
+  const shoutText = `Live v4.1 E2E shout ${Date.now()}`
   const supplyBeforeShout = (await tokenLib.tokenClient(token).total_supply()).result
   await tokenLib.burnAndShout({
     tokenId: token,
-    amount: 25n * unit,
+    amount: 50n * unit,
     message: shoutText,
     signer: signerB,
   })
@@ -219,10 +219,10 @@ try {
   if (!shouts.some((s) => s.sender === receiver.publicKey && s.message === shoutText)) {
     throw new Error('burn_shout no aparecio en get_shouts on-chain')
   }
-  if (supplyAfterShout.result !== supplyBeforeShout - 25n * unit) {
+  if (supplyAfterShout.result !== supplyBeforeShout - 50n * unit) {
     throw new Error('burn_shout no redujo total_supply exactamente')
   }
-  console.log('Burn-to-Chat (>= 25) on-chain OK y total_supply reducido tras quema')
+  console.log('Burn-to-Chat (>= 50) on-chain OK y total_supply reducido tras quema')
 
   // 4. C ejecuta extendTokenTtl sin permisos especiales
   await tokenLib.extendTokenTtl({ tokenId: token, signer: signerC })

@@ -24,7 +24,7 @@ const UNIT = 10_000_000n // 7 decimals
 const EXPECTED_INITIAL_SUPPLY = 10_000_000n * UNIT
 const EXPECTED_BURN_VAULT = 2_970_000n * UNIT
 const EXPECTED_CREATOR_VESTING = 30_000n * UNIT
-const EXPECTED_DEX_RESERVE = 3_000_000n * UNIT
+const EXPECTED_DEX_RESERVE = 2_500_000n * UNIT
 const EXPECTED_MILESTONE_1_BURN = 1_485_000n * UNIT
 
 const { secret } = loadStellarSecret()
@@ -145,7 +145,7 @@ try {
   if (ownerInit.result !== null) {
     throw new Error(`Ownership was not renounced: ${ownerInit.result}`)
   }
-  console.log('  invariants verified: 10M cap, 40/30/29.7/0.3 split locked, owner=None, exact v4 quote parity')
+  console.log('  invariants verified: 10M cap, 45/25/29.7/0.3 split locked, owner=None, exact v4.1 quote parity')
 
   console.log('\n3) Malicious & malformed Launchpad attack attempts...')
   const lpAttacker = tokenLib.launchpadClient(attackerSigner)
@@ -381,10 +381,10 @@ try {
     return unwrapOrThrow(await tx.signAndSend())
   })
 
-  await expectRejected('burn_shout below minimum (< 25 tokens)', async () => {
+  await expectRejected('burn_shout below minimum (< 50 tokens)', async () => {
     await tokenLib.burnAndShout({
       tokenId: token,
-      amount: 24n * UNIT,
+      amount: 49n * UNIT,
       message: 'below minimum burn',
       signer: creatorSigner,
     })
@@ -393,7 +393,7 @@ try {
   await expectRejected('burn_shout empty message', async () => {
     await tokenLib.burnAndShout({
       tokenId: token,
-      amount: 30n * UNIT,
+      amount: 50n * UNIT,
       message: '',
       signer: creatorSigner,
     })
@@ -402,7 +402,7 @@ try {
   await expectRejected('burn_shout message > 160 bytes', async () => {
     await tokenLib.burnAndShout({
       tokenId: token,
-      amount: 30n * UNIT,
+      amount: 50n * UNIT,
       message: 'x'.repeat(161),
       signer: creatorSigner,
     })
@@ -412,7 +412,7 @@ try {
     const tx = await lpAttacker.burn_shout({
       sender: creator.publicKey,
       token,
-      amount: 30n * UNIT,
+      amount: 50n * UNIT,
       message: 'spoofed shout',
     })
     return unwrapOrThrow(await tx.signAndSend())
@@ -485,8 +485,8 @@ try {
   console.log(`  ok Trader2 bought ${buy2.trade.tokens} & sold 5,000 on curve`)
 
   // King Shout dethroning & total_supply shrink
-  const shout1Amt = 1_000n * UNIT
-  const shout2Amt = 1_500n * UNIT
+  const shout1Amt = 5_000n * UNIT
+  const shout2Amt = 7_500n * UNIT
   await tokenLib.burnAndShout({
     tokenId: token,
     amount: shout1Amt,
@@ -503,7 +503,7 @@ try {
   if (!kingRecord || kingRecord.sender !== trader2.publicKey || kingRecord.amount !== shout2Amt) {
     throw new Error(`King Shout dethrone failed: ${JSON.stringify(kingRecord)}`)
   }
-  console.log('  ok 3-tier King Shout dethrone verified on-chain (1,000 -> 1,500)')
+  console.log('  ok 3-tier King Shout dethrone verified on-chain (5,000 -> 7,500)')
 
   // Self-transfer + wallet churn + graduated live test
   const t1BalBeforeChurn = await tokenLib.fetchTokenBalance(token, trader1.publicKey)
@@ -582,7 +582,7 @@ try {
   await expectRejected('claim_creator_vesting before Day 3 cliff rejected', async () => {
     await tokenLib.claimCreatorVesting({ tokenId: token, signer: creatorSigner })
   })
-  await expectRejected('trigger_milestone_burn before 2,500 XLM DEX depth rejected', async () => {
+  await expectRejected('trigger_milestone_burn before 1,800 XLM DEX depth rejected', async () => {
     await tokenLib.triggerMilestoneBurn({ tokenId: token, signer: opsSigner })
   })
 

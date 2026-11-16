@@ -54,17 +54,17 @@ export const ASTRO_WASM_HASH =
   'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
 
 /**
- * Fair-Flywheel Launchpad v4 deployed on testnet (10M fixed supply, 40/30/29.7/0.3,
- * 3,000 vXLM -> 1,000 real XLM goal, 15d post-grad vesting, 25/250/1,000 King Shout).
+ * Fair-Flywheel Launchpad v4.1 deployed on testnet (10M fixed supply, 45/25/29.7/0.3,
+ * 1,250 vXLM -> 1,000 real XLM goal [3.24x], 15d post-grad vesting, 50/500/5,000 King Shout).
  */
 export const LAUNCHPAD_CONTRACT_ID =
-  'CA343KTSUBOUABOVP7AHYMRKHJ3LD4OI3HTYXMCIS3USR3HK2L6LTRHV'
+  'CDK7UNVNW4SBDRNRHJQ3SR3TEGH4BD5M3QTXMPEE3PNLBRZQJXTBKBCO'
 
 /**
- * SHA-256 hash of the launchpad v4 contract bytecode deployed on testnet.
+ * SHA-256 hash of the launchpad v4.1 contract bytecode deployed on testnet.
  */
 export const LAUNCHPAD_WASM_HASH =
-  '30d39cf397f3f9037564a97252104331a8f7e6001db3b8405608bf2d81a95007'
+  '458133493ff21f87c001244b3f91c79e328deeba176fdd1353913267daa52952'
 
 /**
  * Official AstroGate Developers Treasury address on Stellar Testnet.
