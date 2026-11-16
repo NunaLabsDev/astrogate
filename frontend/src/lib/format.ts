@@ -181,10 +181,19 @@ export function errorMessage(error: unknown): string {
     return 'Bonding curve or creator vesting state does not exist for this token.'
   }
   if (
+    lower.includes('wrong network') ||
+    lower.includes('network passphrase') ||
+    lower.includes('different network') ||
+    lower.includes('passphrase mismatch')
+  ) {
+    const expected = NETWORK_NAME === 'mainnet' ? 'Stellar MAINNET' : 'Stellar TESTNET'
+    return `Wallet network mismatch: switch your Freighter/xBull extension to ${expected} and retry.`
+  }
+  if (
     raw.includes('Error(Contract, #8)') ||
     lower.includes('milestonenotreached')
   ) {
-    return 'Milestone condition not yet reached (requires >= 2,500 XLM DEX depth or next 3-day vesting tranche).'
+    return 'Milestone condition not yet reached (requires >= 1,800 XLM DEX depth or next 3-day vesting tranche).'
   }
   if (lower.includes('expired') || lower.includes('deadline')) {
     return 'Transaction timed out (deadline expired). Please try again.'

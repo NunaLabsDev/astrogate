@@ -159,6 +159,10 @@ function MarketCard({
             <span className="liquid-glass-pill rounded-full border-sky-400/50 bg-sky-950/80 px-2.5 py-1 text-[10px] font-bold tracking-wider text-sky-300 uppercase">
               ✦ in swap
             </span>
+          ) : !token.verifiedLaunchpad ? (
+            <span className="liquid-glass-pill rounded-full border-slate-500/40 bg-slate-950/75 px-2.5 py-1 text-[10px] font-medium tracking-wider text-slate-300">
+              Soroswap DEX
+            </span>
           ) : isGraduated ? (
             <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-2.5 py-1 text-[10px] font-bold tracking-wider text-emerald-300 uppercase">
               ✦ Graduated
@@ -170,7 +174,7 @@ function MarketCard({
             </span>
           ) : (
             <span className="liquid-glass-pill rounded-full px-2.5 py-1 text-[10px] font-medium text-sky-300">
-              Curve {grad.percent.toFixed(0)}%
+              ⚡ Curve {grad.percent.toFixed(0)}%
             </span>
           )}
         </div>

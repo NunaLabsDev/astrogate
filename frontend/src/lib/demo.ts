@@ -106,15 +106,13 @@ export function saveDemoMode(active: boolean): void {
 }
 
 /**
- * Crea y fondea una única cuenta de prueba con 10 000 XLM vía Friendbot
- * con timeout y reintentos.
+ * Fondea cualquier dirección de Testnet (propia o generada) con 10 000 XLM vía Friendbot.
  */
-export async function createSingleDemoAccount(
-  label: string,
+export async function fundTestnetAddress(
+  publicKey: string,
   maxRetries = 3,
-): Promise<DemoAccount> {
+): Promise<void> {
   assertTestnet()
-  const keypair = Keypair.random()
   let lastError: Error | null = null
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -122,22 +120,16 @@ export async function createSingleDemoAccount(
     const timer = setTimeout(() => controller.abort(), FRIEND_BOT_TIMEOUT_MS)
     try {
       const response = await fetch(
-        `${FRIEND_BOT_URL}/?addr=${encodeURIComponent(keypair.publicKey())}`,
+        `${FRIEND_BOT_URL}/?addr=${encodeURIComponent(publicKey)}`,
         { signal: controller.signal },
       )
-      if (response.ok) {
-        return {
-          label,
-          publicKey: keypair.publicKey(),
-          secret: keypair.secret(),
-        }
-      }
+      if (response.ok) return
       if (response.status === 429 && attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
         continue
       }
       lastError = new Error(
-        `Friendbot could not fund account ${label} (HTTP ${response.status})`,
+        `Friendbot could not fund account ${publicKey.slice(0, 6)}… (HTTP ${response.status})`,
       )
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
@@ -152,9 +144,27 @@ export async function createSingleDemoAccount(
   throw (
     lastError ??
     new Error(
-      `Friendbot faucet timed out for account ${label}. Stellar testnet may be busy.`,
+      `Friendbot faucet timed out for ${publicKey.slice(0, 6)}…. Stellar testnet may be busy.`,
     )
   )
+}
+
+/**
+ * Crea y fondea una única cuenta de prueba con 10 000 XLM vía Friendbot
+ * con timeout y reintentos.
+ */
+export async function createSingleDemoAccount(
+  label: string,
+  maxRetries = 3,
+): Promise<DemoAccount> {
+  assertTestnet()
+  const keypair = Keypair.random()
+  await fundTestnetAddress(keypair.publicKey(), maxRetries)
+  return {
+    label,
+    publicKey: keypair.publicKey(),
+    secret: keypair.secret(),
+  }
 }
 
 export type DemoAccountsResult = {

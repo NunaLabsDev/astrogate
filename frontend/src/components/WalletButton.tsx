@@ -1,11 +1,15 @@
+import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useWallet } from '../store/wallet'
 import { useXlmBalance } from '../hooks/useXlmBalance'
-import { MAX_DEMO_ACCOUNTS } from '../lib/demo'
+import { fundTestnetAddress, MAX_DEMO_ACCOUNTS } from '../lib/demo'
 import { errorMessage, shortAddress } from '../lib/format'
 import { NETWORK_NAME } from '../lib/network'
 import { toast } from '../lib/toast'
 
 export function WalletButton() {
+  const queryClient = useQueryClient()
+  const [fundingWallet, setFundingWallet] = useState(false)
   const {
     publicKey,
     pending,
@@ -64,6 +68,22 @@ export function WalletButton() {
       toast.error('Failed to disconnect wallet', {
         message: errorMessage(err),
       })
+    }
+  }
+
+  async function onFundConnectedWallet() {
+    if (!publicKey) return
+    setFundingWallet(true)
+    try {
+      await fundTestnetAddress(publicKey)
+      toast.success('Wallet funded with 10,000 Testnet XLM')
+      await queryClient.invalidateQueries({ queryKey: ['xlm-balance'] })
+    } catch (err) {
+      toast.error('Testnet faucet failed', {
+        message: errorMessage(err),
+      })
+    } finally {
+      setFundingWallet(false)
     }
   }
 
@@ -140,6 +160,20 @@ export function WalletButton() {
           {xlmBalance.data !== undefined ? <span className="text-slate-600">·</span> : null}
           <code className="text-slate-200">{shortAddress(publicKey)}</code>
         </span>
+        {NETWORK_NAME !== 'mainnet' &&
+        mode === 'wallet' &&
+        xlmBalance.data !== undefined &&
+        xlmBalance.data < 5 ? (
+          <button
+            type="button"
+            disabled={fundingWallet}
+            onClick={() => void onFundConnectedWallet()}
+            title="Request 10,000 free Testnet XLM from Stellar Friendbot"
+            className="min-h-[36px] rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
+          >
+            {fundingWallet ? 'Funding…' : '🚰 +10K XLM'}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={() => void onDisconnect()}

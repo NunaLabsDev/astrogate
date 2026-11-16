@@ -130,7 +130,10 @@ describe('errorMessage', () => {
       'Bonding curve or creator vesting state does not exist for this token.',
     )
     expect(errorMessage(new Error('HostError: Error(Contract, #8)'))).toBe(
-      'Milestone condition not yet reached (requires >= 2,500 XLM DEX depth or next 3-day vesting tranche).',
+      'Milestone condition not yet reached (requires >= 1,800 XLM DEX depth or next 3-day vesting tranche).',
+    )
+    expect(errorMessage(new Error('Wallet is on wrong network'))).toBe(
+      'Wallet network mismatch: switch your Freighter/xBull extension to Stellar TESTNET and retry.',
     )
   })
 })
