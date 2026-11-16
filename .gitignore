@@ -15,3 +15,5 @@ logs/*.log
 
 # Secretos locales (nunca en repo; ~/.secrets vive fuera del repo)
 .secrets/
+.vercel
+**/.vercel

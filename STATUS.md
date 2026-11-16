@@ -1,7 +1,11 @@
 # Estado actual (para continuar en la próxima sesión)
 
-## Handoff rápido (Nov 16 2026, sesión 30 — Endurecimiento Producción Testnet, Seguridad de Fondos & Limpieza)
-Sincronización final de seguridad, protección de fondos/reservas, aislamiento mainnet/testnet y limpieza general del repositorio para uso por usuarios reales en Testnet como entorno equivalente a producción. *AI-generated; revisión humana pendiente.*
+## Handoff rápido (Nov 16 2026, sesión 30 — Endurecimiento Producción Testnet, Seguridad de Fondos, Limpieza & Deploy Web Público)
+Sincronización final de seguridad, protección de fondos/reservas, aislamiento mainnet/testnet, limpieza general y despliegue web público en Vercel + Cloudflare Workers para uso directo por usuarios reales en Testnet. *AI-generated; revisión humana pendiente.*
+- **Despliegue web público sincronizado (v3 · 10M · min 2 XLM)**:
+  - **Enlace principal minimal (Vercel, proyecto `andelabs-projects/astrogate`)**: `https://astrogate-app.vercel.app` (dominio de producción añadido sin SSO wall; `astrogate-ecru.vercel.app` también activo). Verificadas respuestas `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest` con CSP/HSTS/PWA y Launchpad v3 `CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ`.
+  - **Espejo Cloudflare Workers (`astrogate-stellar`)**: actualizado en `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `f2d23785-d774-404b-adfa-412c4410ff7f`), `HTTP 200` en todas las rutas.
+  - Actualizada la URL canónica (`astrogate-app.vercel.app`) en `frontend/src/lib/token-metadata.ts`, `SECURITY.md`, `docs/AI_AGENT_INTEGRATION.md`, `docs/RELEASE_CHECKLIST.md` e ignorado `.vercel` en `.gitignore`.
 - **Protección uniforme de reserva mínima y gas (`validateXlmReserve` en `frontend/src/lib/xlm.ts`)**:
   - Centralizada la validación de balance XLM (`XLM_FEE_BUFFER = 1 XLM` + XLM gastado) en todos los flujos que firman en red: `SwapCard.tsx`, `CreateTokenForm.tsx`, `LiquidityForm.tsx`, `LiquidityPosition.tsx`, `TransferCard.tsx`, `BurnCard.tsx`, `TokenHypeBar.tsx`, `MintCard.tsx` y `TokenPage.tsx` (`onExtendTtl`), evitando transacciones rechazadas o erosión de la reserva base Stellar.
   - Añadida confirmación explícita (`window.confirm`) en `SwapCard.tsx` antes de firmar swaps con impacto de precio `>= 15%` o tolerancia de slippage `>= 10%`.
