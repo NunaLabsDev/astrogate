@@ -23,9 +23,6 @@ import {
   withSlippage,
 } from '../lib/soroswap'
 import {
-  calculateSupplySharePercent,
-  costToBuyPoolShareStroops,
-  curveSafeOrderXlmStroops,
   curveVirtualReserves,
   GRADUATION_TARGET_XLM,
   graduationProgressForListing,
@@ -38,7 +35,7 @@ import { notifySwapAlert } from '../lib/alerts'
 import { AMOUNT_PERCENTS, FORM_INPUT_CLASS, UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { explorerTxUrl } from '../lib/explorer'
 import { NETWORK_NAME } from '../lib/network'
-import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, xlmToStroops } from '../lib/xlm'
 import { buyCurveToken, sellCurveToken, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -59,9 +56,9 @@ type SwapDone = {
 const QUICK_XLM_AMOUNTS = ['5', '10', '25', '100'] as const
 
 function impactClass(impact: number): string {
-  if (impact >= 5) return 'text-rose-300'
-  if (impact >= 2) return 'text-amber-300'
-  return 'text-slate-400'
+  if (impact >= 20) return 'text-rose-300'
+  if (impact >= 10) return 'text-amber-300'
+  return 'text-slate-300'
 }
 
 /**
@@ -88,6 +85,7 @@ export function SwapCard({
   const [direction, setDirection] = useState<Direction>('buy')
   const [amount, setAmount] = useState('10')
   const [slippage, setSlippage] = useState<number>(SLIPPAGE_PERCENT)
+  const [showSlippage, setShowSlippage] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [swapped, setSwapped] = useState<SwapDone | null>(null)
@@ -125,12 +123,7 @@ export function SwapCard({
       ? xlmToStroops(xlmBalance.data)
       : undefined
   const inputBalanceBase = isBuy ? xlmBase : tokenBalance.data
-  const maxInput =
-    isBuy && xlmBase !== undefined
-      ? xlmBase > XLM_FEE_BUFFER
-        ? xlmBase - XLM_FEE_BUFFER
-        : 0n
-      : inputBalanceBase
+  const sellMaxBalance = tokenBalance.data
 
   const amountIn = parseAmount(amount, inputDecimals)
 
@@ -203,10 +196,6 @@ export function SwapCard({
         : (Number(quoted) / 10 ** XLM_DECIMALS) * xlmUsd
       : 0
   const tradedTokenBase = isBuy ? (quoted ?? 0n) : amountIn
-  const poolSharePct =
-    effectivePool?.exists && tradedTokenBase > 0n
-      ? calculateSupplySharePercent(tradedTokenBase, effectivePool.reserveToken)
-      : 0
   const isWhaleOrder =
     tradedTokenBase > 0n &&
     tradedTokenBase >= whaleThresholdBase(token.decimals)
@@ -542,7 +531,7 @@ export function SwapCard({
             </span>
             <div className="flex items-center gap-2">
               {inputUsd > 0 ? (
-                <span className="font-mono text-[11px] text-slate-400">
+                <span className="font-mono text-xs text-slate-400">
                   ≈ ${formatUsdPrice(inputUsd)} USD
                 </span>
               ) : null}
@@ -550,7 +539,7 @@ export function SwapCard({
                 <button
                   type="button"
                   onClick={() => setAmount('')}
-                  className="text-[11px] text-slate-400 hover:text-slate-200 underline"
+                  className="text-xs text-slate-400 hover:text-slate-200 underline"
                 >
                   Clear
                 </button>
@@ -566,8 +555,8 @@ export function SwapCard({
           />
         </label>
 
-        {/* Quick Amount Chips */}
-        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs text-slate-400">
+        {/* Quick Amount Chips — Buy uses fixed safe XLM presets (no MAX button to prevent draining gas wallet) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>
             {isBuy ? 'Balance' : 'Your Token'}:{' '}
             <span className="font-mono text-slate-200 font-semibold">
@@ -577,46 +566,34 @@ export function SwapCard({
             </span>
           </span>
 
-          <div className="flex flex-wrap gap-1">
+          <div className="flex flex-wrap gap-1.5">
             {isBuy ? (
-              <>
-                {QUICK_XLM_AMOUNTS.map((quickXlm) => (
-                  <button
-                    key={quickXlm}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setAmount(quickXlm)}
-                    className="inline-flex min-h-[32px] items-center rounded-md border border-slate-800 bg-slate-950/80 px-2 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950/30 transition-colors"
-                  >
-                    {quickXlm} XLM
-                  </button>
-                ))}
-                {maxInput !== undefined && maxInput > 0n ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => setAmount(formatAmount(maxInput, inputDecimals))}
-                    className="inline-flex min-h-[32px] items-center rounded-md border border-emerald-800/80 bg-emerald-950/40 px-2 py-1 text-xs font-bold text-emerald-200 hover:border-emerald-500 transition-colors"
-                  >
-                    MAX
-                  </button>
-                ) : null}
-              </>
+              QUICK_XLM_AMOUNTS.map((quickXlm) => (
+                <button
+                  key={quickXlm}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setAmount(quickXlm)}
+                  className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950/30 transition-colors"
+                >
+                  {quickXlm} XLM
+                </button>
+              ))
             ) : (
               AMOUNT_PERCENTS.map((pct) => {
                 const slice =
-                  maxInput !== undefined ? (maxInput * BigInt(pct)) / 100n : 0n
+                  sellMaxBalance !== undefined ? (sellMaxBalance * BigInt(pct)) / 100n : 0n
                 return (
                   <button
                     key={pct}
                     type="button"
-                    disabled={maxInput === undefined || maxInput <= 0n || busy}
+                    disabled={sellMaxBalance === undefined || sellMaxBalance <= 0n || busy}
                     onClick={() => {
                       if (slice > 0n) {
                         setAmount(formatAmount(slice, inputDecimals))
                       }
                     }}
-                    className="inline-flex min-h-[32px] items-center rounded-md border border-slate-800 bg-slate-950/80 px-2 py-1 text-xs font-semibold text-rose-300 hover:border-rose-500 hover:bg-rose-950/30 transition-colors disabled:opacity-50"
+                    className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-rose-300 hover:border-rose-500 hover:bg-rose-950/30 transition-colors disabled:opacity-50"
                   >
                     {pct === 100 ? 'MAX' : `${pct}%`}
                   </button>
@@ -626,43 +603,66 @@ export function SwapCard({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-          <span>Slippage Tolerance</span>
-          <div
-            role="group"
-            aria-label="Slippage tolerance"
-            className="flex flex-wrap items-center gap-1"
-          >
-            {SLIPPAGE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                type="button"
-                aria-pressed={slippage === option}
-                disabled={busy}
-                onClick={() => setSlippage(option)}
-                className={`min-h-[32px] rounded-md border px-2.5 py-1 font-mono text-xs transition-colors ${
-                  slippage === option
-                    ? 'border-emerald-500 bg-emerald-500/15 font-medium text-emerald-300'
-                    : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                {option}%
-              </button>
-            ))}
-            <label className="flex items-center rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 min-h-[32px] focus-within:border-emerald-500">
-              <span className="sr-only">Custom slippage percent</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label="Custom slippage percent"
-                value={slippage}
-                disabled={busy}
-                onChange={(e) => handleSlippageInput(e.target.value)}
-                className="w-10 bg-transparent text-right font-mono text-xs text-slate-200 outline-none"
-              />
-              <span className="ml-0.5 font-mono text-[10px] text-slate-500">%</span>
-            </label>
+        {/* Compact Slippage Control */}
+        <div className="space-y-2 text-xs text-slate-400">
+          <div className="flex items-center justify-between gap-2">
+            <span>Slippage</span>
+            <button
+              type="button"
+              aria-expanded={showSlippage}
+              disabled={busy}
+              onClick={() => setShowSlippage((prev) => !prev)}
+              className="inline-flex min-h-[32px] items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1 font-mono text-xs text-slate-200 hover:border-slate-600 transition-colors"
+            >
+              <span>{slippage}%</span>
+              <span className="text-slate-400">{showSlippage ? '▴' : '⚙'}</span>
+            </button>
           </div>
+
+          {showSlippage ? (
+            <div className="space-y-1.5 rounded-xl border border-slate-800/80 bg-slate-950/50 p-2.5">
+              <div
+                role="group"
+                aria-label="Slippage tolerance"
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                {SLIPPAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    aria-pressed={slippage === option}
+                    disabled={busy}
+                    onClick={() => setSlippage(option)}
+                    className={`min-h-[32px] rounded-md border px-2.5 py-1 font-mono text-xs transition-colors ${
+                      slippage === option
+                        ? 'border-emerald-500 bg-emerald-500/15 font-medium text-emerald-300'
+                        : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    {option}%
+                  </button>
+                ))}
+                <label className="flex items-center rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 min-h-[32px] focus-within:border-emerald-500">
+                  <span className="sr-only">Custom slippage percent</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label="Custom slippage percent"
+                    value={slippage}
+                    disabled={busy}
+                    onChange={(e) => handleSlippageInput(e.target.value)}
+                    className="w-10 bg-transparent text-right font-mono text-xs text-slate-200 outline-none"
+                  />
+                  <span className="ml-0.5 font-mono text-xs text-slate-500">%</span>
+                </label>
+              </div>
+              {slippage >= 10 ? (
+                <p className="text-xs text-amber-300">
+                  High slippage ({slippage}%) — your order may execute at a worse price.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {amountIn > 0n && effectivePool?.exists ? (
@@ -670,7 +670,7 @@ export function SwapCard({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p>
                 You receive ≈{' '}
-                <span className="font-medium text-emerald-400">
+                <span className="font-semibold text-emerald-400">
                   {quoted !== undefined
                     ? `${formatAmount(quoted, outputDecimals)} ${outputSymbol}`
                     : 'quoting…'}
@@ -683,89 +683,34 @@ export function SwapCard({
               ) : null}
             </div>
 
-            {quoted !== undefined && quoted > 0n && impact !== null ? (
-              <div className="space-y-1.5 rounded-xl border border-slate-800/80 bg-slate-950/40 px-3 py-2 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-slate-400">
-                    Min received:{' '}
+            {quoted !== undefined && quoted > 0n ? (
+              <div className="space-y-1.5 rounded-xl border border-slate-800/80 bg-slate-950/40 px-3 py-2.5 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-slate-400">
+                  <span>
+                    Min. received:{' '}
                     <strong className="font-mono text-slate-200">
                       {formatAmount(minimum ?? 0n, outputDecimals)} {outputSymbol}
                     </strong>
                   </span>
-                  <span className="text-slate-400">
-                    Impact:{' '}
-                    <strong className={`font-mono ${impactClass(impact)}`}>
-                      {impact.toFixed(1)}%
-                    </strong>
-                    {impact >= 15 ? (
-                      <span className="ml-1 text-rose-400 font-bold">⚠️ High</span>
-                    ) : null}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/60 pt-1.5 text-[11px] text-slate-400">
                   <span>
-                    {isBondingCurve ? 'Curve share:' : 'Pool share:'}{' '}
+                    Fee:{' '}
                     <strong className="font-mono text-slate-200">
-                      {poolSharePct.toFixed(2)}%
+                      {isBondingCurve
+                        ? `${(Number(curveFeeBps) / 100).toFixed(2)}%`
+                        : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}%`}
                     </strong>
-                    {isWhaleOrder ? (
-                      <span className="ml-1.5 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
-                        🐋 Whale Order
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="font-mono text-slate-400">
-                    {isBondingCurve
-                      ? `${(Number(curveFeeBps) / 100).toFixed(2)}% fee (0.50% Treasury + ${(Number(curveFeeBps - 50n) / 100).toFixed(2)}% Vault)`
-                      : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP fee · 0% protocol fee`}
                   </span>
                 </div>
 
-                {isBondingCurve && curveBuyQuote?.will_graduate ? (
-                  <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-[11px] font-semibold text-emerald-200">
-                    🎓 Graduation Buy: Deposits ≥ 1,000 XLM + 2.5M tokens into Soroswap LP (100% burned) and burns 1,485,000 tokens via token.burn()!
-                  </div>
+                {impact !== null && impact >= 10 ? (
+                  <p className={`text-xs ${impactClass(impact)}`}>
+                    Price moves ~{impact.toFixed(1)}% with this order size.
+                  </p>
                 ) : null}
 
-                {isBuy && (isBondingCurve ? curveFeeBps > 80n : poolSharePct > 5) ? (
-                  <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-2 text-[11px] text-amber-200 space-y-1.5">
-                    <p className="font-medium">
-                      {isBondingCurve
-                        ? '🛡️ Anti-Whale Guard: Orders > 2% of virtual XLM trigger progressive floor fees (+vault bonus).'
-                        : `🛡️ Anti-Whale Guard: Buying ${poolSharePct.toFixed(1)}% of pool creates heavy slippage & whale concentration.`}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {[2, 5].map((safePct) => {
-                        const safeXlmStroops =
-                          isBondingCurve && curve.data
-                            ? curveSafeOrderXlmStroops(
-                                curve.data.curve_xlm_net,
-                                BigInt(safePct * 100),
-                              )
-                            : costToBuyPoolShareStroops(
-                                effectivePool?.reserveXlm ?? 0n,
-                                safePct,
-                              )
-                        if (safeXlmStroops <= 0n) return null
-                        const safeXlmText = formatAmount(safeXlmStroops, XLM_DECIMALS)
-                        return (
-                          <button
-                            key={safePct}
-                            type="button"
-                            disabled={busy}
-                            onClick={() => setAmount(safeXlmText)}
-                            className="rounded-md border border-amber-400/50 bg-amber-500/20 px-2 py-1 font-mono font-bold text-amber-200 hover:bg-amber-500/30 transition"
-                          >
-                            {isBondingCurve
-                              ? safePct === 2
-                                ? `No Whale Fee (${safeXlmText} XLM)`
-                                : `5% vXLM (${safeXlmText} XLM)`
-                              : `Cap to ${safePct === 2 ? 'Safe 2%' : '5%'} (${safeXlmText} XLM)`}
-                          </button>
-                        )
-                      })}
-                    </div>
+                {isBondingCurve && curveBuyQuote?.will_graduate ? (
+                  <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200">
+                    🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!
                   </div>
                 ) : null}
               </div>
@@ -812,12 +757,12 @@ export function SwapCard({
                   : `💰 Quick Sell ${tokenSymbol} for XLM`}
             </button>
           )}
-          <div className="mt-2.5 flex items-center justify-between text-[11px] font-mono text-slate-400">
+          <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
             <span>Slippage: {slippage}%</span>
-            <span className="text-emerald-400 font-semibold">
+            <span className="text-emerald-400 font-medium">
               {isBondingCurve
-                ? '0.50% Treasury + 0.30% Vault Floor (+Anti-Whale Bonus)'
-                : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% AstroGate Fee`}
+                ? 'Instant on-chain curve trade'
+                : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% DEX LP fee · 0% protocol fee`}
             </span>
           </div>
         </div>
