@@ -117,17 +117,20 @@ function MarketCard({
         {/* Subtle Bottom Vignette for Floating Glass Controls */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-transparent" />
 
-        {/* Top-Left: Ticker & Launchpad Verified Badge */}
+        {/* Top-Left: Ticker & Verified Fair Marker */}
         <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5">
-          <span className="liquid-glass-pill rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wider text-sky-300 font-mono">
+          <span className="liquid-glass-pill rounded-full px-3 py-1 text-xs font-bold tracking-wider text-sky-300 font-mono">
             ${token.symbol}
           </span>
           {token.verifiedLaunchpad ? (
-            <span className="liquid-glass-pill rounded-full border-emerald-400/50 bg-emerald-950/75 px-2 py-1 text-[10px] font-semibold text-emerald-300">
+            <span
+              title="Verified Fair Launch"
+              className="liquid-glass-pill rounded-full border-emerald-400/50 bg-emerald-950/75 px-2.5 py-1 text-xs font-semibold text-emerald-300"
+            >
               ✓ Fair
             </span>
           ) : ageLabel ? (
-            <span className="liquid-glass-pill rounded-full px-2 py-1 font-mono text-[10px] text-slate-300">
+            <span className="liquid-glass-pill rounded-full px-2.5 py-1 font-mono text-xs text-slate-300">
               {ageLabel}
             </span>
           ) : null}
@@ -156,24 +159,24 @@ function MarketCard({
         {/* Bottom-Left of Art Frame: Graduation Status Pill */}
         <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
           {selected ? (
-            <span className="liquid-glass-pill rounded-full border-sky-400/50 bg-sky-950/80 px-2.5 py-1 text-[10px] font-bold tracking-wider text-sky-300 uppercase">
+            <span className="liquid-glass-pill rounded-full border-sky-400/50 bg-sky-950/80 px-3 py-1 text-xs font-bold tracking-wider text-sky-300 uppercase">
               ✦ in swap
             </span>
           ) : !token.verifiedLaunchpad ? (
-            <span className="liquid-glass-pill rounded-full border-slate-500/40 bg-slate-950/75 px-2.5 py-1 text-[10px] font-medium tracking-wider text-slate-300">
+            <span className="liquid-glass-pill rounded-full border-slate-500/40 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-300">
               Soroswap DEX
             </span>
           ) : isGraduated ? (
-            <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-2.5 py-1 text-[10px] font-bold tracking-wider text-emerald-300 uppercase">
+            <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-3 py-1 text-xs font-bold text-emerald-300">
               ✦ Graduated
             </span>
           ) : isHeating ? (
-            <span className="liquid-glass-pill inline-flex items-center gap-1.5 rounded-full border-amber-400/60 bg-amber-950/75 px-2.5 py-1 text-[10px] font-bold tracking-wider text-amber-300 uppercase">
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-              🔥 Graduating ({grad.percent.toFixed(0)}%)
+            <span className="liquid-glass-pill inline-flex items-center gap-1.5 rounded-full border-amber-400/60 bg-amber-950/75 px-3 py-1 text-xs font-bold text-amber-300">
+              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+              🔥 {grad.percent.toFixed(0)}%
             </span>
           ) : (
-            <span className="liquid-glass-pill rounded-full px-2.5 py-1 text-[10px] font-medium text-sky-300">
+            <span className="liquid-glass-pill rounded-full px-3 py-1 text-xs font-medium text-sky-300">
               ⚡ Curve {grad.percent.toFixed(0)}%
             </span>
           )}
@@ -181,43 +184,38 @@ function MarketCard({
       </div>
 
       {/* Token Details & Price Pedestal */}
-      <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+      <div className="flex flex-1 flex-col justify-between gap-3.5 p-4 sm:p-5">
         <div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-[11px] text-slate-400">
-              {shortAddress(token.id)}
-            </span>
-          </div>
-          <div className="mt-0.5 flex items-baseline justify-between gap-2">
-            <h3 className="truncate text-base font-bold text-white group-hover:text-sky-300">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="truncate text-base sm:text-lg font-bold text-white group-hover:text-sky-300">
               {token.name}
             </h3>
-            <span className="shrink-0 rounded-md bg-white/[0.06] px-1.5 py-0.5 font-mono text-xs font-semibold text-slate-200">
+            <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-xs font-semibold text-slate-200">
               ${token.symbol}
             </span>
           </div>
           {meta.data?.description ? (
-            <p className="mt-1 line-clamp-1 text-xs text-slate-400">
+            <p className="mt-1 line-clamp-1 text-xs sm:text-sm text-slate-400">
               {meta.data.description}
             </p>
           ) : null}
         </div>
 
         {/* Spot Price & Pool Reserve Split */}
-        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.07] bg-slate-950/45 p-2.5">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.07] bg-slate-950/45 p-3">
           <div>
-            <p className="text-[10px] font-medium tracking-wider text-slate-400 uppercase">
-              Spot Price
+            <p className="text-xs font-medium text-slate-400">
+              Price
             </p>
             <div className="mt-0.5">
               <Price token={token} />
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[10px] font-medium tracking-wider text-slate-400 uppercase">
-              {token.curve && !token.curve.graduated ? 'Curve Vault' : 'Pool Depth'}
+            <p className="text-xs font-medium text-slate-400">
+              {token.curve && !token.curve.graduated ? 'Curve Vault' : 'Liquidity'}
             </p>
-            <p className="mt-0.5 font-mono text-xs font-semibold text-emerald-300">
+            <p className="mt-0.5 font-mono text-xs sm:text-sm font-semibold text-emerald-300">
               {displayLiquidity === 0n ? 'Empty' : `${formatAmount(displayLiquidity, 7)} XLM`}
             </p>
           </div>
@@ -658,10 +656,6 @@ export function MarketList({
           ))}
         </ul>
       ) : null}
-
-      <p className="mt-4 text-xs text-slate-500">
-        Discovered directly from Soroswap factory events in recent ledgers. Zero indexing lag; 100% on-chain data.
-      </p>
     </section>
   )
 }

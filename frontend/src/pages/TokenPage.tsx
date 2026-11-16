@@ -405,7 +405,6 @@ export function TokenPage() {
     userBalBase > 0n && effectivePool?.exists && effectivePool.reserveToken > 0n
       ? (userBalBase * effectivePool.reserveXlm) / effectivePool.reserveToken
       : 0n
-  const userBalValueUsd = (Number(userBalValueXlm) / 10 ** XLM_DECIMALS) * xlmUsd
 
   const owner = info.data.owner
   const isOwner = Boolean(publicKey && owner === publicKey)
@@ -564,11 +563,11 @@ export function TokenPage() {
             ) : null}
           </div>
 
-          <div className="w-full sm:w-52 space-y-1">
-            <div className="flex justify-between text-[10px] text-slate-400">
-              <span>Graduation Progress</span>
+          <div className="w-full sm:w-56 space-y-1.5">
+            <div className="flex justify-between text-xs text-slate-400">
+              <span>Graduation</span>
               <span className="font-bold text-amber-300">
-                {graduationPercent}% ({GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
+                {graduationPercent}% / {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
               </span>
             </div>
             <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
@@ -612,37 +611,37 @@ export function TokenPage() {
 
       {/* Market Telemetry Strip */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 font-mono">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
             Market Cap
           </p>
-          <p className="mt-1 text-base font-bold text-white">
+          <p className="mt-1 text-lg font-bold text-white">
             {marketCapUsd > 0 ? `$${formatUsdPrice(marketCapUsd)}` : '—'}
           </p>
-          <p className="text-[11px] text-slate-400">
-            {marketCapXlm > 0 ? `${marketCapXlm.toFixed(2)} XLM` : 'No active pool'}
+          <p className="mt-0.5 text-xs text-slate-400">
+            {marketCapXlm > 0 ? `${marketCapXlm.toFixed(1)} XLM` : 'No pool'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
-            {isBondingCurve ? 'Curve Real Vault (TVL)' : 'Pool Liquidity (TVL)'}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            {isBondingCurve ? 'Curve Vault' : 'Liquidity'}
           </p>
-          <p className="mt-1 text-base font-bold text-emerald-300">
+          <p className="mt-1 text-lg font-bold text-emerald-300">
             {effectivePool?.exists
               ? `${formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM`
               : '0 XLM'}
           </p>
-          <p className="text-[11px] text-slate-400">
-            {liquidityUsd > 0 ? `≈ $${formatUsdPrice(liquidityUsd)} USD` : 'Seed pool to launch'}
+          <p className="mt-0.5 text-xs text-slate-400">
+            {liquidityUsd > 0 ? `≈ $${formatUsdPrice(liquidityUsd)}` : 'Empty'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
-            {isBondingCurve ? 'Curve Remaining Supply' : 'AMM Token Reserve'}
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            {isBondingCurve ? 'Remaining Supply' : 'Pool Reserve'}
           </p>
-          <p className="mt-1 text-base font-bold text-sky-300">
+          <p className="mt-1 text-lg font-bold text-sky-300">
             {isBondingCurve && curve.data
               ? `${formatGroupedAmount(
                   curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
@@ -653,32 +652,32 @@ export function TokenPage() {
                 ? `${formatGroupedAmount(reserveToken, token.decimals)}`
                 : '0'}
           </p>
-          <p className="text-[11px] text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-400">
             {isBondingCurve && curve.data
-              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} bought · 2.5M DEX locked`
+              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} sold`
               : pool.data?.exists
-                ? `${poolSupplyPct.toFixed(2)}% of total supply`
-                : '100% outside pool'}
+                ? `${poolSupplyPct.toFixed(1)}% in pool`
+                : 'No pool'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
             Your Balance
           </p>
-          <p className="mt-1 text-base font-bold text-white truncate">
+          <p className="mt-1 text-lg font-bold text-white truncate">
             {!publicKey
-              ? 'Not connected'
+              ? '—'
               : userBalance.isPending
                 ? '…'
-                : `${formatGroupedAmount(userBalBase, token.decimals)} $${token.symbol}`}
+                : `${formatGroupedAmount(userBalBase, token.decimals)}`}
           </p>
-          <p className="text-[11px] text-slate-400">
+          <p className="mt-0.5 text-xs text-slate-400">
             {!publicKey
-              ? 'Connect wallet to view'
+              ? 'Wallet needed'
               : userBalValueXlm > 0n
-                ? `≈ ${formatAmount(userBalValueXlm, XLM_DECIMALS)} XLM ($${formatUsdPrice(userBalValueUsd)})`
-                : '0 XLM value'}
+                ? `≈ ${formatAmount(userBalValueXlm, XLM_DECIMALS)} XLM`
+                : `$${token.symbol}`}
           </p>
         </div>
       </div>
@@ -700,73 +699,97 @@ export function TokenPage() {
           />
 
           {curve.data ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-amber-500/30 bg-slate-900/50 p-3.5 text-xs space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-amber-300">
-                    🔥 Milestone Proof-of-Burn Vault
-                  </span>
-                  <span className="font-mono text-[11px] text-slate-400">
-                    Stage {curve.data.burn_milestone_stage} / 2
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300">
-                  {curve.data.burn_milestone_stage === 0
-                    ? `2,970,000 $${token.symbol} vaulted: 1.485M burns on graduation + 1.485M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                    : curve.data.burn_milestone_stage === 1
-                      ? `1,485,000 burned at graduation ✓ · 1,485,000 remaining unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                      : `All 2,970,000 $${token.symbol} vault tokens permanently burned via token.burn() ✓`}
-                </p>
-                {curve.data.graduated && curve.data.burn_milestone_stage === 1 ? (
-                  <button
-                    type="button"
-                    disabled={
-                      busyFlywheel !== null ||
-                      !pool.data?.exists ||
-                      pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
-                    }
-                    onClick={() => void onTriggerMilestoneBurn()}
-                    className="w-full rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
-                  >
-                    {busyFlywheel === 'milestone'
-                      ? 'Burning Milestone 2…'
-                      : pool.data?.exists &&
-                          pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
-                        ? '🔥 Trigger Milestone 2 Burn (1.485M)'
-                        : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Soroswap Depth`}
-                  </button>
-                ) : null}
-              </div>
+            <details
+              open={
+                Boolean(
+                  (curve.data.graduated &&
+                    curve.data.burn_milestone_stage === 1 &&
+                    pool.data?.exists &&
+                    pool.data.reserveXlm >=
+                      BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT) ||
+                    (curve.data.graduated &&
+                      publicKey === curve.data.creator &&
+                      curve.data.creator_claimed <
+                        curve.data.creator_vesting_total),
+                )
+              }
+              className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4 text-xs sm:text-sm"
+            >
+              <summary className="cursor-pointer select-none font-semibold text-slate-200 flex items-center justify-between gap-2">
+                <span>🔥 Milestone Burn &amp; 15d Creator Vesting</span>
+                <span className="font-mono text-xs text-amber-300">
+                  Stage {curve.data.burn_milestone_stage}/2
+                </span>
+              </summary>
 
-              <div className="rounded-2xl border border-sky-500/30 bg-slate-900/50 p-3.5 text-xs space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-sky-300">
-                    ⏳ Creator 15-Day Vesting (0.3%)
-                  </span>
-                  <span className="font-mono text-[11px] text-slate-400">
-                    {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
-                    {formatAmount(curve.data.creator_vesting_total, token.decimals)}
-                  </span>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2 pt-3 border-t border-slate-800/80">
+                <div className="rounded-2xl border border-amber-500/30 bg-slate-950/50 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-amber-300">
+                      🔥 Proof-of-Burn Vault
+                    </span>
+                    <span className="font-mono text-slate-400">
+                      {curve.data.burn_milestone_stage}/2
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {curve.data.burn_milestone_stage === 0
+                      ? `2.97M $${token.symbol} vaulted: 1.485M burns at graduation + 1.485M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                      : curve.data.burn_milestone_stage === 1
+                        ? `1.485M burned ✓ · 1.485M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                        : `All 2.97M $${token.symbol} vault tokens permanently burned ✓`}
+                  </p>
+                  {curve.data.graduated && curve.data.burn_milestone_stage === 1 ? (
+                    <button
+                      type="button"
+                      disabled={
+                        busyFlywheel !== null ||
+                        !pool.data?.exists ||
+                        pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                      }
+                      onClick={() => void onTriggerMilestoneBurn()}
+                      className="w-full min-h-[40px] rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
+                    >
+                      {busyFlywheel === 'milestone'
+                        ? 'Burning Milestone 2…'
+                        : pool.data?.exists &&
+                            pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                          ? '🔥 Trigger Milestone 2 Burn (1.485M)'
+                          : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Depth`}
+                    </button>
+                  ) : null}
                 </div>
-                <p className="text-[11px] text-slate-300">
-                  30,000 ${token.symbol} locked until graduation, then 5 tranches of 20% (6,000) every 3 days.
-                </p>
-                {curve.data.graduated &&
-                publicKey === curve.data.creator &&
-                curve.data.creator_claimed < curve.data.creator_vesting_total ? (
-                  <button
-                    type="button"
-                    disabled={busyFlywheel !== null}
-                    onClick={() => void onClaimCreatorVesting()}
-                    className="w-full rounded-xl bg-sky-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
-                  >
-                    {busyFlywheel === 'vesting'
-                      ? 'Claiming Tranche…'
-                      : '⏳ Claim Unlocked Creator Vesting'}
-                  </button>
-                ) : null}
+
+                <div className="rounded-2xl border border-sky-500/30 bg-slate-950/50 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-sky-300">
+                      ⏳ Creator 15d Vesting (0.3%)
+                    </span>
+                    <span className="font-mono text-slate-400">
+                      {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
+                      {formatAmount(curve.data.creator_vesting_total, token.decimals)}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    30,000 ${token.symbol} locked until graduation, then 5 tranches every 3 days.
+                  </p>
+                  {curve.data.graduated &&
+                  publicKey === curve.data.creator &&
+                  curve.data.creator_claimed < curve.data.creator_vesting_total ? (
+                    <button
+                      type="button"
+                      disabled={busyFlywheel !== null}
+                      onClick={() => void onClaimCreatorVesting()}
+                      className="w-full min-h-[40px] rounded-xl bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
+                    >
+                      {busyFlywheel === 'vesting'
+                        ? 'Claiming Tranche…'
+                        : '⏳ Claim Unlocked Creator Vesting'}
+                    </button>
+                  ) : null}
+                </div>
               </div>
-            </div>
+            </details>
           ) : null}
 
           {/* Tabbed Interactive Section: Thread | Live Trades | Holders & Risk | Audit & Contract */}

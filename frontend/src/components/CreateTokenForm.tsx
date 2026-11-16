@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { launchFairAtomic } from '../lib/token'
 import { setCachedTokenMetadata } from '../lib/discovery'
@@ -21,7 +21,6 @@ import {
   DEX_ALLOCATION_BPS,
   FAIR_LAUNCH_DECIMALS,
   FAIR_LAUNCH_TOTAL_BASIS,
-  GRADUATION_TARGET_XLM,
   LAUNCH_CREATION_FEE_STROOPS,
   LAUNCH_CREATION_FEE_XLM,
   localCurveQuoteBuy,
@@ -34,8 +33,7 @@ import { NETWORK_NAME } from '../lib/network'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER } from '../lib/xlm'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { useXlmBalance } from '../hooks/useXlmBalance'
-import { explorerContractUrl, explorerTxUrl } from '../lib/explorer'
-import { ShareButton } from './ShareButton'
+import { explorerTxUrl } from '../lib/explorer'
 import { notifyTokenLaunch } from '../lib/alerts'
 import {
   compressImageFileToWebp,
@@ -45,6 +43,7 @@ import {
 import { useWallet } from '../store/wallet'
 import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
 import { toast } from '../lib/toast'
+import { triggerTelegramHaptic } from '../lib/telegram'
 import { recordActivity } from '../store/activity'
 import { TxProgress } from './TxProgress'
 import { TokenArt } from './TokenArt'
@@ -68,17 +67,6 @@ import {
 const inputClass = FORM_INPUT_CLASS
 
 type LaunchStep = 'launching' | null
-
-type CreatedLaunchSnapshot = {
-  id: string
-  pair: string | null
-  name: string
-  symbol: string
-  seedXlm: bigint
-  lpMinted: bigint
-  logoUrl?: string
-  hash?: string
-}
 
 function createLaunchSession(): { sessionId: string; now: number } {
   const now = Date.now()
@@ -114,6 +102,7 @@ export function CreateTokenForm({
     demoPending,
     pending,
   } = useWallet()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
   const xlmBalance = useXlmBalance(publicKey)
@@ -182,8 +171,6 @@ export function CreateTokenForm({
   const [busy, setBusy] = useState(false)
   const [step, setStep] = useState<LaunchStep>(null)
   const [error, setError] = useState<string | null>(null)
-  const [createdLaunch, setCreatedLaunch] =
-    useState<CreatedLaunchSnapshot | null>(null)
   /**
    * Checkpoint de un intento anterior cuya tx se llegó a enviar (hay hash)
    * pero la página se cerró antes de confirmar. Se re-lee al cambiar de wallet
@@ -245,7 +232,6 @@ export function CreateTokenForm({
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
-    setCreatedLaunch(null)
     setCheckpointNote(null)
     if (!publicKey) {
       setError('Please connect your wallet first.')
@@ -408,18 +394,9 @@ export function CreateTokenForm({
         hash: finalHash,
       })
 
-      setCreatedLaunch({
-        id: newId,
-        pair: pairId,
-        name: cleanName,
-        symbol: ticker,
-        seedXlm,
-        lpMinted: atomicResult.lpMinted,
-        logoUrl: resolvedLogoUrl,
-        hash: finalHash,
-      })
-      toast.success('Token & Pool Created Successfully!', {
-        message: `$${ticker} is live with Soroswap AMM pool, LP burned, and ownership renounced in 1 atomic transaction.`,
+      triggerTelegramHaptic('success')
+      toast.success(`🚀 $${ticker} is live!`, {
+        message: 'Opening your new token room…',
         hash: finalHash,
       })
       void notifyTokenLaunch({
@@ -431,6 +408,16 @@ export function CreateTokenForm({
         explorerUrl: finalHash ? explorerTxUrl(finalHash) : undefined,
       })
 
+      setName('')
+      setSymbol('')
+      setDescription('')
+      setLogoUrl('')
+      setLocalLogoDataUrl(null)
+      setLogoUploadHint(null)
+      setWebsite('')
+      setTelegram('')
+      setTwitter('')
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['token-list'] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', newId] }),
@@ -439,6 +426,8 @@ export function CreateTokenForm({
         queryClient.invalidateQueries({ queryKey: ['lp-burn'] }),
         queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
       ])
+
+      void navigate(`/token/${newId}`)
     } catch (err) {
       const message = errorMessage(err)
       setError(message)
@@ -460,8 +449,8 @@ export function CreateTokenForm({
 
   return (
     <section className="liquid-glass rounded-3xl p-5 sm:p-8 w-full max-w-full overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
+        <div className="flex items-center gap-3.5 min-w-0">
           <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
             <TokenArt
               id={symbol || name || 'ASTRO'}
@@ -471,95 +460,16 @@ export function CreateTokenForm({
             />
           </div>
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-white truncate">Create & Launch</h2>
-            <p className="mt-0.5 text-xs text-slate-400">
-              10M fixed supply · 45% Fair Curve · 25% Soroswap · 29.7% Milestone Burn · 0.3% 15d Vesting
+            <h2 className="text-xl font-bold text-white truncate">Create &amp; Launch</h2>
+            <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
+              10M fixed supply · Instant bonding curve
             </p>
           </div>
         </div>
-        <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 shrink-0">
+        <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-300 shrink-0">
           ⚡ {LAUNCH_CREATION_FEE_XLM} XLM Fee
         </span>
       </div>
-
-      {/* Immutable Snapshot Launch Receipt */}
-      {createdLaunch ? (
-        <div className="mt-4 flex flex-col gap-3 rounded-xl border border-emerald-500/60 bg-emerald-950/20 p-5 text-emerald-200">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3 min-w-0">
-              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-emerald-500/50 bg-slate-900">
-                <TokenArt
-                  id={createdLaunch.id}
-                  symbol={createdLaunch.symbol}
-                  logoUrl={createdLaunch.logoUrl}
-                  className="h-full w-full"
-                />
-              </div>
-              <div className="min-w-0 space-y-1">
-                <p className="font-bold text-lg text-emerald-300">
-                  🎉 {createdLaunch.name} (${createdLaunch.symbol}) Launched!
-                </p>
-                <p className="font-mono text-xs text-slate-300 break-all">
-                  Token: {createdLaunch.id}
-                </p>
-                <p className="font-mono text-xs text-slate-400 break-all">
-                  {createdLaunch.pair
-                    ? `Pair: ${createdLaunch.pair}`
-                    : `Phase: Virtual Bonding Curve (Graduates to Soroswap at ${GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)`}
-                </p>
-                <p className="text-xs text-emerald-200/90">
-                  ✓ 4,500,000 ${createdLaunch.symbol} Curve (1,250 vXLM) · 2,500,000 Soroswap Reserve · 2,970,000 Proof-of-Burn Vault · 30,000 (0.3%) Creator 15d Vesting
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <Link
-                to={`/token/${createdLaunch.id}`}
-                className="rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-emerald-400 shadow-md shadow-emerald-500/20"
-              >
-                Open Trading Room →
-              </Link>
-              <a
-                href={explorerContractUrl(createdLaunch.id)}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500"
-              >
-                Token ↗
-              </a>
-              {createdLaunch.pair ? (
-                <a
-                  href={explorerContractUrl(createdLaunch.pair)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500"
-                >
-                  Pair ↗
-                </a>
-              ) : null}
-              {createdLaunch.hash ? (
-                <a
-                  href={explorerTxUrl(createdLaunch.hash)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500"
-                >
-                  Tx ↗
-                </a>
-              ) : null}
-              <ShareButton
-                text={`🚀 I just launched $${createdLaunch.symbol} on AstroGate! Trade it on Stellar:`}
-                url={
-                  typeof window !== 'undefined'
-                    ? `${window.location.origin}/token/${createdLaunch.id}`
-                    : `/token/${createdLaunch.id}`
-                }
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {/* Lanzamiento anterior enviado sin confirmación: sin reintentar a ciegas */}
       {checkpointNote && (checkpointNote.tokenId || checkpointNote.txHash) ? (
@@ -816,102 +726,84 @@ export function CreateTokenForm({
                 aria-label="Custom initial liquidity in XLM"
                 className="w-full bg-transparent text-xs font-mono text-white outline-none"
               />
-              <span className="ml-1 text-[10px] font-mono text-slate-400">XLM</span>
+              <span className="ml-1 text-xs font-mono text-slate-400">XLM</span>
             </label>
           </div>
 
-          {/* Transparent Where Your XLM & Tokens Go Breakdown */}
-          <div className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-semibold text-slate-200">
-                🔍 Fair-Flywheel v4.1 Split (45 / 25 / 29.7 / 0.3 — 1,250 vXLM → {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
-              </span>
-              <span className="font-mono text-[11px] text-emerald-400">
-                {symbol || 'TOKEN'} Total Cap: 10,000,000
-              </span>
-            </div>
+          {/* Collapsible Tokenomics Breakdown (clean by default on mobile) */}
+          <details className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs sm:text-sm">
+            <summary className="cursor-pointer select-none font-medium text-slate-300 flex items-center justify-between gap-2">
+              <span>📊 View Fair-Flywheel Split &amp; Launch Price</span>
+              <span className="font-mono text-xs text-emerald-400">45 / 25 / 29.7 / 0.3</span>
+            </summary>
 
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 font-mono">
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  45% Bonding Curve + 25% DEX
-                </p>
-                <p className="mt-1 font-bold text-white">
-                  {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
-                </p>
-                <p className="text-[11px] text-emerald-300">
-                  Initial buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
-                </p>
+            <div className="mt-3 space-y-3 pt-3 border-t border-slate-800/80">
+              <div className="grid gap-2.5 sm:grid-cols-2 font-mono text-xs">
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
+                  <p className="text-slate-400 font-sans">45% Curve + 25% DEX</p>
+                  <p className="mt-1 font-bold text-white">
+                    {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
+                  </p>
+                  <p className="mt-1 text-emerald-300">
+                    Your buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
+                  <p className="text-slate-400 font-sans">29.7% Burn + 0.3% 15d Vesting</p>
+                  <p className="mt-1 font-bold text-amber-300">
+                    {Number(burnVaultTokensWhole).toLocaleString('en-US')} 🔥 + {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳
+                  </p>
+                  <p className="mt-1 text-slate-400 truncate">
+                    100% LP burned ({shortAddress(STELLAR_BURN_ADDRESS)})
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3 sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-slate-400 font-sans">Launch Price &amp; MCap</p>
+                    <p className="mt-0.5 font-bold text-sky-300">
+                      {spotPriceXlm > 0
+                        ? `${formatTokenPrice(spotPriceXlm)} XLM (~$${formatUsdPrice(spotPriceUsd)})`
+                        : '—'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-slate-400 font-sans">Initial MCap</p>
+                    <p className="mt-0.5 font-bold text-slate-200">
+                      {initialMarketCapXlm > 0
+                        ? `${initialMarketCapXlm.toFixed(1)} XLM (~$${formatUsdPrice(initialMarketCapUsd)})`
+                        : '—'}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  29.7% Milestone Burn + 0.3% Vesting
-                </p>
-                <p className="mt-1 font-bold text-amber-300">
-                  {Number(burnVaultTokensWhole).toLocaleString('en-US')} 🔥 + {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳
-                </p>
-                <p className="text-[11px] text-slate-400 truncate">
-                  5×3d post-grad vesting → {publicKey ? shortAddress(publicKey) : 'Creator'}
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  LP Custody &amp; Mint
-                </p>
-                <p className="mt-1 font-bold text-emerald-300">
-                  100% LP Burned at 1K XLM 🔥
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  Mint renounced ({shortAddress(STELLAR_BURN_ADDRESS)})
-                </p>
-              </div>
-
-              <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
-                <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  Launch Price & MCap
-                </p>
-                <p className="mt-1 font-bold text-sky-300">
-                  {spotPriceXlm > 0
-                    ? `${formatTokenPrice(spotPriceXlm)} XLM (~$${formatUsdPrice(spotPriceUsd)})`
-                    : '—'}
-                </p>
-                <p className="text-[11px] text-slate-400">
-                  MCap:{' '}
-                  {initialMarketCapXlm > 0
-                    ? `${initialMarketCapXlm.toFixed(2)} XLM (~$${formatUsdPrice(initialMarketCapUsd)})`
-                    : '—'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-              <span>
-                {LAUNCH_CREATION_FEE_XLM} XLM network maintenance fee (→ Treasury) · Only ~0.05 XLM Soroban gas · 1 XLM wallet reserve stays yours.
-              </span>
-              {sniperCost10PctXlm > 0 ? (
-                <span className="font-mono text-sky-300">
-                  🛡️ Anti-Sniper Depth: Buying 10% costs{' '}
-                  <strong>{sniperCost10PctXlm.toFixed(2)} XLM</strong> (≈ $
-                  {sniperCost10PctUsd.toFixed(2)} USD)
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+                <span>
+                  {LAUNCH_CREATION_FEE_XLM} XLM network maintenance fee → Treasury · 1 XLM reserve stays yours.
                 </span>
-              ) : null}
+                {sniperCost10PctXlm > 0 ? (
+                  <span className="font-mono text-sky-300">
+                    🛡️ 10% Supply Cost: <strong>{sniperCost10PctXlm.toFixed(1)} XLM</strong> (≈ ${sniperCost10PctUsd.toFixed(2)})
+                  </span>
+                ) : null}
+              </div>
             </div>
-          </div>
+          </details>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 sm:col-span-2 pt-3 border-t border-white/[0.06]">
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3 sm:col-span-2 pt-4 border-t border-white/[0.06]">
           <div
-            className="text-xs text-slate-400 font-mono"
-            title={`${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM seed + ${LAUNCH_CREATION_FEE_XLM} XLM creation fee + ${feeBufferXlm} XLM buffer for network fees & reserves`}
+            className="text-sm text-slate-300 font-mono"
+            title={`${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy + ${LAUNCH_CREATION_FEE_XLM} XLM fee + ${feeBufferXlm} XLM reserve`}
           >
-            Required balance:{' '}
+            Total:{' '}
             <strong className="text-emerald-300">
               {formatAmount(totalRequiredStroops, XLM_DECIMALS)} XLM
             </strong>{' '}
-            <span className="text-slate-500">
-              ({seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} seed + {LAUNCH_CREATION_FEE_XLM} fee + {feeBufferXlm} buffer)
+            <span className="text-xs text-slate-400 font-sans">
+              ({seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} buy + {LAUNCH_CREATION_FEE_XLM} fee + {feeBufferXlm} reserve)
             </span>
           </div>
 
