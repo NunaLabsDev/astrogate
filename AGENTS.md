@@ -11,7 +11,7 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - AMM: Soroswap (factory/router ya desplegados en testnet).
 - Frontend: Vite + React 19 + TypeScript (Scaffold Stellar), Tailwind + shadcn/ui.
 - Wallet: @creit.tech/stellar-wallets-kit.
-- Deploy frontend: Vercel. Datos: RPC público testnet.
+- Deploy frontend: Cloudflare Pages (`https://astrogate.pages.dev`). Datos: RPC público testnet.
 
 ## Reglas
 1. No reinventar AMM: usar Soroswap factory/router.

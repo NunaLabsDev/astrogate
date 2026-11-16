@@ -8,7 +8,7 @@
 ## 1. Acceso Rápido para Modelos de Lenguaje (`llms.txt`)
 AstroGate publica una especificación estandarizada en `/llms.txt` accesible tanto para bots web como para agentes que naveguen la plataforma.
 
-* **URL en vivo**: `https://astrogate-app.vercel.app/llms.txt` (o `/public/llms.txt` en local).
+* **URL en vivo**: `https://astrogate.pages.dev/llms.txt` (o `/public/llms.txt` en local).
 * **Contratos clave**:
   * Factory: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
   * Router: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`

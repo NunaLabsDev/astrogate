@@ -57,7 +57,7 @@ npm run deploy
 Con la URL del Worker:
 
 ```bash
-URL="https://astrogate-app.vercel.app"
+URL="https://astrogate.pages.dev"
 for path in / /sw.js /manifest.webmanifest \
   /token/CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE; do
   curl -sS -o /dev/null -w "%{http_code} $path\n" "$URL$path"

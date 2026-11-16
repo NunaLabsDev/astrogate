@@ -6,7 +6,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 
 - `contracts/token/`: SEP-41 fungible token built on OpenZeppelin Stellar (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`), with 90-day TTL extension (`extend_ttl`) across state-changing operations.
 - `contracts/launchpad/` (v3): Atomic launchpad contract (`CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`) and bounded on-chain Burn-to-Chat (`burn_shout`, `get_shouts`). Enforces 10M fixed supply (`9.95M` LP + `0.5%` creator, min `2 XLM` seed aligned with Stellar's 7-decimal stroop floor), deploys token, seeds Soroswap pool, burns 100% of initial LP tokens, and renounces token ownership in a single transaction.
-- `frontend/`: Static SPA (Vite + React 19 + TypeScript) deployed on Vercel (`https://astrogate-app.vercel.app`, with Cloudflare Workers fallback `astrogate-stellar`); identity is the connected wallet and state is read directly from Soroban RPC and Horizon.
+- `frontend/`: Static SPA (Vite + React 19 + TypeScript) deployed on Cloudflare Pages (`https://astrogate.pages.dev`, with Cloudflare Worker mirror `astrogate-stellar`); identity is the connected wallet and state is read directly from Soroban RPC and Horizon.
 - External AMM integration with **Soroswap** (Factory and Router deployed on Stellar Testnet).
 
 ## Trust Model
