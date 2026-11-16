@@ -35,8 +35,8 @@ flowchart TD
 | **Horizon Endpoint** | `https://horizon-testnet.stellar.org` |
 | **Flagship Token ($ASTRO)** | `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` |
 | **Token WASM Bytecode Hash** | `a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7` |
-| **Fair-Flywheel Launchpad Contract (v4.1)** | `CDK7UNVNW4SBDRNRHJQ3SR3TEGH4BD5M3QTXMPEE3PNLBRZQJXTBKBCO` |
-| **Launchpad WASM Bytecode Hash (v4.1)** | `458133493ff21f87c001244b3f91c79e328deeba176fdd1353913267daa52952` |
+| **Fair-Flywheel Launchpad Contract (v4.1)** | `CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW` |
+| **Launchpad WASM Bytecode Hash (v4.1)** | `3c01f40ff4bcab802082c9791f5dfdfa50cbd6d38e81e48c77ddede1a10e5f8c` |
 | **Soroswap Factory** | `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY` |
 | **Soroswap Router** | `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD` |
 | **XLM SAC (Stellar Asset Contract)** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
@@ -49,7 +49,7 @@ flowchart TD
 
 1. **Fair Launch Form (`/create`)**:
    - Minimalist launchpad (`launch_fair`): Name, Ticker, Seed XLM, live SVG preview, and optional collapsed off-chain links encoded in on-chain `meta` (`≤ 512` bytes).
-   - Fixed 10M supply (7 decimals, aligned with 1 XLM = 10^7 stroops; min 2 XLM initial curve buy): locks `45%` on the `1,250 vXLM → 1,000 XLM` Virtual Bonding Curve (`3.24x` curve range), `25%` Soroswap DEX Reserve, `29.7%` Proof-of-Burn Vault (`1.485M` on graduation + `1.485M` at `1,800 XLM`), and `0.3%` 15-day post-graduation creator vesting, while renouncing mint authority atomically.
+   - Fixed 10M supply (7 decimals, aligned with 1 XLM = 10^7 stroops; `7 XLM` protocol creation fee + min `2 XLM` initial curve buy): locks `45%` on the `1,250 vXLM → 1,000 XLM` Virtual Bonding Curve (`3.24x` curve range), `25%` Soroswap DEX Reserve, `29.7%` Proof-of-Burn Vault (`1.485M` on graduation + `1.485M` at `1,800 XLM`), and `0.3%` 15-day post-graduation creator vesting, while renouncing mint authority atomically.
 2. **Instant Curve & AMM Trading, King Shout & Audit (`/token/:id`)**:
    - Seamless deterministic quotes against either the Fair-Flywheel Bonding Curve (pre-graduation) or Soroswap DEX pools (post-graduation) with dynamic anti-whale / slippage guards and permissionless `trigger_milestone_burn` / `claim_creator_vesting`.
    - 3-tier Burn-to-Chat (`burn_shout`, `get_king_shout`), live ledger activity feed, and **Audit & Contract** tab with 90-day TTL refresh (`extendTokenTtl`).
@@ -59,8 +59,8 @@ flowchart TD
 4. **Local Portfolio & Data Export (`/portfolio`)**:
    - View created tokens, user holdings, and local transaction activity.
    - Export full transaction history as CSV or JSON for personal records / auditing.
-5. **1-Click Testnet Demo Wallet**:
-   - Click `Testnet Demo` directly in the top wallet menu to generate and Friendbot-fund a disposable testnet account in one click.
+5. **1-Click Testnet Demo Wallet + Telegram Mini App Self-Custody Vault (`@AstroGateSorobanBot`)**:
+   - Create an encrypted self-custody Stellar wallet in-app (`PBKDF2-SHA256 + AES-GCM-256`, synced encrypted to `Telegram.WebApp.CloudStorage`), connect Freighter/xBull/LOBSTR/WalletConnect, or launch `Demo` mode with Friendbot funding in one tap.
 
 ---
 

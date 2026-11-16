@@ -478,7 +478,7 @@ export function CreateTokenForm({
           </div>
         </div>
         <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300 shrink-0">
-          ⚡ 0 XLM Protocol Fee
+          ⚡ {LAUNCH_CREATION_FEE_XLM} XLM Fee
         </span>
       </div>
 

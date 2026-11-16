@@ -1,5 +1,15 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 33 — Fee 7 XLM, Telegram Mini App @AstroGateSorobanBot & Hot Wallet Vault Sync)
+Sincronización completa de contratos, frontend, Telegram Mini App (`@AstroGateSorobanBot`), Hot Wallet auto-custodiada modular con `CloudStorage` cifrado y limpieza final lista para pruebas en Telegram. *AI-generated; revisión humana pendiente.*
+- **Contrato Launchpad v4.1 (`7 XLM` creation fee) desplegado en Testnet**:
+  - **Contract ID**: `CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW` (WASM hash `3c01f40ff4bcab802082c9791f5dfdfa50cbd6d38e81e48c77ddede1a10e5f8c`, `34811 bytes` optimizados, treasury `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE`).
+  - `launch_fair` cobra `CREATION_FEE_STROOPS = 70_000_000` (`7 XLM`) directos a `Treasury` + `>= 2 XLM` compra inicial en curva; `get_creation_fee()` verificado on-chain.
+- **Hot Wallet Auto-Custodiada Modular + Telegram Mini App**:
+  - `frontend/src/lib/hot-wallet/`: cifrado cliente `PBKDF2-SHA256` (`210,000` iteraciones) + `AES-GCM-256`, clave volátil solo en RAM, cooldown anti-fuerza bruta tras 5 intentos fallidos, multi-cuenta (`create` / `import` / `reveal` / `rename` / `lock` / `wipe`), sincronización cifrada cross-device vía `Telegram.WebApp.CloudStorage` (`telegram-sync.ts`).
+  - `frontend/src/lib/telegram.ts` + `App.tsx` + `HotWalletModal.tsx` + `ShareButton.tsx`: ciclo `ready/expand/BackButton/HapticFeedback/--app-vh`, deep-linking `?startapp=<TOKEN_ID|create|portfolio>`, paridad CSP (`telegram.org`, `web.telegram.org`) verificada en `_headers`, `vercel.json` y `nginx.conf`.
+  - Bot Telegram **`@AstroGateSorobanBot`** (`id: 9160220737`) configurado con Menu Button `🌊 AstroGate` → `https://astrogate.pages.dev/`.
+
 ## Handoff rápido (Nov 16 2026, sesión 32 — Optimización Fair-Flywheel v4.1, Bugfixes UI/Holders/Charts & Deploy Final)
 Calibración óptima para la comunidad Stellar (**Fair-Flywheel v4.1**: `45 / 25 / 29.7 / 0.3`, `1,250 vXLM → 1,000 real XLM` [`3.24x` curva], Milestone 2 a `1,800 XLM`, Burn-to-Chat `50 / 500 / 5,000+`), corrección de 3 fallos en análisis de holders, cálculos anti-ballena y velas históricas en curva, redespliegue completo y análisis de necesidades reales de inversores Stellar en Telegram (*The Mystery School*). *AI-generated; revisión humana pendiente.*
 - **Contrato Launchpad v4.1 desplegado en Testnet**:

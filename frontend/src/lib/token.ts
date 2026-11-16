@@ -355,7 +355,7 @@ export async function claimCreatorVesting(params: {
   return { claimed: unwrap.unwrap(), hash }
 }
 
-/** Permissionlessly triggers Stage 2 Milestone Burn (1,485,000 tokens) at >= 2,500 XLM pair depth. */
+/** Permissionlessly triggers Stage 2 Milestone Burn (1,485,000 tokens) at >= 1,800 XLM pair depth. */
 export async function triggerMilestoneBurn(params: {
   tokenId: string
   signer: Signer

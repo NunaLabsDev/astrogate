@@ -5,7 +5,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 ## Scope
 
 - `contracts/token/`: SEP-41 fungible token built on OpenZeppelin Stellar (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`), with 90-day TTL extension (`extend_ttl`) across state-changing operations.
-- `contracts/launchpad/` (v4.1 Fair-Flywheel): Bonding-curve & atomic graduation launchpad contract (`CDK7UNVNW4SBDRNRHJQ3SR3TEGH4BD5M3QTXMPEE3PNLBRZQJXTBKBCO`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`, `get_curve`), Virtual Bonding Curve (`buy_curve`, `sell_curve`, `quote_buy`, `quote_sell`), Milestone Proof-of-Burn (`trigger_milestone_burn` at `>= 1,800 XLM`), 15-day post-graduation creator vesting (`claim_creator_vesting`), and 3-tier Burn-to-Chat (`burn_shout`, `get_shouts`, `get_king_shout`). Enforces 10M fixed supply (`45%` Curve `1,250 vXLM -> 1,000 XLM` · `25%` Soroswap DEX · `29.7%` Proof-of-Burn Vault · `0.3%` 15d vesting), deploys token, renounces ownership immediately, burns 100% LP on graduation, and executes real `token.burn()` calls on milestone/shout burns.
+- `contracts/launchpad/` (v4.1 Fair-Flywheel): Bonding-curve & atomic graduation launchpad contract (`CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`, `get_curve`, `get_creation_fee`), Virtual Bonding Curve (`buy_curve`, `sell_curve`, `quote_buy`, `quote_sell`), Milestone Proof-of-Burn (`trigger_milestone_burn` at `>= 1,800 XLM`), 15-day post-graduation creator vesting (`claim_creator_vesting`), and 3-tier Burn-to-Chat (`burn_shout`, `get_shouts`, `get_king_shout`). Enforces `7 XLM` fixed creation fee to treasury, 10M fixed supply (`45%` Curve `1,250 vXLM -> 1,000 XLM` · `25%` Soroswap DEX · `29.7%` Proof-of-Burn Vault · `0.3%` 15d vesting), deploys token, renounces ownership immediately, burns 100% LP on graduation, and executes real `token.burn()` calls on milestone/shout burns.
 - `frontend/`: Static SPA (Vite + React 19 + TypeScript) deployed on Cloudflare Pages (`https://astrogate.pages.dev`, with Cloudflare Worker mirror `astrogate-stellar`); identity is the connected wallet and state is read directly from Soroban RPC and Horizon.
 - External AMM integration with **Soroswap** (Factory and Router deployed on Stellar Testnet).
 
@@ -15,6 +15,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 - There is no user backend, JWT auth, server database, or server-side secret in the user flow.
 - The user's wallet signs all state-changing operations.
 - Demo Mode stores disposable **testnet** secret keys in browser `localStorage`; they are accessible to anyone with access to that browser profile and must never be reused for real funds.
+- In-app Hot Wallet Vault (`frontend/src/lib/hot-wallet/`) encrypts secret keys client-side with `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256` under the user's PIN before saving to device storage or `Telegram.WebApp.CloudStorage`; unlocked `Keypair` instances stay strictly in volatile RAM with brute-force PIN cooldown protection.
 - Soroswap contracts and public Soroban RPC / Horizon endpoints are external dependencies outside this repository's control.
 
 ## Implemented Security Controls
