@@ -31,9 +31,9 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - Soroswap Router: CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD
 - XLM SAC: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
 - Token del launchpad: CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE
-- wasm hash del token (ya subido): a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7
-- Launchpad contract (v4.1): CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW
-- wasm hash del launchpad (v4.1): 3c01f40ff4bcab802082c9791f5dfdfa50cbd6d38e81e48c77ddede1a10e5f8c
+- wasm hash del token (ya subido v4.2): 465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d
+- Launchpad contract (v4.2): CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5
+- wasm hash del launchpad (v4.2): 47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc
 - Par ASTRO/XLM: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
 - Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
 - Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)

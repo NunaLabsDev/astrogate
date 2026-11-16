@@ -34,9 +34,9 @@ flowchart TD
 | **RPC Endpoint** | `https://soroban-testnet.stellar.org` |
 | **Horizon Endpoint** | `https://horizon-testnet.stellar.org` |
 | **Flagship Token ($ASTRO)** | `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` |
-| **Token WASM Bytecode Hash** | `a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7` |
-| **Fair-Flywheel Launchpad Contract (v4.1)** | `CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW` |
-| **Launchpad WASM Bytecode Hash (v4.1)** | `3c01f40ff4bcab802082c9791f5dfdfa50cbd6d38e81e48c77ddede1a10e5f8c` |
+| **Token WASM Bytecode Hash (v4.2)** | `465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d` |
+| **Fair-Flywheel Launchpad Contract (v4.2)** | `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5` |
+| **Launchpad WASM Bytecode Hash (v4.2)** | `47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc` |
 | **Soroswap Factory** | `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY` |
 | **Soroswap Router** | `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD` |
 | **XLM SAC (Stellar Asset Contract)** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |

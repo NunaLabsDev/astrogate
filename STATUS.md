@@ -1,5 +1,18 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 17 2026, sesión 34 — AstroGate Fair-Flywheel v4.2 + Telegram Mobile UX)
+Rediseño económico completo validado mediante simulación multi-agente de **50 wallets reales** en 3 regímenes de mercado, actualización de contratos (`astro-token` + `launchpad` v4.2), deploy en Stellar Testnet y optimización móvil/Telegram en frontend. *AI-generated; revisión humana pendiente.*
+- **Contratos Fair-Flywheel v4.2 desplegados en Testnet**:
+  - **Launchpad v4.2 Contract ID**: `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5` (WASM hash `47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc`, `43,078 bytes`, treasury `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE`).
+  - **Token v4.2 WASM Hash**: `465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d` (`20,448 bytes`, añade `lock_until_graduated` + `unlock_transfers` cerrando el DoS `PairAlreadySeeded` pre-graduación manteniendo `get_owner() == None`).
+  - **Modelo económico v4.2 (`42%` Curva `2,000 vXLM -> 1,000 XLM` [`2.25×`], `28%` DEX, `29.5%` Burn Vault, `0.5%` 15d Vesting)**:
+    - Compra plana **`0.80%`** (sin recargo anti-ballena ni arbitraje de bots).
+    - Venta asimétrica anti-sniper **`2.50%` (<50%) / `1.50%` (>=50%)** cuyo extra alimenta el LP/Buyback del proyecto.
+    - **`60%`** del `floor_bonus` excedente al graduar va a **`buyback_xlm_reserve`** para recompra y quema real en Soroswap (`trigger_buyback_burn`); seed inicial del creador bloqueado hasta graduación (+7d fallback si estanca); `sweep_empty_curve_fees` para polvo huérfano; decaimiento 24h en *King Shout*.
+- **Telegram UX (`TokenPage`, `SwapCard`, `TokenHypeBar`)**:
+  - `SwapCard` primero en viewport móvil/Telegram (`order-first lg:order-last`), doble toque inline con `triggerTelegramHaptic` en lugar de `window.confirm()`, compartir nativo con `telegramMiniAppUrl(id)`, y precios XLM/USD + botón rápido de compra en `TokenHypeBar`.
+- **Verificación ejecutada**: `cargo test` (`35/35`: `25` token + `10` launchpad), `npm run verify:adversarial`, `verify:demo`, `verify:launchpad`, `verify:discovery`, `verify:token-events` y `npm run check` en verde.
+
 ## Handoff rápido (Nov 16 2026, sesión 33 — Fee 7 XLM, Telegram Mini App @AstroGateSorobanBot & Hot Wallet Vault Sync)
 Sincronización completa de contratos, frontend, Telegram Mini App (`@AstroGateSorobanBot`), Hot Wallet auto-custodiada modular con `CloudStorage` cifrado y limpieza final lista para pruebas en Telegram. *AI-generated; revisión humana pendiente.*
 - **Contrato Launchpad v4.1 (`7 XLM` creation fee) desplegado en Testnet**:

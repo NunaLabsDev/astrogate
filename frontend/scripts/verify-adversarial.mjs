@@ -22,10 +22,10 @@ import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const UNIT = 10_000_000n // 7 decimals
 const EXPECTED_INITIAL_SUPPLY = 10_000_000n * UNIT
-const EXPECTED_BURN_VAULT = 2_970_000n * UNIT
-const EXPECTED_CREATOR_VESTING = 30_000n * UNIT
-const EXPECTED_DEX_RESERVE = 2_500_000n * UNIT
-const EXPECTED_MILESTONE_1_BURN = 1_485_000n * UNIT
+const EXPECTED_BURN_VAULT = 2_950_000n * UNIT
+const EXPECTED_CREATOR_VESTING = 50_000n * UNIT
+const EXPECTED_DEX_RESERVE = 2_800_000n * UNIT
+const EXPECTED_MILESTONE_1_BURN = 1_475_000n * UNIT
 
 const { secret } = loadStellarSecret()
 if (!secret) {
@@ -136,8 +136,14 @@ try {
   ) {
     throw new Error(`Unexpected v4 vault/vesting split: ${JSON.stringify(curveInit)}`)
   }
-  if (creatorBalInit !== expectedCreatorBuy || creatorBalInit !== curveInit.tokens_sold) {
-    throw new Error(`Unexpected initial curve tokens to creator: ${creatorBalInit} vs ${expectedCreatorBuy}`)
+  if (
+    creatorBalInit !== 0n ||
+    curveInit.creator_seed_locked !== expectedCreatorBuy ||
+    curveInit.tokens_sold !== expectedCreatorBuy
+  ) {
+    throw new Error(
+      `Unexpected v4.2 seed lock: bal=${creatorBalInit} locked=${curveInit.creator_seed_locked} expected=${expectedCreatorBuy}`,
+    )
   }
   if (!auditInit.isAntiRugVerified || !auditInit.ownershipRenounced) {
     throw new Error(`Anti-rug verification failed: ${JSON.stringify(auditInit)}`)
@@ -145,7 +151,7 @@ try {
   if (ownerInit.result !== null) {
     throw new Error(`Ownership was not renounced: ${ownerInit.result}`)
   }
-  console.log('  invariants verified: 10M cap, 45/25/29.7/0.3 split locked, owner=None, exact v4.1 quote parity')
+  console.log('  invariants verified: 10M cap, 42/28/29.5/0.5 split + creator seed locked, owner=None, exact v4.2 quote parity')
 
   console.log('\n3) Malicious & malformed Launchpad attack attempts...')
   const lpAttacker = tokenLib.launchpadClient(attackerSigner)
@@ -433,12 +439,12 @@ try {
   console.log('  ok 0 malicious shouts written on-chain & premature milestone/vesting blocked')
 
   console.log('\n6) Multi-account Bonding Curve wave, King Shout, Live 1,000 XLM Graduation & Post-Grad DEX...')
-  // Buyer 1 (Trader1): 200 XLM on Virtual Curve (triggers progressive anti-whale floor bonus)
+  // Buyer 1 (Trader1): 200 XLM on Virtual Curve (v4.2 flat 0.80% buy fee -> zero whale penalty!)
   const c0 = await tokenLib.fetchCurveState(token)
   const whaleXlm = 200n * UNIT
   const localWhaleQuote = tokenomics.localCurveQuoteBuy(c0.curve_xlm_net, c0.tokens_sold, whaleXlm)
-  if (!localWhaleQuote || localWhaleQuote.total_fee_bps <= 80n) {
-    throw new Error('Expected progressive anti-whale fee surcharge > 80 bps on 200 XLM order')
+  if (!localWhaleQuote || localWhaleQuote.total_fee_bps !== 80n) {
+    throw new Error(`Expected flat 80 bps buy fee in v4.2, got ${localWhaleQuote?.total_fee_bps}`)
   }
   const buy1 = await tokenLib.buyCurveToken({
     tokenId: token,
@@ -449,7 +455,7 @@ try {
   if (buy1.trade.tokens !== localWhaleQuote.tokens_out) {
     throw new Error(`Curve buy 1 mismatch: ${buy1.trade.tokens} vs ${localWhaleQuote.tokens_out}`)
   }
-  console.log(`  ok Trader1 bought ${buy1.trade.tokens} base units on curve (fee=${localWhaleQuote.total_fee_bps} bps)`)
+  console.log(`  ok Trader1 bought ${buy1.trade.tokens} base units on curve (flat fee=${localWhaleQuote.total_fee_bps} bps)`)
 
   // Slippage guard on curve buy (#5 SlippageExceeded)
   const c1 = await tokenLib.fetchCurveState(token)
@@ -463,7 +469,7 @@ try {
     })
   })
 
-  // Buyer 2 (Trader2): 50 XLM on curve + partial curve sell
+  // Buyer 2 (Trader2): 50 XLM on curve + partial curve sell (asymmetric 2.50% early sell fee -> buyback/LP floor!)
   const qBuy2 = await tokenLib.quoteCurveBuyRpc(token, 50n * UNIT)
   const buy2 = await tokenLib.buyCurveToken({
     tokenId: token,
@@ -473,6 +479,9 @@ try {
   })
   const sellAmtCurve = 5_000n * UNIT
   const qSell2 = await tokenLib.quoteCurveSellRpc(token, sellAmtCurve)
+  if (qSell2.total_fee_bps !== 250n) {
+    throw new Error(`Expected 250 bps early curve sell fee, got ${qSell2.total_fee_bps}`)
+  }
   const sellCurveRes = await tokenLib.sellCurveToken({
     tokenId: token,
     tokenAmount: sellAmtCurve,
@@ -482,7 +491,7 @@ try {
   if (sellCurveRes.trade.xlm !== qSell2.net_xlm_out) {
     throw new Error('Curve sell quote mismatch')
   }
-  console.log(`  ok Trader2 bought ${buy2.trade.tokens} & sold 5,000 on curve`)
+  console.log(`  ok Trader2 bought ${buy2.trade.tokens} & sold 5,000 on curve (sell fee=${qSell2.total_fee_bps} bps)`)
 
   // King Shout dethroning & total_supply shrink
   const shout1Amt = 5_000n * UNIT
@@ -505,27 +514,16 @@ try {
   }
   console.log('  ok 3-tier King Shout dethrone verified on-chain (5,000 -> 7,500)')
 
-  // Self-transfer + wallet churn + graduated live test
-  const t1BalBeforeChurn = await tokenLib.fetchTokenBalance(token, trader1.publicKey)
+  // Pre-graduation P2P transfer lock (closes PairAlreadySeeded DoS!)
   const tokAsTrader1 = tokenLib.tokenClient(token, trader1Signer)
-  await (
-    await tokAsTrader1.transfer({
-      from: trader1.publicKey,
-      to: trader1.publicKey,
-      amount: 10_000n * UNIT,
-    })
-  ).signAndSend()
-  const t1AfterSelf = await tokenLib.fetchTokenBalance(token, trader1.publicKey)
-  if (t1AfterSelf !== t1BalBeforeChurn) {
-    throw new Error('Self-transfer mutated token balance!')
-  }
-  await (
-    await tokAsTrader1.transfer({
+  await expectRejected('pre-graduation P2P transfer blocked (PairAlreadySeeded DoS protection)', async () => {
+    const tx = await tokAsTrader1.transfer({
       from: trader1.publicKey,
       to: attacker.publicKey,
       amount: 1_000n * UNIT,
     })
-  ).signAndSend()
+    await tx.signAndSend()
+  })
 
   // Live 1,000 XLM Graduation by Trader1!
   const cPreGrad = await tokenLib.fetchCurveState(token)
@@ -549,12 +547,19 @@ try {
   }
   console.log(`  ok LIVE GRADUATION on Testnet! Pair=${gradBuy.trade.pair} | cappedXlm=${gradBuy.trade.xlm}`)
 
-  // Post-graduation security & state verification
-  const [cGrad, pGrad, auditGrad, supplyAfterGrad] = await Promise.all([
+  // Post-graduation security & state verification (P2P transfers now unlocked!)
+  await (
+    await tokAsTrader1.transfer({
+      from: trader1.publicKey,
+      to: attacker.publicKey,
+      amount: 1_000n * UNIT,
+    })
+  ).signAndSend()
+
+  const [cGrad, pGrad, auditGrad] = await Promise.all([
     tokenLib.fetchCurveState(token),
     soroswap.fetchPoolState(token),
     sdkLib.verifyAntiRug(token),
-    tokenRead.total_supply(),
   ])
   if (
     !cGrad.graduated ||
@@ -570,7 +575,11 @@ try {
     throw new Error(`Post-grad anti-rug check failed: ${JSON.stringify(auditGrad)}`)
   }
 
-  // Post-graduation curve trades MUST revert (#6 InvalidCurveState), premature vesting & milestone 2 MUST revert (#8)
+  // Day 0 post-grad: Creator unlocks paid seed, then premature Day 3 vesting tranche MUST revert (#8)
+  const seedClaim = await tokenLib.claimCreatorVesting({ tokenId: token, signer: creatorSigner })
+  if (seedClaim.claimed !== cGrad.creator_seed_locked) {
+    throw new Error(`Expected seed unlock ${cGrad.creator_seed_locked}, got ${seedClaim.claimed}`)
+  }
   await expectRejected('buy_curve after graduation rejected', async () => {
     await tokenLib.buyCurveToken({
       tokenId: token,
@@ -586,8 +595,17 @@ try {
     await tokenLib.triggerMilestoneBurn({ tokenId: token, signer: opsSigner })
   })
 
+  // Permissionless DEX Buyback & Burn if buyback_xlm_reserve > 0
+  let buybackBurned = 0n
+  if (cGrad.buyback_xlm_reserve > 0n) {
+    const bb = await tokenLib.triggerBuybackBurn({ tokenId: token, signer: opsSigner })
+    buybackBurned = bb.burned
+    console.log(`  ok Soroswap DEX Buyback & Burn executed: -${buybackBurned} base units burned!`)
+  }
+
   // Ops swaps XLM -> Token directly on the newly graduated Soroswap Pair
-  const qDex = await soroswap.quoteXlmForToken(5n * UNIT, pGrad)
+  const pBeforeOps = await soroswap.fetchPoolState(token)
+  const qDex = await soroswap.quoteXlmForToken(5n * UNIT, pBeforeOps)
   const dexSwap = await soroswap.swapXlmForToken({
     tokenId: token,
     amountIn: 5n * UNIT,
@@ -595,7 +613,7 @@ try {
     signer: opsSigner,
   })
   const pFinal = await soroswap.fetchPoolState(token)
-  if (!dexSwap[1] || pFinal.reserveXlm * pFinal.reserveToken <= pGrad.reserveXlm * pGrad.reserveToken) {
+  if (!dexSwap[1] || pFinal.reserveXlm * pFinal.reserveToken <= pBeforeOps.reserveXlm * pBeforeOps.reserveToken) {
     throw new Error('Post-graduation Soroswap swap failed k invariant')
   }
   console.log(`  ok Ops swapped 5 XLM -> ${dexSwap[1]} base units on graduated Soroswap LP`)
@@ -603,11 +621,13 @@ try {
   // Permissionless TTL refresh by Attacker works cleanly
   await tokenLib.extendTokenTtl({ tokenId: token, signer: attackerSigner })
 
-  // Final supply conservation check (10M - 1.485M Milestone 1 burn - 2,500 shouts)
+  // Final supply conservation check (10M - 1.475M M1 - 12,500 shouts - buybackBurned)
   const totalBurnedShouts = shout1Amt + shout2Amt
-  const expectedFinalSupply = EXPECTED_INITIAL_SUPPLY - EXPECTED_MILESTONE_1_BURN - totalBurnedShouts
-  if (supplyAfterGrad.result !== expectedFinalSupply) {
-    throw new Error(`Supply mismatch: got ${supplyAfterGrad.result}, expected ${expectedFinalSupply}`)
+  const supplyEnd = (await tokenRead.total_supply()).result
+  const expectedFinalSupply =
+    EXPECTED_INITIAL_SUPPLY - EXPECTED_MILESTONE_1_BURN - totalBurnedShouts - buybackBurned
+  if (supplyEnd !== expectedFinalSupply) {
+    throw new Error(`Supply mismatch: got ${supplyEnd}, expected ${expectedFinalSupply}`)
   }
 
   const [creatorBalFinal, t1BalFinal, liveEvents, shoutsFinal] = await Promise.all([
@@ -621,7 +641,7 @@ try {
   }
 
   const analysis = holdersLib.analyzeTokenHolders({
-    totalSupply: supplyAfterGrad.result,
+    totalSupply: supplyEnd,
     reserveToken: pFinal.reserveToken,
     pairId: pFinal.pairId,
     creator: creator.publicKey,
@@ -635,14 +655,14 @@ try {
     throw new Error('Holder analysis leaked Launchpad contract address!')
   }
   const observedSum = analysis.holders.reduce((acc, h) => acc + h.balance, 0n)
-  if (observedSum > supplyAfterGrad.result) {
-    throw new Error(`Holder analysis exceeded total supply: ${observedSum} > ${supplyAfterGrad.result}`)
+  if (observedSum > supplyEnd) {
+    throw new Error(`Holder analysis exceeded total supply: ${observedSum} > ${supplyEnd}`)
   }
 
-  console.log('\n=== FAIR-FLYWHEEL V4 ADVERSARIAL & GRADUATION AUDIT PASSED ===')
+  console.log('\n=== FAIR-FLYWHEEL V4.2 ADVERSARIAL & GRADUATION AUDIT PASSED ===')
   console.log(`Token           : ${token}`)
   console.log(`Pair            : ${pFinal.pairId}`)
-  console.log(`Supply final    : ${supplyAfterGrad.result.toString()} (burned M1+Shouts=${(EXPECTED_MILESTONE_1_BURN + totalBurnedShouts).toString()})`)
+  console.log(`Supply final    : ${supplyEnd.toString()} (burned M1+Shouts+Buyback=${(EXPECTED_MILESTONE_1_BURN + totalBurnedShouts + buybackBurned).toString()})`)
   console.log(`Pool reserve    : ${pFinal.reserveToken.toString()} token / ${pFinal.reserveXlm.toString()} XLM`)
   console.log(`Events analyzed : ${liveEvents.length} | Holders tracked: ${analysis.holders.length} | Risk: ${analysis.riskLabel}`)
 } catch (err) {

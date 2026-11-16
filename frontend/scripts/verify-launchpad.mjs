@@ -15,8 +15,8 @@ import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const RPC_URL = 'https://soroban-testnet.stellar.org'
 const PASSPHRASE = 'Test SDF Network ; September 2015'
-const WASM_HASH = 'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
-const LAUNCHPAD_CONTRACT_ID = 'CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW'
+const WASM_HASH = '465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d'
+const LAUNCHPAD_CONTRACT_ID = 'CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5'
 
 const { secret } = loadStellarSecret()
 if (!secret) {

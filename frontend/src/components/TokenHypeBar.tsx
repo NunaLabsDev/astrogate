@@ -12,6 +12,8 @@ import { toast } from '../lib/toast'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
+import { triggerTelegramHaptic } from '../lib/telegram'
+import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 
 const BURN_PRESETS = [
   { amount: String(MIN_SHOUT_BURN), tier: '💬 Chat' },
@@ -27,11 +29,17 @@ export function TokenHypeBar({
   tokenId,
   symbol,
   decimals = 7,
+  spotPriceXlm = 0,
+  xlmUsd = DEFAULT_XLM_USD_PRICE,
+  onBuyClick,
 }: {
   tokenId: string
   symbol: string
   pairId?: string | null
   decimals?: number
+  spotPriceXlm?: number
+  xlmUsd?: number
+  onBuyClick?: () => void
 }) {
   const { publicKey, requireSignerOrPrompt, openWalletModal } = useWallet()
   const queryClient = useQueryClient()
@@ -110,6 +118,7 @@ export function TokenHypeBar({
         message: `Burned ${formatAmount(burnAmountBase, decimals)} $${symbol}`,
         hash,
       })
+      triggerTelegramHaptic('success')
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['token-shouts', tokenId] }),
@@ -122,6 +131,7 @@ export function TokenHypeBar({
     } catch (err) {
       const msg = errorMessage(err)
       setError(msg)
+      triggerTelegramHaptic('error')
       toast.error('Failed to publish shout', { message: msg })
     } finally {
       setBusy(false)
@@ -129,24 +139,31 @@ export function TokenHypeBar({
   }
 
   const list = shouts.data ?? []
+  const burnWholeTokens = Number(burnAmountBase) / 10 ** Math.max(0, Math.trunc(decimals))
+  const burnCostXlm = spotPriceXlm > 0 ? burnWholeTokens * spotPriceXlm : 0
+  const burnCostUsd = burnCostXlm * xlmUsd
+  const missingBalance =
+    Boolean(publicKey) &&
+    balance.data !== undefined &&
+    burnAmountBase > balance.data
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
         <div>
-          <p className="text-xs font-semibold text-white">🔥 3-Tier Burn-to-Chat &amp; 👑 King Shout</p>
-          <p className="text-[11px] text-slate-400">
-            Burns shrink circulating supply via <code className="text-amber-300">token.burn()</code>. ≥ {KING_SHOUT_BURN.toLocaleString('en-US')} ${symbol} takes the pinned King Throne.
+          <p className="text-sm font-semibold text-white">🔥 3-Tier Burn-to-Chat &amp; 👑 King Shout</p>
+          <p className="text-xs text-slate-400">
+            Burns shrink supply via <code className="text-amber-300">token.burn()</code>. ≥ {KING_SHOUT_BURN.toLocaleString('en-US')} ${symbol} takes King (24h half-life).
           </p>
         </div>
-        <span className="rounded-full border border-slate-800 bg-slate-950 px-2.5 py-0.5 font-mono text-[10px] text-slate-400">
+        <span className="rounded-full border border-slate-800 bg-slate-950 px-2.5 py-0.5 font-mono text-xs text-slate-400">
           {list.length} {list.length === 1 ? 'shout' : 'shouts'}
         </span>
       </div>
 
       {kingShout.data ? (
         <div className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-500/15 via-amber-950/30 to-slate-950 px-3 py-2.5 text-xs">
-          <div className="flex items-center justify-between gap-2 text-[11px]">
+          <div className="flex items-center justify-between gap-2">
             <span className="font-bold text-amber-300">
               👑 KING SHOUT · {shortAddress(kingShout.data.sender)}
             </span>
@@ -164,27 +181,38 @@ export function TokenHypeBar({
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-slate-400">Burn:</span>
-            {BURN_PRESETS.map((preset) => (
-              <button
-                key={preset.amount}
-                type="button"
-                disabled={busy}
-                onClick={() => setBurnAmountInput(preset.amount)}
-                className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition ${
-                  burnAmountInput === preset.amount
-                    ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 font-bold'
-                    : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {preset.tier} · {preset.amount}
-              </button>
-            ))}
+            {BURN_PRESETS.map((preset) => {
+              const presetXlm = spotPriceXlm > 0 ? Number(preset.amount) * spotPriceXlm : 0
+              return (
+                <button
+                  key={preset.amount}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setBurnAmountInput(preset.amount)}
+                  className={`rounded-lg border px-2.5 py-1 font-mono text-xs transition ${
+                    burnAmountInput === preset.amount
+                      ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 font-bold'
+                      : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {preset.tier} · {preset.amount}
+                  {presetXlm > 0 ? ` (~${presetXlm.toFixed(2)} XLM)` : ''}
+                </button>
+              )
+            })}
           </div>
-          {balance.data !== undefined ? (
-            <span className="font-mono text-[11px] text-slate-400">
-              Bal: {formatAmount(balance.data, decimals)} ${symbol}
-            </span>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-slate-400">
+            {burnCostXlm > 0 ? (
+              <span className="text-amber-300/90">
+                ≈ {burnCostXlm.toFixed(2)} XLM (${burnCostUsd.toFixed(2)})
+              </span>
+            ) : null}
+            {balance.data !== undefined ? (
+              <span>
+                Bal: {formatAmount(balance.data, decimals)} ${symbol}
+              </span>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2">
@@ -201,17 +229,27 @@ export function TokenHypeBar({
             }
             className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-500"
           />
-          <button
-            type="submit"
-            disabled={busy || (Boolean(publicKey) && !message.trim())}
-            className="min-h-[40px] shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 transition disabled:opacity-50"
-          >
-            {busy
-              ? 'Burning…'
-              : publicKey
-                ? `🔥 Burn & Shout`
-                : '🔌 Connect to Shout'}
-          </button>
+          {missingBalance && onBuyClick ? (
+            <button
+              type="button"
+              onClick={onBuyClick}
+              className="min-h-[40px] shrink-0 rounded-xl bg-emerald-500 px-4 py-2 text-xs font-black text-slate-950 hover:bg-emerald-400 transition"
+            >
+              Buy ${symbol} to Shout →
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={busy || (Boolean(publicKey) && !message.trim())}
+              className="min-h-[40px] shrink-0 rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 transition disabled:opacity-50"
+            >
+              {busy
+                ? 'Burning…'
+                : publicKey
+                  ? `🔥 Burn & Shout`
+                  : '🔌 Connect to Shout'}
+            </button>
+          )}
         </div>
 
         {error ? (

@@ -25,8 +25,8 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (Fair-Flywheel v4.1: 45 / 25 / 29.7 / 0.3)', () => {
-  it('reparte 45% curva, 25% DEX, 29.7% quema, 0.3% vesting sobre 10M', () => {
+describe('allocation math (Fair-Flywheel v4.2: 42 / 28 / 29.5 / 0.5)', () => {
+  it('reparte 42% curva, 28% DEX, 29.5% quema, 0.5% vesting sobre 10M', () => {
     expect(
       CURVE_TOKENS_ALLOC_BASE +
         DEX_TOKENS_ALLOC_BASE +
@@ -34,13 +34,13 @@ describe('allocation math (Fair-Flywheel v4.1: 45 / 25 / 29.7 / 0.3)', () => {
         CREATOR_VESTING_ALLOC_BASE,
     ).toBe(FAIR_INITIAL_SUPPLY_BASE)
     expect(poolAllocationBase(FAIR_INITIAL_SUPPLY_BASE)).toBe(
-      9_970_000n * STROOPS_PER_UNIT,
+      9_950_000n * STROOPS_PER_UNIT,
     )
     expect(STELLAR_BURN_ADDRESS).toHaveLength(56)
     expect(CREATOR_VESTING_SCHEDULE).toHaveLength(5)
     expect(
       CREATOR_VESTING_SCHEDULE.reduce((sum, p) => sum + p.tokensAmount, 0),
-    ).toBe(30_000)
+    ).toBe(50_000)
   })
 
   it('devuelve 0 sobre supplies inválidos', () => {
@@ -48,37 +48,53 @@ describe('allocation math (Fair-Flywheel v4.1: 45 / 25 / 29.7 / 0.3)', () => {
   })
 })
 
-describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.1)', () => {
-  it('aplica fee estándar 80 bps (0.50% treasury + 0.30% floor) bajo <= 2% de vXLM (25 XLM)', () => {
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.2)', () => {
+  it('aplica fee plano 80 bps (0.50% treasury + 0.30% floor) en compras chicas y grandes', () => {
     const q = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
     expect(q).not.toBeNull()
     expect(q!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
     expect(q!.treasury_fee).toBe(500_000n)
     expect(q!.floor_bonus).toBe(300_000n)
     expect(q!.will_graduate).toBe(false)
-    // At 1,250 vXLM / 10.125M vTok, 10 XLM buys ~79.7K tokens
-    expect(q!.tokens_out).toBeGreaterThan(78_000n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBeLessThan(82_000n * STROOPS_PER_UNIT)
+    // At 2,000 vXLM / 12.6M vTok, 10 XLM buys ~62.2K tokens
+    expect(q!.tokens_out).toBeGreaterThan(60_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBeLessThan(65_000n * STROOPS_PER_UNIT)
+
+    const qLarge = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
+    expect(qLarge).not.toBeNull()
+    expect(qLarge!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
   })
 
-  it('aplica recargo anti-ballena progresivo en compras > 2% de vXLM hacia el floor', () => {
-    // 200 XLM sobre 1,250 vXLM = 1,600 bps (> 200 bps) -> whale = (1,600 - 200) / 2 = 700 -> capped 500 bps
-    const q = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
-    expect(q).not.toBeNull()
-    expect(q!.total_fee_bps).toBe(80n + 500n)
-    expect(q!.floor_bonus).toBeGreaterThan(q!.treasury_fee)
+  it('aplica fee asimétrico anti-sniper en ventas (2.50% temprano, 1.50% tardío) hacia el floor', () => {
+    const earlyBuy = localCurveQuoteBuy(0n, 0n, 100n * STROOPS_PER_UNIT)!
+    const earlySell = localCurveQuoteSell(
+      earlyBuy.net_xlm_to_curve,
+      earlyBuy.tokens_out,
+      earlyBuy.tokens_out,
+    )
+    expect(earlySell).not.toBeNull()
+    expect(earlySell!.total_fee_bps).toBe(250n)
+    expect(earlySell!.floor_bonus).toBeGreaterThan(earlySell!.treasury_fee)
+
+    const lateSell = localCurveQuoteSell(
+      600n * STROOPS_PER_UNIT,
+      2_800_000n * STROOPS_PER_UNIT,
+      100_000n * STROOPS_PER_UNIT,
+    )
+    expect(lateSell).not.toBeNull()
+    expect(lateSell!.total_fee_bps).toBe(150n)
   })
 
-  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (4.5M)', () => {
+  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (4.2M)', () => {
     const q = localCurveQuoteBuy(
       950n * STROOPS_PER_UNIT,
-      4_200_000n * STROOPS_PER_UNIT,
+      4_000_000n * STROOPS_PER_UNIT,
       100n * STROOPS_PER_UNIT,
     )
     expect(q).not.toBeNull()
     expect(q!.will_graduate).toBe(true)
     expect(q!.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBe(300_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBe(200_000n * STROOPS_PER_UNIT)
     expect(q!.total_xlm_charged).toBeLessThan(100n * STROOPS_PER_UNIT)
   })
 

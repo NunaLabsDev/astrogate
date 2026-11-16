@@ -394,10 +394,12 @@ export function recordToListing(record: StoredTokenRecord): TokenListing {
           curve_xlm_net: toBase(record.curveXlmNet ?? '0'),
           real_xlm_vault: toBase(record.curveXlmNet ?? '0'),
           tokens_sold: toBase(record.curveTokensSold ?? '0'),
+          buyback_xlm_reserve: 0n,
           burn_vault_remaining: 0n,
           burn_milestone_stage: record.curveGraduated ? 1 : 0,
           creator_vesting_total: 0n,
           creator_claimed: 0n,
+          creator_seed_locked: 0n,
         }
       : undefined
   return {

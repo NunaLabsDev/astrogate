@@ -673,7 +673,7 @@ export function CreateTokenForm({
                 {
                   label: 'Single-Transaction Fair Launch',
                   status: 'active',
-                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 45% curve / 25% Soroswap / 29.7% burn vault / 0.3% 15d vesting locked, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy executed, and mint ownership renounced in 1 signature.`,
+                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 42% curve / 28% Soroswap / 29.5% burn vault / 0.5% 15d vesting, P2P locked until graduation, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy locked until grad, and ownership renounced in 1 signature.`,
                 },
               ]}
             />
@@ -734,23 +734,23 @@ export function CreateTokenForm({
           <details className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs sm:text-sm">
             <summary className="cursor-pointer select-none font-medium text-slate-300 flex items-center justify-between gap-2">
               <span>📊 View Fair-Flywheel Split &amp; Launch Price</span>
-              <span className="font-mono text-xs text-emerald-400">45 / 25 / 29.7 / 0.3</span>
+              <span className="font-mono text-xs text-emerald-400">42 / 28 / 29.5 / 0.5</span>
             </summary>
 
             <div className="mt-3 space-y-3 pt-3 border-t border-slate-800/80">
               <div className="grid gap-2.5 sm:grid-cols-2 font-mono text-xs">
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
-                  <p className="text-slate-400 font-sans">45% Curve + 25% DEX</p>
+                  <p className="text-slate-400 font-sans">42% Curve + 28% DEX</p>
                   <p className="mt-1 font-bold text-white">
                     {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
                   </p>
                   <p className="mt-1 text-emerald-300">
-                    Your buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
+                    Your buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'} (locked until grad)
                   </p>
                 </div>
 
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
-                  <p className="text-slate-400 font-sans">29.7% Burn + 0.3% 15d Vesting</p>
+                  <p className="text-slate-400 font-sans">29.5% Burn + 0.5% 15d Vesting</p>
                   <p className="mt-1 font-bold text-amber-300">
                     {Number(burnVaultTokensWhole).toLocaleString('en-US')} 🔥 + {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳
                   </p>

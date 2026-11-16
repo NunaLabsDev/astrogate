@@ -29,9 +29,11 @@ function curveListing(
     curve: {
       burn_milestone_stage: graduated ? 1 : 0,
       burn_vault_remaining: 0n,
+      buyback_xlm_reserve: 0n,
       creator: 'GCREATOR',
       creator_claimed: 0n,
-      creator_vesting_total: 30_000n * 10_000_000n,
+      creator_seed_locked: 0n,
+      creator_vesting_total: 50_000n * 10_000_000n,
       curve_xlm_net: curveXlmNet,
       graduated,
       graduated_at: graduated ? BigInt(ledger) : 0n,

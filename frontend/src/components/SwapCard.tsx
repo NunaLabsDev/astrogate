@@ -40,6 +40,7 @@ import { buyCurveToken, sellCurveToken, type LaunchpadToken } from '../lib/token
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { toast } from '../lib/toast'
+import { triggerTelegramHaptic } from '../lib/telegram'
 import { TxProgress } from './TxProgress'
 
 const inputClass = FORM_INPUT_CLASS
@@ -86,6 +87,7 @@ export function SwapCard({
   const [amount, setAmount] = useState('10')
   const [slippage, setSlippage] = useState<number>(SLIPPAGE_PERCENT)
   const [showSlippage, setShowSlippage] = useState(false)
+  const [confirmHighRisk, setConfirmHighRisk] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [swapped, setSwapped] = useState<SwapDone | null>(null)
@@ -206,6 +208,7 @@ export function SwapCard({
     const num = Number(cleaned)
     if (Number.isFinite(num)) {
       setSlippage(Math.max(0.1, Math.min(50, num)))
+      setConfirmHighRisk(false)
     }
   }
 
@@ -215,6 +218,7 @@ export function SwapCard({
     setAmount('')
     setError(null)
     setSwapped(null)
+    setConfirmHighRisk(false)
   }
 
   async function onSwap(event: React.FormEvent) {
@@ -266,15 +270,13 @@ export function SwapCard({
       return
     }
 
-    if ((impact !== null && impact >= 15) || slippage >= 10) {
-      const reasons: string[] = []
-      if (impact !== null && impact >= 15) reasons.push(`high price impact (${impact.toFixed(1)}%)`)
-      if (slippage >= 10) reasons.push(`wide slippage tolerance (${slippage}%)`)
-      const proceed = window.confirm(
-        `Caution: This trade has ${reasons.join(' and ')}.\n\nAre you sure you want to submit this swap?`,
-      )
-      if (!proceed) return
+    const needsSecondTap = (impact !== null && impact >= 15) || slippage >= 10
+    if (needsSecondTap && !confirmHighRisk) {
+      setConfirmHighRisk(true)
+      triggerTelegramHaptic('medium')
+      return
     }
+    setConfirmHighRisk(false)
 
     setBusy(true)
     let hash: string | undefined
@@ -390,6 +392,7 @@ export function SwapCard({
         explorerUrl: hash ? explorerTxUrl(hash) : undefined,
       })
       onSwapped?.()
+      triggerTelegramHaptic('success')
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: ['launch-curve', token.id],
@@ -421,6 +424,7 @@ export function SwapCard({
         }),
       ])
     } catch (err) {
+      triggerTelegramHaptic('error')
       const message = errorMessage(err)
       setError(message)
       if (message === 'Transaction cancelled in wallet.') {
@@ -447,7 +451,10 @@ export function SwapCard({
   }
 
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5">
+    <section
+      id="swap-card"
+      className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5"
+    >
       <h2 className="sr-only">Swap with XLM</h2>
 
       <div
@@ -549,7 +556,10 @@ export function SwapCard({
           <input
             className={`${inputClass} mt-1`}
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmount(e.target.value)
+              setConfirmHighRisk(false)
+            }}
             placeholder={isBuy ? 'e.g. 10' : 'e.g. 500000'}
             inputMode="decimal"
           />
@@ -702,9 +712,9 @@ export function SwapCard({
                   </span>
                 </div>
 
-                {impact !== null && impact >= 10 ? (
+                {impact !== null && impact >= 3 ? (
                   <p className={`text-xs ${impactClass(impact)}`}>
-                    Price moves ~{impact.toFixed(1)}% with this order size.
+                    Price move: ~{impact.toFixed(1)}% with this order size.
                   </p>
                 ) : null}
 
@@ -719,6 +729,14 @@ export function SwapCard({
         ) : null}
 
         <div>
+          {confirmHighRisk ? (
+            <p className="mb-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs font-medium text-amber-200">
+              {impact !== null && impact >= 15
+                ? `Large price move (~${impact.toFixed(1)}%).`
+                : `Wide slippage (${slippage}%).`}{' '}
+              Tap once more to confirm.
+            </p>
+          ) : null}
           {!publicKey ? (
             <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
               <button
@@ -745,23 +763,29 @@ export function SwapCard({
               type="submit"
               disabled={busy || amountIn <= 0n}
               className={`min-h-[48px] w-full rounded-xl px-6 py-3.5 text-base font-black transition-all shadow-md disabled:opacity-50 disabled:cursor-not-allowed ${
-                isBuy
-                  ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/25 active:scale-[0.99]'
-                  : 'bg-rose-500 hover:bg-rose-400 text-slate-950 shadow-rose-500/25 active:scale-[0.99]'
+                confirmHighRisk
+                  ? 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-amber-400/25 active:scale-[0.99]'
+                  : isBuy
+                    ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-emerald-500/25 active:scale-[0.99]'
+                    : 'bg-rose-500 hover:bg-rose-400 text-slate-950 shadow-rose-500/25 active:scale-[0.99]'
               }`}
             >
               {busy
                 ? 'Executing on-chain…'
-                : isBuy
-                  ? `🚀 Quick Buy ${tokenSymbol} Now`
-                  : `💰 Quick Sell ${tokenSymbol} for XLM`}
+                : confirmHighRisk
+                  ? `⚠️ Confirm ${isBuy ? 'Buy' : 'Sell'} ${tokenSymbol}`
+                  : isBuy
+                    ? `🚀 Quick Buy ${tokenSymbol} Now`
+                    : `💰 Quick Sell ${tokenSymbol} for XLM`}
             </button>
           )}
           <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
             <span>Slippage: {slippage}%</span>
             <span className="text-emerald-400 font-medium">
               {isBondingCurve
-                ? 'Instant on-chain curve trade'
+                ? isBuy
+                  ? '0.80% flat buy fee · zero whale penalty'
+                  : `${(Number(curveFeeBps) / 100).toFixed(2)}% sell fee → LP & buyback`
                 : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% DEX LP fee · 0% protocol fee`}
             </span>
           </div>

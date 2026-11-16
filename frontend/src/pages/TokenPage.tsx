@@ -59,9 +59,11 @@ import {
 import {
   claimCreatorVesting,
   extendTokenTtl,
+  triggerBuybackBurn,
   triggerMilestoneBurn,
   type LaunchpadToken,
 } from '../lib/token'
+import { getTelegramWebApp, telegramMiniAppUrl } from '../lib/telegram'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS } from '../lib/xlm'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { errorMessage } from '../lib/format'
@@ -182,7 +184,9 @@ export function TokenPage() {
     'thread' | 'trades' | 'holders' | 'audit'
   >('thread')
   const [extendingTtl, setExtendingTtl] = useState(false)
-  const [busyFlywheel, setBusyFlywheel] = useState<'milestone' | 'vesting' | null>(null)
+  const [busyFlywheel, setBusyFlywheel] = useState<
+    'milestone' | 'vesting' | 'buyback' | null
+  >(null)
 
   const holderAnalysis = useMemo(
     () =>
@@ -298,6 +302,37 @@ export function TokenPage() {
       ])
     } catch (err) {
       toast.error('Nothing unlocked yet', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onTriggerBuybackBurn() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('buyback')
+    try {
+      const { burned, hash } = await triggerBuybackBurn({ tokenId: id, signer })
+      toast.success('🔥 Soroswap Buyback & Burn executed!', {
+        message: `Bought & burned ${formatAmount(burned, token.decimals)} $${token.symbol}`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['soroswap-pool', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+      ])
+    } catch (err) {
+      toast.error('Buyback burn unavailable', { message: errorMessage(err) })
     } finally {
       setBusyFlywheel(null)
     }
@@ -425,7 +460,11 @@ export function TokenPage() {
   const safeWebsite = sanitizeHttpUrl(meta.data?.website)
   const safeTwitter = sanitizeTwitterUrl(meta.data?.twitter)
   const shareUrl =
-    typeof window !== 'undefined' ? window.location.href : `/token/${id}`
+    typeof window !== 'undefined'
+      ? getTelegramWebApp()
+        ? telegramMiniAppUrl(id)
+        : window.location.href
+      : `/token/${id}`
 
   return (
     <div className="space-y-6">
@@ -734,11 +773,23 @@ export function TokenPage() {
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
                     {curve.data.burn_milestone_stage === 0
-                      ? `2.97M $${token.symbol} vaulted: 1.485M burns at graduation + 1.485M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                      ? `2.95M $${token.symbol} vaulted: 1.475M burns at graduation + 1.475M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
                       : curve.data.burn_milestone_stage === 1
-                        ? `1.485M burned ✓ · 1.485M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                        : `All 2.97M $${token.symbol} vault tokens permanently burned ✓`}
+                        ? `1.475M burned ✓ · 1.475M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                        : `All 2.95M $${token.symbol} vault tokens permanently burned ✓`}
                   </p>
+                  {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
+                    <button
+                      type="button"
+                      disabled={busyFlywheel !== null}
+                      onClick={() => void onTriggerBuybackBurn()}
+                      className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
+                    >
+                      {busyFlywheel === 'buyback'
+                        ? 'Executing DEX Buyback…'
+                        : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
+                    </button>
+                  ) : null}
                   {curve.data.graduated && curve.data.burn_milestone_stage === 1 ? (
                     <button
                       type="button"
@@ -754,7 +805,7 @@ export function TokenPage() {
                         ? 'Burning Milestone 2…'
                         : pool.data?.exists &&
                             pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
-                          ? '🔥 Trigger Milestone 2 Burn (1.485M)'
+                          ? '🔥 Trigger Milestone 2 Burn (1.475M)'
                           : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Depth`}
                     </button>
                   ) : null}
@@ -763,7 +814,7 @@ export function TokenPage() {
                 <div className="rounded-2xl border border-sky-500/30 bg-slate-950/50 p-3.5 space-y-2">
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-bold text-sky-300">
-                      ⏳ Creator 15d Vesting (0.3%)
+                      ⏳ Creator 15d Vesting (0.5%)
                     </span>
                     <span className="font-mono text-slate-400">
                       {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
@@ -771,11 +822,12 @@ export function TokenPage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    30,000 ${token.symbol} locked until graduation, then 5 tranches every 3 days.
+                    50,000 ${token.symbol} bonus locked until graduation, then 5 tranches every 3 days{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} seed locked until grad)` : ''}.
                   </p>
-                  {curve.data.graduated &&
-                  publicKey === curve.data.creator &&
-                  curve.data.creator_claimed < curve.data.creator_vesting_total ? (
+                  {publicKey === curve.data.creator &&
+                  (curve.data.creator_claimed < curve.data.creator_vesting_total ||
+                    curve.data.creator_seed_locked > 0n) &&
+                  curve.data.graduated ? (
                     <button
                       type="button"
                       disabled={busyFlywheel !== null}
@@ -784,7 +836,9 @@ export function TokenPage() {
                     >
                       {busyFlywheel === 'vesting'
                         ? 'Claiming Tranche…'
-                        : '⏳ Claim Unlocked Creator Vesting'}
+                        : curve.data.creator_seed_locked > 0n
+                          ? '⏳ Claim Seed & Unlocked Vesting'
+                          : '⏳ Claim Unlocked Creator Vesting'}
                     </button>
                   ) : null}
                 </div>
@@ -864,6 +918,13 @@ export function TokenPage() {
                 symbol={token.symbol ?? 'TOKEN'}
                 pairId={pool.data?.pairId}
                 decimals={token.decimals}
+                spotPriceXlm={priceNumber}
+                xlmUsd={xlmUsd}
+                onBuyClick={() => {
+                  document
+                    .getElementById('swap-card')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
               />
             ) : activeTab === 'holders' ? (
               <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-4 text-xs">
@@ -1244,8 +1305,8 @@ export function TokenPage() {
           </div>
         </div>
 
-        {/* Right Column: Comprar y Vender (SwapCard) Sticky */}
-        <div className="min-w-0 space-y-4 lg:col-span-5 lg:sticky lg:top-20">
+        {/* Right Column (first on mobile/Telegram): Comprar y Vender (SwapCard) Sticky */}
+        <div className="min-w-0 space-y-4 lg:col-span-5 lg:sticky lg:top-20 order-first lg:order-last">
           <SwapCard
             token={token}
             onOpenLiquidityTools={() => setOpenAdvanced(true)}

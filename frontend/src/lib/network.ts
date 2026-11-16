@@ -51,21 +51,22 @@ export const ASTRO_TOKEN_ID = 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5
  * The launchpad deploys new instances with this hash without re-uploading the binary.
  */
 export const ASTRO_WASM_HASH =
-  'a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7'
+  '465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d'
 
 /**
- * Fair-Flywheel Launchpad v4.1 deployed on testnet (10M fixed supply, 45/25/29.7/0.3,
- * 1,250 vXLM -> 1,000 real XLM goal [3.24x], 7 XLM creation fee -> treasury,
- * 15d post-grad vesting, 50/500/5,000 King Shout).
+ * Fair-Flywheel Launchpad v4.2 deployed on testnet (10M fixed supply, 42/28/29.5/0.5,
+ * 2,000 vXLM -> 1,000 real XLM goal [2.25x], flat 0.80% buys, 2.50%->1.50% anti-sniper sells,
+ * 7 XLM creation fee -> treasury, seed lock until grad, Soroswap buyback-burn,
+ * P2P curve transfer lock, 15d post-grad vesting, 50/500/5,000 decaying King Shout).
  */
 export const LAUNCHPAD_CONTRACT_ID =
-  'CA5JOZOCEEWUJJ3CCMB5EUM5EWVJTWZL4R7WIHI4ESQT7YUBKB7AFPAW'
+  'CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5'
 
 /**
- * SHA-256 hash of the launchpad v4.1 contract bytecode deployed on testnet.
+ * SHA-256 hash of the launchpad v4.2 contract bytecode deployed on testnet.
  */
 export const LAUNCHPAD_WASM_HASH =
-  '3c01f40ff4bcab802082c9791f5dfdfa50cbd6d38e81e48c77ddede1a10e5f8c'
+  '47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc'
 
 /**
  * Official AstroGate Developers Treasury address on Stellar Testnet.

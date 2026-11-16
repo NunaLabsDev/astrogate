@@ -409,3 +409,70 @@ fn burn_from_without_allowance_panics() {
     e.mock_all_auths();
     client.burn_from(&attacker, &owner, &10);
 }
+
+#[test]
+fn curve_transfer_lock_allows_gate_and_burn_then_unlocks_for_dex() {
+    let e = Env::default();
+    let launchpad = Address::generate(&e);
+    let alice = Address::generate(&e);
+    let bob = Address::generate(&e);
+    let client = create_client(&e, &launchpad);
+
+    e.mock_all_auths();
+    client.lock_until_graduated(&launchpad);
+    client.renounce_ownership();
+    assert_eq!(client.get_owner(), None);
+    assert!(!client.is_transfers_unlocked());
+
+    // Gate transfers (curve buy & sell) and holder burns stay active while locked
+    client.transfer(&launchpad, &alice, &400);
+    assert_eq!(client.balance(&alice), 400);
+
+    client.burn(&alice, &50);
+    assert_eq!(client.balance(&alice), 350);
+    assert_eq!(client.total_supply(), 950);
+
+    client.transfer(&alice, &launchpad, &100);
+    assert_eq!(client.balance(&alice), 250);
+
+    // P2P / Soroswap pair transfers fail before graduation
+    let res = client.try_transfer(&alice, &bob, &50);
+    assert!(res.is_err());
+
+    // Graduation unlocks P2P transfers forever
+    client.unlock_transfers();
+    assert!(client.is_transfers_unlocked());
+    client.transfer(&alice, &bob, &50);
+    assert_eq!(client.balance(&bob), 50);
+}
+
+#[test]
+fn unlock_transfers_requires_gate_auth() {
+    let e = Env::default();
+    let launchpad = Address::generate(&e);
+    let attacker = Address::generate(&e);
+    let client = create_client(&e, &launchpad);
+
+    e.mock_auths(&[MockAuth {
+        address: &launchpad,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "lock_until_graduated",
+            args: (&launchpad,).into_val(&e),
+            sub_invokes: &[],
+        },
+    }]);
+    client.lock_until_graduated(&launchpad);
+
+    e.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "unlock_transfers",
+            args: ().into_val(&e),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_unlock_transfers().is_err());
+    assert!(!client.is_transfers_unlocked());
+}

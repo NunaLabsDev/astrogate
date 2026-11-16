@@ -1,9 +1,11 @@
-//! AstroGate Fair-Flywheel Launchpad Contract (v4).
+//! AstroGate Fair-Flywheel Launchpad Contract (v4.2).
 //!
-//! Guarantees fair distribution (3,000 vXLM deep curve -> 1,000 real XLM goal),
-//! progressive anti-whale fee-to-floor protection, 0.00% price jump at Soroswap
-//! graduation, 0.3% 15-day creator post-graduation vesting, Milestone Proof-of-Burn
-//! supply reductions via `token.burn()`, and 3-tier Burn-to-Chat + King Shout.
+//! Guarantees fair distribution (`2,000 vXLM -> 1,000 real XLM` goal, `2.25x` curve,
+//! `42%` curve / `28%` DEX / `29.5%` Proof-of-Burn Vault / `0.5%` 15-day vesting),
+//! flat `0.80%` curve buys (no whale buy penalty), asymmetric anti-sniper curve sells
+//! (`2.50%` <50% curve / `1.50%` >=50% feeding LP & post-grad Soroswap Buyback-and-Burn),
+//! transfer-locked curve tokens until atomic `0.00%` cliff Soroswap graduation,
+//! creator initial-seed lock until graduation, and decaying Burn-to-Chat King Shout.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address,
@@ -53,9 +55,9 @@ pub struct LaunchParams {
     pub salt: BytesN<32>,
 }
 
-/// Fair-Flywheel Launch parameters: fixed 10M supply (40% curve / 30% DEX /
-/// 29.7% Proof-of-Burn Vault / 0.3% 15-day post-grad vesting) with creator's
-/// initial curve buy (`>= 2 XLM`).
+/// Fair-Flywheel v4.2 Launch parameters: fixed 10M supply (`42%` curve / `28%` DEX /
+/// `29.5%` Proof-of-Burn Vault / `0.5%` 15-day post-grad vesting) with creator's
+/// initial curve buy (`>= 2 XLM`) locked until graduation.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FairLaunchParams {
@@ -99,16 +101,20 @@ pub struct CurveState {
     pub curve_xlm_net: i128,
     /// Total real XLM held inside the contract vault for this token (`>= curve_xlm_net`).
     pub real_xlm_vault: i128,
-    /// Cumulative tokens sold on the bonding curve (`0..=4,000,000`).
+    /// Cumulative tokens sold on the bonding curve (`0..=4,200,000`).
     pub tokens_sold: i128,
-    /// Tokens reserved in the Milestone Proof-of-Burn Vault (`2,970,000` -> `1,485,000` -> `0`).
+    /// Real XLM reserved from curve fees for permissionless Soroswap buyback-and-burn.
+    pub buyback_xlm_reserve: i128,
+    /// Tokens reserved in the Milestone Proof-of-Burn Vault (`2,950,000` -> `1,475,000` -> `0`).
     pub burn_vault_remaining: i128,
-    /// 0 = pre-grad, 1 = Milestone 1 burned at grad, 2 = Milestone 2 burned at 2,500 XLM DEX depth.
+    /// 0 = pre-grad, 1 = Milestone 1 burned at grad, 2 = Milestone 2 burned at 1,800 XLM DEX depth.
     pub burn_milestone_stage: u32,
-    /// Total creator allocation locked until post-graduation 15-day vesting (`30,000` = 0.3%).
+    /// Total creator bonus allocation locked until post-grad 15-day vesting (`50,000` = 0.5%).
     pub creator_vesting_total: i128,
     /// Cumulative creator vesting tokens claimed so far.
     pub creator_claimed: i128,
+    /// Creator's initial `launch_fair` paid seed tokens, locked until graduation.
+    pub creator_seed_locked: i128,
 }
 
 #[contracttype]
@@ -205,6 +211,16 @@ pub struct MilestoneBurnEvent {
 
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BuybackBurnEvent {
+    #[topic]
+    pub token: Address,
+    pub xlm_spent: i128,
+    pub tokens_burned: i128,
+    pub total_supply_after: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShoutEvent {
     #[topic]
     pub token: Address,
@@ -246,12 +262,20 @@ pub trait SoroswapPairInterface {
     fn token_1(e: &Env) -> Address;
     fn get_reserves(e: &Env) -> (i128, i128);
     fn deposit(e: &Env, to: Address) -> i128;
+    fn swap(e: &Env, amount_0_out: i128, amount_1_out: i128, to: Address);
 }
 
 #[allow(dead_code)]
 #[soroban_sdk::contractclient(name = "OwnableClient")]
 pub trait OwnableInterface {
     fn renounce_ownership(e: &Env);
+}
+
+#[allow(dead_code)]
+#[soroban_sdk::contractclient(name = "CurveLockTokenClient")]
+pub trait CurveLockTokenInterface {
+    fn lock_until_graduated(e: &Env, launchpad: Address);
+    fn unlock_transfers(e: &Env);
 }
 
 #[allow(dead_code)]
@@ -278,35 +302,40 @@ const MIN_XLM_LP_STROOPS: i128 = 20_000_000;
 /// Fixed protocol creation fee (`7 XLM`) transferred directly to treasury on `launch_fair`.
 const CREATION_FEE_STROOPS: i128 = 7 * STROOPS_PER_UNIT;
 
-/// Fair-Flywheel v4.1 constants (10M supply, 7 decimals, 45 / 25 / 29.7 / 0.3).
+/// Fair-Flywheel v4.2 constants (10M supply, 7 decimals, 42 / 28 / 29.5 / 0.5).
 const FAIR_DECIMALS: u32 = 7;
 const FAIR_INITIAL_SUPPLY: i128 = 10_000_000 * STROOPS_PER_UNIT; // 100_000_000_000_000
-const CURVE_TOKENS_ALLOC: i128 = 4_500_000 * STROOPS_PER_UNIT; // 45.0%
-const DEX_TOKENS_ALLOC: i128 = 2_500_000 * STROOPS_PER_UNIT; // 25.0%
-const BURN_VAULT_TOKENS_ALLOC: i128 = 2_970_000 * STROOPS_PER_UNIT; // 29.7%
-const CREATOR_VESTING_ALLOC: i128 = 30_000 * STROOPS_PER_UNIT; // 0.3%
+const CURVE_TOKENS_ALLOC: i128 = 4_200_000 * STROOPS_PER_UNIT; // 42.0%
+const DEX_TOKENS_ALLOC: i128 = 2_800_000 * STROOPS_PER_UNIT; // 28.0%
+const BURN_VAULT_TOKENS_ALLOC: i128 = 2_950_000 * STROOPS_PER_UNIT; // 29.5%
+const CREATOR_VESTING_ALLOC: i128 = 50_000 * STROOPS_PER_UNIT; // 0.5%
 
-/// Virtual LP parameters (`1,250 vXLM -> 1,000 real XLM goal`, `3.24x` curve, `0.00%` graduation cliff).
-const CURVE_VIRTUAL_XLM_START: i128 = 1_250 * STROOPS_PER_UNIT; // 12_500_000_000
+/// Virtual LP parameters (`2,000 vXLM -> 1,000 real XLM goal`, `2.25x` curve, `0.00%` graduation cliff).
+const CURVE_VIRTUAL_XLM_START: i128 = 2_000 * STROOPS_PER_UNIT; // 20_000_000_000
 const CURVE_REAL_XLM_GOAL: i128 = 1_000 * STROOPS_PER_UNIT; // 10_000_000_000
-const CURVE_VIRTUAL_TOKEN_START: i128 = 10_125_000 * STROOPS_PER_UNIT; // 101_250_000_000_000
+const CURVE_VIRTUAL_TOKEN_START: i128 = 12_600_000 * STROOPS_PER_UNIT; // 126_000_000_000_000
 
-/// Curve fees: 0.50% treasury + 0.30% base pool floor + up to +5.00% progressive anti-whale floor bonus.
+/// Curve fees:
+/// - Buys (flat 0.80%): 0.50% treasury + 0.30% pool/buyback floor (zero whale penalty).
+/// - Sells (anti-sniper asymmetric): 2.50% (<50% curve) or 1.50% (>=50% curve) -> 0.50% treasury + 2.00%/1.00% floor/buyback.
 const TREASURY_FEE_BPS: i128 = 50;
-const POOL_FLOOR_FEE_BPS: i128 = 30;
-const WHALE_FREE_SHARE_BPS: i128 = 200; // <= 2% of current virtual XLM pays zero whale surcharge
-const MAX_WHALE_SURCHARGE_BPS: i128 = 500; // cap +5.00% surcharge (100% into real_xlm_vault)
+const BUY_FLOOR_FEE_BPS: i128 = 30;
+const SELL_FLOOR_EARLY_BPS: i128 = 200;
+const SELL_FLOOR_LATE_BPS: i128 = 100;
+/// 60% of surplus `floor_bonus` at graduation funds post-grad Soroswap Buyback & Burn; 40% deepens DEX LP.
+const BUYBACK_RESERVE_SHARE_BPS: i128 = 6_000;
 
 /// Milestone 2 burn trigger: Soroswap pair real XLM reserve >= 1,800 XLM.
 const MILESTONE_2_PAIR_XLM: i128 = 1_800 * STROOPS_PER_UNIT;
 
-/// Post-graduation creator vesting: 5 tranches of 20% (6,000 tokens) every 3 days (15 days total).
+/// Post-graduation creator vesting: 5 tranches of 20% (10,000 tokens) every 3 days (15 days total).
 const VESTING_INTERVAL_SECONDS: u64 = 3 * 86_400;
 const VESTING_PHASES: u64 = 5;
 
-/// 3-tier Burn-to-Chat: minimum 50 tokens, King Shout throne >= 5,000 tokens.
+/// 3-tier Burn-to-Chat: minimum 50 tokens, King Shout >= 5,000 tokens with 24h half-life decay.
 const MIN_SHOUT_BURN: i128 = 50 * STROOPS_PER_UNIT;
 const KING_SHOUT_MIN_BURN: i128 = 5_000 * STROOPS_PER_UNIT;
+const KING_SHOUT_DECAY_SECONDS: u64 = 86_400;
 
 const MAX_OFFCHAIN_META_BYTES: u32 = 512;
 const MAX_SHOUT_BYTES: u32 = 160;
@@ -340,9 +369,10 @@ impl Launchpad {
         Self::extend_ttl(e);
     }
 
-    /// Fair-Flywheel v4 launch: deploys fixed 10M token, renounces mint authority, initializes
-    /// the 3,000 vXLM -> 1,000 XLM virtual curve (`40/30/29.7/0.3`), and executes the creator's
-    /// initial atomic buy (`xlm_lp_amount >= 2 XLM`) in one transaction.
+    /// Fair-Flywheel v4.2 launch: deploys fixed 10M token with P2P transfers locked until
+    /// graduation, renounces mint authority, initializes the `2,000 vXLM -> 1,000 XLM` curve
+    /// (`42/28/29.5/0.5`), and executes the creator's initial atomic buy (`>= 2 XLM`, locked
+    /// inside contract until graduation).
     pub fn launch_fair(e: &Env, params: FairLaunchParams) -> Result<LaunchResult, LaunchpadError> {
         params.creator.require_auth();
 
@@ -377,6 +407,7 @@ impl Launchpad {
             FAIR_DECIMALS,
             FAIR_INITIAL_SUPPLY,
             params.salt,
+            true,
         );
 
         let curve = CurveState {
@@ -389,10 +420,12 @@ impl Launchpad {
             curve_xlm_net: 0,
             real_xlm_vault: 0,
             tokens_sold: 0,
+            buyback_xlm_reserve: 0,
             burn_vault_remaining: BURN_VAULT_TOKENS_ALLOC,
             burn_milestone_stage: 0,
             creator_vesting_total: CREATOR_VESTING_ALLOC,
             creator_claimed: 0,
+            creator_seed_locked: 0,
         };
         let curve_key = DataKey::Curve(token_addr.clone());
         e.storage().persistent().set(&curve_key, &curve);
@@ -426,9 +459,15 @@ impl Launchpad {
         }
         .publish(e);
 
-        // Execute creator's initial fair buy on the virtual curve atomically
-        let trade =
-            Self::execute_curve_buy(e, &params.creator, &token_addr, params.xlm_lp_amount, 1)?;
+        // Execute creator's initial fair buy on the virtual curve atomically (tokens held until grad)
+        let trade = Self::execute_curve_buy(
+            e,
+            &params.creator,
+            &token_addr,
+            params.xlm_lp_amount,
+            1,
+            true,
+        )?;
 
         Ok(LaunchResult {
             token: token_addr,
@@ -478,8 +517,8 @@ impl Launchpad {
         Self::compute_sell_quote(&curve, token_amount)
     }
 
-    /// Buys tokens from the bonding curve up to `max_xlm_in`. Automatically graduates
-    /// to Soroswap and burns Milestone 1 vault tokens once 1,000 net XLM is reached.
+    /// Buys tokens from the bonding curve up to `max_xlm_in` (flat `0.80%` fee).
+    /// Automatically unlocks transfers, seeds Soroswap LP, and burns Milestone 1 vault tokens at 1,000 net XLM.
     pub fn buy_curve(
         e: &Env,
         buyer: Address,
@@ -492,7 +531,7 @@ impl Launchpad {
             return Err(LaunchpadError::InvalidAmount);
         }
         Self::extend_ttl(e);
-        Self::execute_curve_buy(e, &buyer, &token, max_xlm_in, min_tokens_out)
+        Self::execute_curve_buy(e, &buyer, &token, max_xlm_in, min_tokens_out, false)
     }
 
     /// Sells tokens back to the bonding curve before graduation with slippage protection.
@@ -582,8 +621,9 @@ impl Launchpad {
         })
     }
 
-    /// Permissionlessly burns Milestone 2 (`1,485,000` tokens) once a graduated token's
-    /// Soroswap pool reaches `>= 1,800 XLM` in real XLM reserves.
+    /// Permissionlessly burns Milestone 2 (`1,475,000` tokens) once a graduated token's
+    /// Soroswap pool reaches `>= 1,800 XLM` in real XLM reserves, and executes any pending
+    /// post-grad buyback-and-burn reserve in the same transaction.
     pub fn trigger_milestone_burn(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
         Self::extend_ttl(e);
         let curve_key = DataKey::Curve(token.clone());
@@ -622,18 +662,73 @@ impl Launchpad {
         Self::bump_launch_record_ttl(e, &token);
 
         MilestoneBurnEvent {
-            token,
+            token: token.clone(),
             stage: 2,
             burned_amount,
             total_supply_after,
         }
         .publish(e);
 
+        if curve.buyback_xlm_reserve > 0 {
+            let _ = Self::execute_buyback_burn_internal(e, &curve_key, &mut curve, &token);
+        }
+
         Ok(burned_amount)
     }
 
-    /// Lets the creator claim unlocked 0.3% vesting tranches (`20% = 6,000 tokens` every
-    /// 3 days over 15 days after graduation).
+    /// Permissionlessly swaps the graduated `buyback_xlm_reserve` on Soroswap DEX
+    /// for real circulating tokens and permanently burns them via `token.burn()`.
+    pub fn trigger_buyback_burn(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
+        Self::extend_ttl(e);
+        let curve_key = DataKey::Curve(token.clone());
+        let mut curve: CurveState = e
+            .storage()
+            .persistent()
+            .get(&curve_key)
+            .ok_or(LaunchpadError::CurveNotFound)?;
+        if !curve.graduated {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
+        if curve.buyback_xlm_reserve <= 0 {
+            return Err(LaunchpadError::MilestoneNotReached);
+        }
+        Self::execute_buyback_burn_internal(e, &curve_key, &mut curve, &token)
+    }
+
+    /// Sweeps stranded floor fee dust to treasury only when an ungraduated curve
+    /// has zero active circulating curve liability (`tokens_sold == 0`).
+    pub fn sweep_empty_curve_fees(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
+        Self::extend_ttl(e);
+        let curve_key = DataKey::Curve(token.clone());
+        let mut curve: CurveState = e
+            .storage()
+            .persistent()
+            .get(&curve_key)
+            .ok_or(LaunchpadError::CurveNotFound)?;
+        if curve.graduated
+            || curve.tokens_sold != 0
+            || curve.curve_xlm_net != 0
+            || curve.creator_seed_locked != 0
+            || curve.real_xlm_vault <= 0
+        {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
+        let swept = curve.real_xlm_vault;
+        curve.real_xlm_vault = 0;
+        e.storage().persistent().set(&curve_key, &curve);
+        Self::bump_persistent(e, &curve_key);
+
+        let this = e.current_contract_address();
+        let xlm_sac = Self::require_xlm_sac(e)?;
+        let treasury = Self::require_treasury(e)?;
+        token::Client::new(e, &xlm_sac).transfer(&this, &treasury, &swept);
+        Self::bump_launch_record_ttl(e, &token);
+        Ok(swept)
+    }
+
+    /// Lets the creator claim unlocked paid seed tokens (100% upon graduation, or after
+    /// 7 days if an ungraduated curve never reached graduation) plus `0.5%` bonus vesting
+    /// tranches (`20% = 10,000 tokens` every 3 days over 15 days post-graduation).
     pub fn claim_creator_vesting(
         e: &Env,
         creator: Address,
@@ -651,25 +746,39 @@ impl Launchpad {
         if curve.creator != creator {
             return Err(LaunchpadError::InvalidCurveState);
         }
-        if !curve.graduated {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
 
         let now = e.ledger().timestamp();
-        let elapsed = now.saturating_sub(curve.graduated_at);
-        let completed_phases = (elapsed / VESTING_INTERVAL_SECONDS).min(VESTING_PHASES);
-        if completed_phases == 0 {
-            return Err(LaunchpadError::MilestoneNotReached);
+        if !curve.graduated {
+            let launched_at = Self::get_launch(e, token.clone())
+                .map(|r| r.timestamp)
+                .unwrap_or(0);
+            if curve.creator_seed_locked <= 0 || now < launched_at + (7 * 86_400) {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            let claimable = curve.creator_seed_locked;
+            curve.creator_seed_locked = 0;
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
+
+            let this = e.current_contract_address();
+            token::Client::new(e, &token).transfer(&this, &creator, &claimable);
+            Self::bump_launch_record_ttl(e, &token);
+            return Ok(claimable);
         }
 
+        let seed_claimable = curve.creator_seed_locked;
+        let elapsed = now.saturating_sub(curve.graduated_at);
+        let completed_phases = (elapsed / VESTING_INTERVAL_SECONDS).min(VESTING_PHASES);
         let total_unlocked =
             (curve.creator_vesting_total * (completed_phases as i128)) / (VESTING_PHASES as i128);
-        let claimable = total_unlocked - curve.creator_claimed;
+        let vest_claimable = total_unlocked - curve.creator_claimed;
+        let claimable = seed_claimable + vest_claimable;
         if claimable <= 0 {
             return Err(LaunchpadError::MilestoneNotReached);
         }
 
-        curve.creator_claimed += claimable;
+        curve.creator_seed_locked = 0;
+        curve.creator_claimed += vest_claimable;
         e.storage().persistent().set(&curve_key, &curve);
         Self::bump_persistent(e, &curve_key);
 
@@ -732,6 +841,7 @@ impl Launchpad {
             params.decimals,
             params.initial_supply,
             params.salt,
+            false,
         );
 
         let token_client = token::Client::new(e, &token_addr);
@@ -836,13 +946,23 @@ impl Launchpad {
         let mut is_king = false;
         if amount >= KING_SHOUT_MIN_BURN {
             let king_key = DataKey::KingShout(token.clone());
-            let prev_amount = e
+            let now = e.ledger().timestamp();
+            let effective_prev = e
                 .storage()
                 .persistent()
                 .get::<DataKey, ShoutRecord>(&king_key)
-                .map(|r| r.amount)
+                .map(|r| {
+                    let elapsed_days = now.saturating_sub(r.timestamp) / KING_SHOUT_DECAY_SECONDS;
+                    let shift = elapsed_days.min(20) as u32;
+                    let decayed = r.amount >> shift;
+                    if decayed < KING_SHOUT_MIN_BURN {
+                        KING_SHOUT_MIN_BURN
+                    } else {
+                        decayed
+                    }
+                })
                 .unwrap_or(0);
-            if amount > prev_amount {
+            if effective_prev == 0 || amount > effective_prev || (amount >= KING_SHOUT_MIN_BURN && effective_prev == KING_SHOUT_MIN_BURN && now.saturating_sub(e.storage().persistent().get::<DataKey, ShoutRecord>(&king_key).map(|r| r.timestamp).unwrap_or(now)) >= KING_SHOUT_DECAY_SECONDS) {
                 e.storage().persistent().set(&king_key, &entry);
                 Self::bump_persistent(e, &king_key);
                 is_king = true;
@@ -923,7 +1043,7 @@ impl Launchpad {
         }
     }
 
-    /// Returns the pinned King Shout (highest `burn_shout >= 1,000` tokens), if any.
+    /// Returns the pinned King Shout (highest `burn_shout >= 5,000` tokens), if any.
     pub fn get_king_shout(e: &Env, token: Address) -> Option<ShoutRecord> {
         let key = DataKey::KingShout(token);
         let king = e.storage().persistent().get::<DataKey, ShoutRecord>(&key)?;
@@ -995,6 +1115,7 @@ impl Launchpad {
         decimals: u32,
         initial_supply: i128,
         salt: BytesN<32>,
+        lock_to_curve: bool,
     ) -> Address {
         let mut salt_payload = Bytes::new(e);
         salt_payload.append(&creator.clone().to_xdr(e));
@@ -1006,6 +1127,10 @@ impl Launchpad {
             .deployer()
             .with_current_contract(derived_salt)
             .deploy_contract(ContractExecutable::Wasm(wasm_hash), ctor_args);
+
+        if lock_to_curve {
+            CurveLockTokenClient::new(e, &token_addr).lock_until_graduated(this);
+        }
 
         // Lock cap permanently by renouncing token mint ownership immediately.
         OwnableClient::new(e, &token_addr).renounce_ownership();
@@ -1041,12 +1166,87 @@ impl Launchpad {
         Ok((pair_addr, lp_minted))
     }
 
+    fn execute_buyback_burn_internal(
+        e: &Env,
+        curve_key: &DataKey,
+        curve: &mut CurveState,
+        token_addr: &Address,
+    ) -> Result<i128, LaunchpadError> {
+        let xlm_in = curve.buyback_xlm_reserve;
+        if xlm_in <= 0 {
+            return Err(LaunchpadError::MilestoneNotReached);
+        }
+        let pair_addr = curve
+            .pair
+            .clone()
+            .ok_or(LaunchpadError::InvalidCurveState)?;
+        let xlm_sac = Self::require_xlm_sac(e)?;
+        let pair_client = SoroswapPairClient::new(e, &pair_addr);
+        let token0 = pair_client.token_0();
+        let (r0, r1) = pair_client.get_reserves();
+        let (reserve_xlm, reserve_tok) = if token0 == xlm_sac {
+            (r0, r1)
+        } else {
+            (r1, r0)
+        };
+        if reserve_xlm <= 0 || reserve_tok <= 0 {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
+
+        // Exact SoroswapPair fee ceiling invariant: fee = ceil(xlm_in * 3 / 1000).
+        let fee = (xlm_in as u128)
+            .checked_mul(3)
+            .ok_or(LaunchpadError::InvalidAmount)?
+            .div_ceil(1_000);
+        let net_in = (xlm_in as u128)
+            .checked_sub(fee)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let numerator = net_in
+            .checked_mul(reserve_tok as u128)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let denominator = (reserve_xlm as u128)
+            .checked_add(net_in)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let tokens_out = (numerator / denominator) as i128;
+        if tokens_out <= 0 {
+            return Err(LaunchpadError::InvalidAmount);
+        }
+
+        curve.buyback_xlm_reserve = 0;
+        e.storage().persistent().set(curve_key, curve);
+        Self::bump_persistent(e, curve_key);
+
+        let this = e.current_contract_address();
+        token::Client::new(e, &xlm_sac).transfer(&this, &pair_addr, &xlm_in);
+        let (a0, a1) = if token0 == xlm_sac {
+            (0, tokens_out)
+        } else {
+            (tokens_out, 0)
+        };
+        pair_client.swap(&a0, &a1, &this);
+        token::Client::new(e, token_addr).burn(&this, &tokens_out);
+
+        let total_supply_after = SupplyTokenClient::new(e, token_addr).total_supply();
+        Self::bump_launch_record_ttl(e, token_addr);
+
+        BuybackBurnEvent {
+            token: token_addr.clone(),
+            xlm_spent: xlm_in,
+            tokens_burned: tokens_out,
+            total_supply_after,
+        }
+        .publish(e);
+
+        Ok(tokens_out)
+    }
+
     fn execute_curve_buy(
         e: &Env,
         buyer: &Address,
         token_addr: &Address,
         max_xlm_in: i128,
         min_tokens_out: i128,
+        lock_creator_seed: bool,
     ) -> Result<TradeResult, LaunchpadError> {
         let curve_key = DataKey::Curve(token_addr.clone());
         let mut curve: CurveState = e
@@ -1070,6 +1270,9 @@ impl Launchpad {
         curve.curve_xlm_net += quote.net_xlm_to_curve;
         curve.real_xlm_vault += quote.net_xlm_to_curve + quote.floor_bonus;
         curve.tokens_sold += quote.tokens_out;
+        if lock_creator_seed {
+            curve.creator_seed_locked += quote.tokens_out;
+        }
 
         let this = e.current_contract_address();
         let xlm_sac = Self::require_xlm_sac(e)?;
@@ -1081,7 +1284,9 @@ impl Launchpad {
         if quote.treasury_fee > 0 {
             xlm_client.transfer(&this, &treasury, &quote.treasury_fee);
         }
-        tok_client.transfer(&this, buyer, &quote.tokens_out);
+        if !lock_creator_seed {
+            tok_client.transfer(&this, buyer, &quote.tokens_out);
+        }
 
         CurveTradeEvent {
             token: token_addr.clone(),
@@ -1097,8 +1302,15 @@ impl Launchpad {
         .publish(e);
 
         if quote.will_graduate {
+            // Unlock SEP-41 P2P/DEX transfers atomically before seeding Soroswap LP.
+            CurveLockTokenClient::new(e, token_addr).unlock_transfers();
+
             let burn_address = Self::require_burn_address(e)?;
-            let xlm_to_dex = curve.real_xlm_vault;
+            let surplus_bonus = curve.real_xlm_vault.saturating_sub(CURVE_REAL_XLM_GOAL);
+            let buyback_reserve =
+                (surplus_bonus * BUYBACK_RESERVE_SHARE_BPS) / BPS_DENOMINATOR;
+            let xlm_to_dex = curve.real_xlm_vault - buyback_reserve;
+
             let (pair_addr, lp_minted) = Self::seed_soroswap_and_burn_lp(
                 e,
                 &this,
@@ -1109,7 +1321,7 @@ impl Launchpad {
                 xlm_to_dex,
             )?;
 
-            // Burn Milestone 1 (50% of Burn Vault = 1,485,000 tokens) directly via token.burn()
+            // Burn Milestone 1 (50% of Burn Vault = 1,475,000 tokens) directly via token.burn()
             let vault_burn = curve.burn_vault_remaining / 2;
             if vault_burn > 0 {
                 tok_client.burn(&this, &vault_burn);
@@ -1120,6 +1332,7 @@ impl Launchpad {
             curve.pair = Some(pair_addr.clone());
             curve.lp_minted = lp_minted;
             curve.real_xlm_vault = 0;
+            curve.buyback_xlm_reserve = buyback_reserve;
             curve.burn_vault_remaining -= vault_burn;
             curve.burn_milestone_stage = 1;
 
@@ -1172,23 +1385,23 @@ impl Launchpad {
         })
     }
 
-    /// Computes fee BPS for an order relative to current virtual XLM (`v_xlm`).
-    /// Standard trades (`<= 2%` of `v_xlm`) pay 80 bps (`0.50%` treasury + `0.30%` pool floor);
-    /// larger orders add `(share_bps - 200) / 2` capped at `+500` bps (`100%` to pool floor).
-    fn fee_bps_for_order(v_xlm: i128, order_xlm: i128) -> (i128, i128, i128) {
-        let share_bps = (order_xlm as u128)
-            .checked_mul(BPS_DENOMINATOR as u128)
-            .and_then(|num| num.checked_div(v_xlm as u128))
-            .unwrap_or(0) as i128;
+    /// Flat 0.80% buy fee (0.50% treasury + 0.30% LP/buyback floor) — zero penalty on larger buys.
+    fn fee_bps_buy() -> (i128, i128, i128) {
+        (
+            TREASURY_FEE_BPS,
+            BUY_FLOOR_FEE_BPS,
+            TREASURY_FEE_BPS + BUY_FLOOR_FEE_BPS,
+        )
+    }
 
-        let whale_bps = if share_bps > WHALE_FREE_SHARE_BPS {
-            ((share_bps - WHALE_FREE_SHARE_BPS) / 2).min(MAX_WHALE_SURCHARGE_BPS)
+    /// Asymmetric anti-sniper curve sell fee: 2.50% (<50% progress) or 1.50% (>=50% progress).
+    fn fee_bps_sell(curve_xlm_net: i128) -> (i128, i128, i128) {
+        let floor_bps = if curve_xlm_net < CURVE_REAL_XLM_GOAL / 2 {
+            SELL_FLOOR_EARLY_BPS
         } else {
-            0
+            SELL_FLOOR_LATE_BPS
         };
-        let floor_bps = POOL_FLOOR_FEE_BPS + whale_bps;
-        let total_bps = TREASURY_FEE_BPS + floor_bps;
-        (TREASURY_FEE_BPS, floor_bps, total_bps)
+        (TREASURY_FEE_BPS, floor_bps, TREASURY_FEE_BPS + floor_bps)
     }
 
     fn split_fee(
@@ -1215,14 +1428,14 @@ impl Launchpad {
         let remaining_to_goal = CURVE_REAL_XLM_GOAL - curve.curve_xlm_net;
         let remaining_tokens = CURVE_TOKENS_ALLOC - curve.tokens_sold;
 
-        let (t_bps, f_bps, total_bps) = Self::fee_bps_for_order(v_xlm, max_xlm_in);
+        let (t_bps, f_bps, total_bps) = Self::fee_bps_buy();
         let (treasury_fee_full, floor_bonus_full) = Self::split_fee(max_xlm_in, t_bps, f_bps)?;
         let net_full = max_xlm_in - treasury_fee_full - floor_bonus_full;
 
         if net_full >= remaining_to_goal {
-            // Graduation reached: cap XLM charged strictly to remaining goal + proportional fees
+            // Graduation reached: cap XLM charged strictly to remaining goal + proportional 0.80% fee
             let net_xlm_to_curve = remaining_to_goal;
-            let (ct_bps, cf_bps, ctotal_bps) = Self::fee_bps_for_order(v_xlm, net_xlm_to_curve);
+            let (ct_bps, cf_bps, ctotal_bps) = Self::fee_bps_buy();
             let max_fee_room = max_xlm_in - net_xlm_to_curve;
             let denom = (BPS_DENOMINATOR - ctotal_bps) as u128;
             let ideal_gross = ((net_xlm_to_curve as u128)
@@ -1298,7 +1511,7 @@ impl Launchpad {
             return Err(LaunchpadError::InvalidAmount);
         }
 
-        let (t_bps, f_bps, total_bps) = Self::fee_bps_for_order(v_xlm, gross_xlm_out);
+        let (t_bps, f_bps, total_bps) = Self::fee_bps_sell(curve.curve_xlm_net);
         let (treasury_fee, floor_bonus) = Self::split_fee(gross_xlm_out, t_bps, f_bps)?;
         let net_xlm_out = gross_xlm_out - treasury_fee - floor_bonus;
         if net_xlm_out <= 0 {

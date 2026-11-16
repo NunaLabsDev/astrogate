@@ -40,6 +40,11 @@ impl MockSoroswapPair {
         e.storage().instance().set(&0u32, &reserves);
     }
 
+    pub fn set_tokens(e: &Env, token0: Address, token1: Address) {
+        e.storage().instance().set(&2u32, &token0);
+        e.storage().instance().set(&3u32, &token1);
+    }
+
     pub fn get_reserves(e: &Env) -> (i128, i128) {
         e.storage().instance().get(&0u32).unwrap_or((0, 0))
     }
@@ -48,6 +53,23 @@ impl MockSoroswapPair {
     pub fn deposit(e: &Env, to: Address) -> i128 {
         e.storage().instance().set(&1u32, &to);
         495_000_000
+    }
+
+    pub fn swap(e: &Env, amount_0_out: i128, amount_1_out: i128, to: Address) {
+        let t0: Address = e.storage().instance().get(&2u32).unwrap();
+        let t1: Address = e.storage().instance().get(&3u32).unwrap();
+        let this = e.current_contract_address();
+        if amount_0_out > 0 {
+            token::Client::new(e, &t0).transfer(&this, &to, &amount_0_out);
+        }
+        if amount_1_out > 0 {
+            token::Client::new(e, &t1).transfer(&this, &to, &amount_1_out);
+        }
+        let (r0, r1) = Self::get_reserves(e);
+        let new_r0 = token::Client::new(e, &t0).balance(&this);
+        let new_r1 = token::Client::new(e, &t1).balance(&this);
+        let _ = (r0, r1);
+        e.storage().instance().set(&0u32, &(new_r0, new_r1));
     }
 
     pub fn lp_recipient(e: &Env) -> Address {
@@ -212,7 +234,7 @@ fn test_invalid_amounts_and_metadata_fail() {
 }
 
 #[test]
-fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
+fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
     let e = create_env();
     let s = setup_launchpad(&e, false, (0, 0));
     let client = LaunchpadClient::new(&e, &s.launchpad);
@@ -222,6 +244,7 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
     let creator = Address::generate(&e);
     let buyer_small = Address::generate(&e);
     let buyer_10x = Address::generate(&e);
+    let stranger = Address::generate(&e);
     xlm_sac.mint(&creator, &(100 * STROOPS));
     xlm_sac.mint(&buyer_small, &(100 * STROOPS));
     xlm_sac.mint(&buyer_10x, &(500 * STROOPS));
@@ -232,7 +255,7 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
         name: String::from_str(&e, "Flywheel Coin"),
         symbol: String::from_str(&e, "FLYW"),
         xlm_lp_amount: 2 * STROOPS,
-        meta: String::from_str(&e, r#"{"d":"Fair 2026 curve"}"#),
+        meta: String::from_str(&e, r#"{"d":"Fair v4.2 curve"}"#),
         salt: BytesN::from_array(&e, &[10u8; 32]),
     });
 
@@ -242,19 +265,18 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
     assert_eq!(tok.total_supply(), 10_000_000 * STROOPS);
     assert_eq!(tok.get_owner(), None);
 
-    // Creator holds ONLY the ~2 XLM worth of curve tokens (~16K at 1,250 vXLM depth)
-    let creator_bal = tok.balance(&creator);
-    assert!(creator_bal > 15_500 * STROOPS && creator_bal < 16_500 * STROOPS);
-
+    // Creator's initial seed buy is locked inside Launchpad until graduation (zero pre-grad creator dump!)
+    assert_eq!(tok.balance(&creator), 0);
     let curve_0 = client.get_curve(&res.token).unwrap();
     assert!(!curve_0.graduated);
-    assert_eq!(curve_0.burn_vault_remaining, 2_970_000 * STROOPS);
-    assert_eq!(curve_0.creator_vesting_total, 30_000 * STROOPS);
+    assert!(curve_0.creator_seed_locked > 12_000 * STROOPS);
+    assert_eq!(curve_0.burn_vault_remaining, 2_950_000 * STROOPS);
+    assert_eq!(curve_0.creator_vesting_total, 50_000 * STROOPS);
     assert_eq!(curve_0.creator_claimed, 0);
     // Treasury received 7 XLM creation fee + 0.50% of 2 XLM initial buy (0.01 XLM)
     assert_eq!(xlm_tok.balance(&s.treasury), 70_100_000);
 
-    // Buyer 1 puts 10 XLM (standard 0.80% fee: 50 bps treasury + 30 bps floor bonus)
+    // Buyer 1 puts 10 XLM: flat 0.80% fee (50 bps treasury + 30 bps floor)
     let q_small = client.quote_buy(&res.token, &(10 * STROOPS));
     assert_eq!(q_small.total_fee_bps, 80);
     let b1 = client.buy_curve(
@@ -266,18 +288,20 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
     assert_eq!(b1.tokens, q_small.tokens_out);
     assert_eq!(tok.balance(&buyer_small), b1.tokens);
 
-    // Buyer 2 puts 100 XLM (10x Buyer 1): triggers progressive anti-whale surcharge (> 2% of vXLM)
-    let q_10x = client.quote_buy(&res.token, &(100 * STROOPS));
-    assert!(q_10x.total_fee_bps > 80); // Progressive anti-whale fee active
-    assert_eq!(q_10x.treasury_fee, (100 * STROOPS * 50) / 10_000); // Treasury stays fixed at 0.50%
-    assert!(q_10x.floor_bonus > (100 * STROOPS * 30) / 10_000); // Extra surcharge went to pool floor!
+    // Curve transfer lock prevents P2P / Soroswap pair seeding DoS before graduation!
+    assert!(tok.try_transfer(&buyer_small, &stranger, &1_000).is_err());
 
+    // Buyer 2 puts 100 XLM (10x Buyer 1): STILL pays flat 80 bps (no anti-whale penalty!)
+    let q_10x = client.quote_buy(&res.token, &(100 * STROOPS));
+    assert_eq!(q_10x.total_fee_bps, 80);
+    assert_eq!(q_10x.treasury_fee, (100 * STROOPS * 50) / 10_000);
+    assert_eq!(q_10x.floor_bonus, (100 * STROOPS * 30) / 10_000);
     let b2 = client.buy_curve(&buyer_10x, &res.token, &(100 * STROOPS), &q_10x.tokens_out);
 
-    // Whale 100 XLM only acquires ~7.2% of 10M total supply (anti-hoarding by math!),
-    // and ratio b2 / b1 is ~9.0x (no unfair 1st-buyer 7M vs 2M gap!)
-    assert!(b2.tokens < 750_000 * STROOPS);
-    assert!(b2.tokens > b1.tokens * 8);
+    // Selling early on curve (<50% progress) pays 2.50% (250 bps), keeping 2.00% inside floor vault!
+    let q_sell = client.quote_sell(&res.token, &b2.tokens);
+    assert_eq!(q_sell.total_fee_bps, 250);
+    assert!(q_sell.floor_bonus > q_sell.treasury_fee);
 
     // Vault solvency check: real contract XLM matches curve.real_xlm_vault exact!
     let curve_after = client.get_curve(&res.token).unwrap();
@@ -287,7 +311,7 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
 }
 
 #[test]
-fn test_buy_sell_roundtrip_conservation_and_slippage() {
+fn test_buy_sell_roundtrip_conservation_slippage_and_sweep_dust() {
     let e = create_env();
     let s = setup_launchpad(&e, false, (0, 0));
     let client = LaunchpadClient::new(&e, &s.launchpad);
@@ -310,7 +334,6 @@ fn test_buy_sell_roundtrip_conservation_and_slippage() {
 
     // Trader buys 150 XLM
     let q_buy = client.quote_buy(&res.token, &(150 * STROOPS));
-    // Impossible slippage minimum -> reverts cleanly with SlippageExceeded (#5)
     assert_eq!(
         client.try_buy_curve(
             &trader,
@@ -324,7 +347,6 @@ fn test_buy_sell_roundtrip_conservation_and_slippage() {
     let buy_res = client.buy_curve(&trader, &res.token, &(150 * STROOPS), &q_buy.tokens_out);
     let xlm_before_sell = xlm_tok.balance(&trader);
 
-    // Impossible sell slippage -> reverts cleanly
     let q_sell = client.quote_sell(&res.token, &buy_res.tokens);
     assert_eq!(
         client.try_sell_curve(
@@ -336,33 +358,42 @@ fn test_buy_sell_roundtrip_conservation_and_slippage() {
         Err(Ok(LaunchpadError::SlippageExceeded))
     );
 
-    // Overdraft sell (> tokens_sold) -> reverts cleanly
     let curve_now = client.get_curve(&res.token).unwrap();
     assert_eq!(
         client.try_sell_curve(&trader, &res.token, &(curve_now.tokens_sold + 1), &0),
         Err(Ok(LaunchpadError::InvalidAmount))
     );
 
-    // Trader sells 100% of their tokens back to curve; Creator also sells 100% -> vault remains >= 0!
+    // Trader sells 100% -> cannot sweep while creator seed is still in curve
     let sell_trader = client.sell_curve(&trader, &res.token, &buy_res.tokens, &q_sell.net_xlm_out);
     assert_eq!(sell_trader.xlm, q_sell.net_xlm_out);
     assert_eq!(xlm_tok.balance(&trader), xlm_before_sell + sell_trader.xlm);
+    assert_eq!(
+        client.try_sweep_empty_curve_fees(&res.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
 
-    let tok = AstroTokenClient::new(&e, &res.token);
-    let creator_tokens = tok.balance(&creator);
-    let sell_creator = client.sell_curve(&creator, &res.token, &creator_tokens, &1);
+    // After 7 days on an ungraduated curve, creator rescues failed seed & sells back, then empty vault dust sweeps cleanly!
+    e.ledger().set_timestamp(e.ledger().timestamp() + 7 * 86_400);
+    let rescued = client.claim_creator_vesting(&creator, &res.token);
+    assert!(rescued > 0);
+    let sell_creator = client.sell_curve(&creator, &res.token, &rescued, &1);
     assert!(sell_creator.xlm > 0);
 
     let curve_empty = client.get_curve(&res.token).unwrap();
     assert_eq!(curve_empty.tokens_sold, 0);
     assert_eq!(curve_empty.curve_xlm_net, 0);
-    // Floor bonuses accumulated inside real_xlm_vault stay > 0 even at 0 tokens_sold!
     assert!(curve_empty.real_xlm_vault > 0);
-    assert_eq!(xlm_tok.balance(&s.launchpad), curve_empty.real_xlm_vault);
+
+    let treas_before = xlm_tok.balance(&s.treasury);
+    let swept = client.sweep_empty_curve_fees(&res.token);
+    assert_eq!(swept, curve_empty.real_xlm_vault);
+    assert_eq!(xlm_tok.balance(&s.treasury), treas_before + swept);
+    assert_eq!(xlm_tok.balance(&s.launchpad), 0);
 }
 
 #[test]
-fn test_graduation_milestone_burns_and_creator_vesting_15d() {
+fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
     let e = create_env();
     let s = setup_launchpad(&e, false, (0, 0));
     let client = LaunchpadClient::new(&e, &s.launchpad);
@@ -387,7 +418,7 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
         salt: BytesN::from_array(&e, &[30u8; 32]),
     });
 
-    // Cannot claim vesting or trigger milestone 2 before graduation
+    // Cannot claim vesting or trigger milestone/buyback before graduation
     assert_eq!(
         client.try_claim_creator_vesting(&creator, &launch.token),
         Err(Ok(LaunchpadError::InvalidCurveState))
@@ -396,14 +427,23 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
         client.try_trigger_milestone_burn(&launch.token),
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
+    assert_eq!(
+        client.try_trigger_buyback_burn(&launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
 
-    // Whale buys 800 XLM (sub-goal)
-    client.buy_curve(&whale, &launch.token, &(800 * STROOPS), &1);
+    // Whale buys 800 XLM and sells 200k tokens on curve (>=50% progress -> 1.50% sell fee builds buyback reserve!)
+    let whale_buy = client.buy_curve(&whale, &launch.token, &(800 * STROOPS), &1);
+    let sell_q = client.quote_sell(&launch.token, &(200_000 * STROOPS));
+    assert_eq!(sell_q.total_fee_bps, 150);
+    client.sell_curve(&whale, &launch.token, &(200_000 * STROOPS), &1);
+    assert!(whale_buy.tokens > 200_000 * STROOPS);
 
-    // Closer sends 400 XLM max_in -> contract only charges exact XLM remaining to reach 1,000 net XLM!
+    // Closer completes graduation cleanly at flat 0.80% fee!
     let closer_bal_before = xlm_tok.balance(&closer);
     let grad_quote = client.quote_buy(&launch.token, &(400 * STROOPS));
     assert!(grad_quote.will_graduate);
+    assert_eq!(grad_quote.total_fee_bps, 80);
     assert!(grad_quote.total_xlm_charged < 400 * STROOPS);
 
     let grad_trade = client.buy_curve(
@@ -421,23 +461,41 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
 
     let curve_grad = client.get_curve(&launch.token).unwrap();
     assert!(curve_grad.graduated);
-    assert_eq!(curve_grad.tokens_sold, 4_500_000 * STROOPS);
+    assert_eq!(curve_grad.tokens_sold, 4_200_000 * STROOPS);
     assert_eq!(curve_grad.curve_xlm_net, 1_000 * STROOPS);
     assert_eq!(curve_grad.real_xlm_vault, 0);
+    assert!(curve_grad.buyback_xlm_reserve > 0);
     assert_eq!(curve_grad.burn_milestone_stage, 1);
-    assert_eq!(curve_grad.burn_vault_remaining, 1_485_000 * STROOPS);
+    assert_eq!(curve_grad.burn_vault_remaining, 1_475_000 * STROOPS);
 
-    // Soroswap pair received 2,500,000 tokens + >1,000 XLM (including floor bonuses!), LP burned!
+    // Graduation unlocked SEP-41 P2P transfers!
     let tok = AstroTokenClient::new(&e, &launch.token);
-    assert_eq!(tok.balance(&s.pair), 2_500_000 * STROOPS);
-    assert!(xlm_tok.balance(&s.pair) > 1_000 * STROOPS);
+    assert!(tok.is_transfers_unlocked());
+    tok.transfer(&closer, &stranger, &1_000);
+    assert_eq!(tok.balance(&stranger), 1_000);
+
+    // Soroswap pair received 2,800,000 tokens + >=1,000 XLM, LP burned!
+    assert_eq!(tok.balance(&s.pair), 2_800_000 * STROOPS);
+    assert!(xlm_tok.balance(&s.pair) >= 1_000 * STROOPS);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &s.pair).lp_recipient(),
         s.burn_addr
     );
 
-    // Milestone 1 burned 1,485,000 tokens directly via token.burn(), cutting supply to 8,515,000!
-    assert_eq!(tok.total_supply(), 8_515_000 * STROOPS);
+    // Sync mock tokens + reserves to match transferred LP balances before buyback swap test
+    let pair_mock = MockSoroswapPairClient::new(&e, &s.pair);
+    pair_mock.set_tokens(&s.xlm_sac, &launch.token);
+    pair_mock.set_reserves(&(xlm_tok.balance(&s.pair), tok.balance(&s.pair)));
+
+    // Milestone 1 burned 1,475,000 tokens -> supply = 8,525,000!
+    assert_eq!(tok.total_supply(), 8_525_000 * STROOPS);
+
+    // Permissionless buyback-and-burn swaps buyback_xlm_reserve on Soroswap DEX & burns real tokens!
+    let supply_before_bb = tok.total_supply();
+    let bb_burned = client.trigger_buyback_burn(&launch.token);
+    assert!(bb_burned > 0);
+    assert_eq!(tok.total_supply(), supply_before_bb - bb_burned);
+    assert_eq!(client.get_curve(&launch.token).unwrap().buyback_xlm_reserve, 0);
 
     // Curve trading disabled after graduation
     assert_eq!(
@@ -455,47 +513,47 @@ fn test_graduation_milestone_burns_and_creator_vesting_15d() {
         Err(Ok(LaunchpadError::MilestoneNotReached))
     );
 
-    // Simulate organic trading growing Soroswap XLM reserve to 1,800 XLM -> Milestone 2 burns remaining 1.485M!
-    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(1_800 * STROOPS, 1_200_000 * STROOPS));
+    // Simulate Soroswap XLM reserve reaching 1,800 XLM -> Milestone 2 burns remaining 1.475M!
+    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(1_800 * STROOPS, 1_500_000 * STROOPS));
     let burned2 = client.trigger_milestone_burn(&launch.token);
-    assert_eq!(burned2, 1_485_000 * STROOPS);
-    assert_eq!(tok.total_supply(), 7_030_000 * STROOPS);
+    assert_eq!(burned2, 1_475_000 * STROOPS);
+    assert_eq!(tok.total_supply(), 7_050_000 * STROOPS - bb_burned);
 
-    // Cannot trigger Milestone 2 twice
     assert_eq!(
         client.try_trigger_milestone_burn(&launch.token),
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // Creator 15-day vesting: Day 0 -> MilestoneNotReached; non-creator -> InvalidCurveState
+    // Day 0 at graduation: Creator unlocks paid seed immediately (stranger still blocked)
     assert_eq!(
         client.try_claim_creator_vesting(&stranger, &launch.token),
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
+    let seed_out = client.claim_creator_vesting(&creator, &launch.token);
+    assert_eq!(seed_out, curve_grad.creator_seed_locked);
     assert_eq!(
         client.try_claim_creator_vesting(&creator, &launch.token),
         Err(Ok(LaunchpadError::MilestoneNotReached))
     );
 
     let grad_ts = e.ledger().timestamp();
-    // Day 3 -> 1st tranche = 6,000 tokens
+    // Day 3 -> 1st bonus tranche = 10,000 tokens
     e.ledger().set_timestamp(grad_ts + 3 * 86_400);
     let c1 = client.claim_creator_vesting(&creator, &launch.token);
-    assert_eq!(c1, 6_000 * STROOPS);
+    assert_eq!(c1, 10_000 * STROOPS);
     assert_eq!(
         client.try_claim_creator_vesting(&creator, &launch.token),
         Err(Ok(LaunchpadError::MilestoneNotReached))
     );
 
-    // Day 15+ -> remaining 24,000 tokens unlocked (total 30,000 = 0.3%)
+    // Day 15+ -> remaining 40,000 tokens unlocked (total 50,000 = 0.5%)
     e.ledger().set_timestamp(grad_ts + 20 * 86_400);
     let c_rest = client.claim_creator_vesting(&creator, &launch.token);
-    assert_eq!(c_rest, 24_000 * STROOPS);
+    assert_eq!(c_rest, 40_000 * STROOPS);
     assert_eq!(
         client.get_curve(&launch.token).unwrap().creator_claimed,
-        30_000 * STROOPS
+        50_000 * STROOPS
     );
-    // Launchpad contract now holds ZERO tokens for this graduated & fully claimed token!
     assert_eq!(tok.balance(&s.launchpad), 0);
 }
 
@@ -557,7 +615,7 @@ fn test_burn_shout_3_tiers_and_king_shout() {
         String::from_str(&e, "First King")
     );
 
-    // Equal 5,000 tokens does NOT dethrone current King
+    // Equal 5,000 tokens does NOT dethrone current King within 24h
     client.burn_shout(
         &user_b,
         &res.token,
@@ -576,6 +634,16 @@ fn test_burn_shout_3_tiers_and_king_shout() {
     let king = client.get_king_shout(&res.token).unwrap();
     assert_eq!(king.sender, user_b);
     assert_eq!(king.amount, 7_500 * STROOPS);
+
+    // After 24h decay (7,500 -> 3,750 clamped to 5,000 min), a fresh 5,000 burn reclaims the throne!
+    e.ledger().set_timestamp(e.ledger().timestamp() + 86_400);
+    client.burn_shout(
+        &user_a,
+        &res.token,
+        &(5_000 * STROOPS),
+        &String::from_str(&e, "Day 2 King"),
+    );
+    assert_eq!(client.get_king_shout(&res.token).unwrap().sender, user_a);
 
     // History caps cleanly at 15 shouts
     for _ in 0..15 {
@@ -725,7 +793,7 @@ fn test_adversarial_direct_graduating_launch_and_invalid_quotes() {
     assert_eq!(res.pair, Some(s.pair));
     let curve = client.get_curve(&res.token).unwrap();
     assert!(curve.graduated);
-    assert_eq!(curve.tokens_sold, 4_500_000 * STROOPS);
+    assert_eq!(curve.tokens_sold, 4_200_000 * STROOPS);
     assert_eq!(curve.curve_xlm_net, 1_000 * STROOPS);
     assert_eq!(curve.burn_milestone_stage, 1);
 

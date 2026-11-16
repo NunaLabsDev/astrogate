@@ -131,7 +131,7 @@ try {
   if (!curveInit || curveInit.graduated) {
     throw new Error(`CurveState inicial inesperado: ${JSON.stringify(curveInit)}`)
   }
-  if (curveInit.burn_vault_remaining !== 2_970_000n * unit) {
+  if (curveInit.burn_vault_remaining !== 2_950_000n * unit) {
     throw new Error(`burn_vault_remaining inesperado: ${curveInit.burn_vault_remaining}`)
   }
   if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.ownershipRenounced) {
@@ -141,23 +141,18 @@ try {
     throw new Error(`supply inicial inesperado: ${supplyInitial.result.toString()}`)
   }
   const expectedCreatorTokens = tokenomics.localCurveQuoteBuy(0n, 0n, 5n * unit)?.tokens_out ?? 0n
-  if (creatorBalInitial !== expectedCreatorTokens || creatorBalInitial !== curveInit.tokens_sold) {
-    throw new Error(`compra inicial curva no coincide: ${creatorBalInitial.toString()} vs ${expectedCreatorTokens.toString()}`)
+  if (
+    creatorBalInitial !== 0n ||
+    curveInit.creator_seed_locked !== expectedCreatorTokens ||
+    curveInit.tokens_sold !== expectedCreatorTokens
+  ) {
+    throw new Error(
+      `seed lock v4.2 no coincide: bal=${creatorBalInitial.toString()} locked=${curveInit.creator_seed_locked?.toString()} expected=${expectedCreatorTokens.toString()}`,
+    )
   }
-  console.log('verifyAntiRug + registro v4.1 OK (Curva 1,250 vXLM, creator compro', creatorBalInitial.toString(), 'base units)')
+  console.log('verifyAntiRug + registro v4.2 OK (Curva 2,000 vXLM, creator seed locked', curveInit.creator_seed_locked.toString(), 'base units)')
 
-  // 2. Transfer A -> B + B compra en Virtual Bonding Curve con paridad local 0ms vs RPC
-  const transfer = await tokenLib.tokenClient(token, signerA).transfer({
-    from: sender.publicKey,
-    to: receiver.publicKey,
-    amount: 500n * unit,
-  })
-  await transfer.signAndSend()
-  const balBAfterXfer = await tokenLib.fetchTokenBalance(token, receiver.publicKey)
-  if (balBAfterXfer !== 500n * unit) {
-    throw new Error('transfer A -> B no llego completo')
-  }
-
+  // 2. B compra en Virtual Bonding Curve con paridad local 0ms vs RPC (transfer P2P bloqueado pre-grad)
   const curveNow = await tokenLib.fetchCurveState(token)
   const buyXlm = 5n * unit
   const localBuy = tokenomics.localCurveQuoteBuy(curveNow.curve_xlm_net, curveNow.tokens_sold, buyXlm)
@@ -176,7 +171,7 @@ try {
     throw new Error('buyCurveToken output mismatch')
   }
   const balBAfterBuy = await tokenLib.fetchTokenBalance(token, receiver.publicKey)
-  if (balBAfterBuy !== balBAfterXfer + bought) {
+  if (balBAfterBuy !== bought) {
     throw new Error('balance de B tras compra en curva no cuadra')
   }
   console.log('B compro', bought.toString(), 'base units en Bonding Curve (paridad 1:1 con RPC)')

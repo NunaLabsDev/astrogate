@@ -355,7 +355,7 @@ export async function claimCreatorVesting(params: {
   return { claimed: unwrap.unwrap(), hash }
 }
 
-/** Permissionlessly triggers Stage 2 Milestone Burn (1,485,000 tokens) at >= 1,800 XLM pair depth. */
+/** Permissionlessly triggers Stage 2 Milestone Burn (1,475,000 tokens) at >= 1,800 XLM pair depth. */
 export async function triggerMilestoneBurn(params: {
   tokenId: string
   signer: Signer
@@ -373,6 +373,28 @@ export async function triggerMilestoneBurn(params: {
   if (unwrap.isErr()) {
     const err = unwrap.unwrapErr()
     throw new Error(err?.message ?? `Milestone burn error: ${JSON.stringify(err)}`)
+  }
+  return { burned: unwrap.unwrap(), hash }
+}
+
+/** Permissionlessly swaps graduated buyback reserve on Soroswap DEX & permanently burns acquired tokens. */
+export async function triggerBuybackBurn(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ burned: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  const tx = await launchpadClient(signer).trigger_buyback_burn({
+    token: tokenId,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Buyback burn error: ${JSON.stringify(err)}`)
   }
   return { burned: unwrap.unwrap(), hash }
 }

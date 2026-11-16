@@ -8,7 +8,7 @@
 //!   podría volver a acuñar. Al renunciar al owner, `mint` queda inhabilitado para siempre.
 //! - Metadata saneada: decimals 0..18, name/symbol no vacíos y ≤ 32 bytes.
 
-use soroban_sdk::{contract, contractimpl, Address, Env, MuxedAddress, String};
+use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, MuxedAddress, String};
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 use stellar_tokens::fungible::{
@@ -17,6 +17,13 @@ use stellar_tokens::fungible::{
     total_supply::{FungibleTotalSupply, TotalSupply},
     Base, Compose, ContractOverrides, FungibleToken,
 };
+
+#[contracttype]
+#[derive(Clone)]
+enum TokenDataKey {
+    LaunchpadGate,
+    TransfersUnlocked,
+}
 
 // MuxedAddress se importa aunque no se use directamente: la expansión de
 // `#[contractimpl(contracttrait)]` lo requiere en scope (los defaults de los
@@ -94,6 +101,63 @@ impl Token {
             .instance()
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_BUMP_AMOUNT);
     }
+
+    /// Locks P2P transfers during the Fair-Flywheel bonding curve phase (only transfers
+    /// involving `launchpad` and `burn` are allowed). Must be called by owner before
+    /// `renounce_ownership()`.
+    #[only_owner]
+    pub fn lock_until_graduated(e: &Env, launchpad: Address) {
+        if e.storage().instance().has(&TokenDataKey::LaunchpadGate) {
+            panic!("transfers gate already configured");
+        }
+        e.storage()
+            .instance()
+            .set(&TokenDataKey::LaunchpadGate, &launchpad);
+        e.storage()
+            .instance()
+            .set(&TokenDataKey::TransfersUnlocked, &false);
+        Self::extend_ttl(e);
+    }
+
+    /// Permanently unlocks unrestricted SEP-41 transfers upon curve graduation.
+    /// Callable solely by the configured `launchpad` gate contract.
+    pub fn unlock_transfers(e: &Env) {
+        let gate: Address = e
+            .storage()
+            .instance()
+            .get(&TokenDataKey::LaunchpadGate)
+            .expect("no launchpad gate");
+        gate.require_auth();
+        e.storage()
+            .instance()
+            .set(&TokenDataKey::TransfersUnlocked, &true);
+        Self::extend_ttl(e);
+    }
+
+    /// Returns true when unrestricted P2P transfers are enabled.
+    pub fn is_transfers_unlocked(e: &Env) -> bool {
+        if !e.storage().instance().has(&TokenDataKey::LaunchpadGate) {
+            return true;
+        }
+        e.storage()
+            .instance()
+            .get(&TokenDataKey::TransfersUnlocked)
+            .unwrap_or(false)
+    }
+
+    fn assert_transfer_allowed(e: &Env, from: &Address, to: &Address) {
+        if Self::is_transfers_unlocked(e) {
+            return;
+        }
+        let gate: Address = e
+            .storage()
+            .instance()
+            .get(&TokenDataKey::LaunchpadGate)
+            .expect("missing gate");
+        if from != &gate && to != &gate {
+            panic!("transfers locked until graduation");
+        }
+    }
 }
 
 /// SEP-41 completo, generado por el macro (`ContractType = Compose<(Capped, TotalSupply)>`).
@@ -103,11 +167,13 @@ impl FungibleToken for Token {
     type ContractType = Compose<(Capped, TotalSupply)>;
 
     fn transfer(e: &Env, from: Address, to: MuxedAddress, amount: i128) {
+        Self::assert_transfer_allowed(e, &from, &to.address());
         Self::ContractType::transfer(e, &from, &to, amount);
         Self::extend_ttl(e);
     }
 
     fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, amount: i128) {
+        Self::assert_transfer_allowed(e, &from, &to);
         Self::ContractType::transfer_from(e, &spender, &from, &to, amount);
         Self::extend_ttl(e);
     }
