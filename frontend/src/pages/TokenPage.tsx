@@ -142,8 +142,8 @@ export function TokenPage() {
 
   const queryClient = useQueryClient()
   const publicKey = useWallet((state) => state.publicKey)
-  const getSigner = useWallet((state) => state.getSigner)
-  const connect = useWallet((state) => state.connect)
+  const requireSignerOrPrompt = useWallet((state) => state.requireSignerOrPrompt)
+  const openWalletModal = useWallet((state) => state.openWalletModal)
   const info = useTokenInfo(queryId)
   const userBalance = useTokenBalance(publicKey, queryId)
   const xlmBalance = useXlmBalance(publicKey)
@@ -217,7 +217,7 @@ export function TokenPage() {
 
   async function onExtendTtl() {
     if (!publicKey) {
-      void connect()
+      openWalletModal('connect')
       return
     }
     const xlmReserveError = validateXlmReserve(xlmBalance.data)
@@ -225,9 +225,11 @@ export function TokenPage() {
       toast.error('Insufficient XLM reserve', { message: xlmReserveError })
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      toast.error('Active wallet does not support signing')
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
       return
     }
     setExtendingTtl(true)
@@ -243,12 +245,14 @@ export function TokenPage() {
 
   async function onTriggerMilestoneBurn() {
     if (!publicKey) {
-      void connect()
+      openWalletModal('connect')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      toast.error('Active wallet does not support signing')
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
       return
     }
     setBusyFlywheel('milestone')
@@ -271,12 +275,14 @@ export function TokenPage() {
 
   async function onClaimCreatorVesting() {
     if (!publicKey) {
-      void connect()
+      openWalletModal('connect')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      toast.error('Active wallet does not support signing')
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
       return
     }
     setBusyFlywheel('vesting')

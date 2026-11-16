@@ -23,6 +23,12 @@ export const STROOPS_PER_UNIT = 10_000_000n
 /** Total supply in readable units for a standard fair launch (10M, 7 decimals). */
 export const FAIR_LAUNCH_TOTAL_BASIS = 10_000_000n
 
+/** Fixed protocol creation fee charged atomically on `launch_fair` (`7 XLM -> treasury`). */
+export const LAUNCH_CREATION_FEE_XLM = 7
+
+/** Fixed creation fee in XLM stroops (`7 * 10^7`). */
+export const LAUNCH_CREATION_FEE_STROOPS = 70_000_000n
+
 /** Minimum initial curve buy required by Launchpad v4.1 (`launch_fair`: 2 XLM). */
 export const MIN_SEED_XLM = 2
 

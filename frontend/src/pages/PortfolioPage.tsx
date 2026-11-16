@@ -29,7 +29,7 @@ type PortfolioToken = {
 const MAX_PORTFOLIO_TOKENS = 20
 
 export function PortfolioPage() {
-  const { publicKey, connect, startDemo, demoPending, pending } = useWallet()
+  const { publicKey, openWalletModal, startDemo, demoPending, pending } = useWallet()
   const createdTokens = useCreatedTokens((state) => state.tokens)
   const tokenList = useTokenList()
   const xlmBalance = useXlmBalance(publicKey)
@@ -139,10 +139,10 @@ export function PortfolioPage() {
             <button
               type="button"
               disabled={pending}
-              onClick={() => void connect().catch((err) => toast.error('Failed to connect wallet', { message: errorMessage(err) }))}
+              onClick={() => openWalletModal('connect')}
               className="inline-flex min-h-[44px] items-center rounded-lg border border-amber-700 bg-slate-950/40 px-4 py-2 text-sm font-medium text-amber-100 hover:border-amber-500 disabled:opacity-60"
             >
-              {pending ? 'Connecting…' : 'Connect Wallet'}
+              {pending ? 'Connecting…' : '⚡ Connect / Create Wallet'}
             </button>
             <Link
               to="/"

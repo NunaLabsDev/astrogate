@@ -22,6 +22,8 @@ import {
   FAIR_LAUNCH_DECIMALS,
   FAIR_LAUNCH_TOTAL_BASIS,
   GRADUATION_TARGET_XLM,
+  LAUNCH_CREATION_FEE_STROOPS,
+  LAUNCH_CREATION_FEE_XLM,
   localCurveQuoteBuy,
   MIN_SEED_XLM,
   MIN_SEED_XLM_STROOPS,
@@ -104,7 +106,14 @@ export function CreateTokenForm({
     creator?: string
   }) => void
 }) {
-  const { publicKey, getSigner, connect, startDemo, demoPending, pending } = useWallet()
+  const {
+    publicKey,
+    requireSignerOrPrompt,
+    openWalletModal,
+    startDemo,
+    demoPending,
+    pending,
+  } = useWallet()
   const queryClient = useQueryClient()
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
   const xlmBalance = useXlmBalance(publicKey)
@@ -115,7 +124,8 @@ export function CreateTokenForm({
   const seedXlmStroops = parseAmount(seedXlmInput, XLM_DECIMALS)
   const seedXlmNumber = Number(seedXlmStroops) / 10 ** XLM_DECIMALS
   const feeBufferXlm = Number(XLM_FEE_BUFFER) / 10 ** XLM_DECIMALS
-  const totalRequiredStroops = seedXlmStroops + XLM_FEE_BUFFER
+  const totalRequiredStroops =
+    seedXlmStroops + LAUNCH_CREATION_FEE_STROOPS + XLM_FEE_BUFFER
 
   const curveTokensWhole = allocationOfBps(
     FAIR_LAUNCH_TOTAL_BASIS,
@@ -241,9 +251,11 @@ export function CreateTokenForm({
       setError('Please connect your wallet first.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError(UNSUPPORTED_SIGNER_MESSAGE)
+      if (useWallet.getState().mode !== 'hot') {
+        setError(UNSUPPORTED_SIGNER_MESSAGE)
+      }
       return
     }
 
@@ -275,7 +287,10 @@ export function CreateTokenForm({
       return
     }
 
-    const xlmReserveError = validateXlmReserve(xlmBalance.data, seedXlm)
+    const xlmReserveError = validateXlmReserve(
+      xlmBalance.data,
+      seedXlm + LAUNCH_CREATION_FEE_STROOPS,
+    )
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
@@ -873,7 +888,7 @@ export function CreateTokenForm({
 
             <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
               <span>
-                0 XLM protocol fee · Only ~0.05 XLM Soroban gas · 1 XLM wallet reserve stays yours.
+                {LAUNCH_CREATION_FEE_XLM} XLM network maintenance fee (→ Treasury) · Only ~0.05 XLM Soroban gas · 1 XLM wallet reserve stays yours.
               </span>
               {sniperCost10PctXlm > 0 ? (
                 <span className="font-mono text-sky-300">
@@ -889,14 +904,14 @@ export function CreateTokenForm({
         <div className="mt-2 flex flex-wrap items-center justify-between gap-3 sm:col-span-2 pt-3 border-t border-white/[0.06]">
           <div
             className="text-xs text-slate-400 font-mono"
-            title={`${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM seed + ${feeBufferXlm} XLM buffer for network fees & reserves (unused fees stay in your wallet)`}
+            title={`${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM seed + ${LAUNCH_CREATION_FEE_XLM} XLM creation fee + ${feeBufferXlm} XLM buffer for network fees & reserves`}
           >
             Required balance:{' '}
             <strong className="text-emerald-300">
               {formatAmount(totalRequiredStroops, XLM_DECIMALS)} XLM
             </strong>{' '}
             <span className="text-slate-500">
-              ({seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} seed + {feeBufferXlm} XLM wallet buffer)
+              ({seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} seed + {LAUNCH_CREATION_FEE_XLM} fee + {feeBufferXlm} buffer)
             </span>
           </div>
 
@@ -915,10 +930,10 @@ export function CreateTokenForm({
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => void connect().catch((err) => toast.error('Failed to connect wallet', { message: errorMessage(err) }))}
+                onClick={() => openWalletModal('connect')}
                 className="min-h-[44px] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 px-6 py-2.5 text-sm font-bold text-slate-950 transition-all shadow-md shadow-amber-500/20 active:scale-[0.99] cursor-pointer disabled:opacity-60"
               >
-                {pending ? 'Connecting…' : '🔌 Connect Wallet'}
+                {pending ? 'Connecting…' : '⚡ Connect / Create Wallet'}
               </button>
             </div>
           ) : (
@@ -929,7 +944,7 @@ export function CreateTokenForm({
             >
               {busy
                 ? 'Launching Token…'
-                : `🚀 Launch Token (${seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM seed)`}
+                : `🚀 Launch Token (${seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} + ${LAUNCH_CREATION_FEE_XLM} XLM fee)`}
             </button>
           )}
         </div>

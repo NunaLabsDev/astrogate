@@ -41,7 +41,7 @@ export function HomePage() {
 
       <div className="rounded-2xl border border-sky-500/20 bg-slate-900/50 px-4 py-3 text-xs text-slate-300 flex flex-wrap items-center justify-between gap-2">
         <span>
-          🧪 <strong className="text-sky-300">Testnet Quick Start:</strong> Switch Freighter/xBull to <strong className="text-white">TESTNET</strong> (or tap <strong className="text-sky-200">Testnet Demo</strong>) · Need test funds? Use <strong className="text-amber-300">🚰 +10K XLM</strong> · Zero oracles, 100% on-chain Soroban.
+          🧪 <strong className="text-sky-300">Mobile &amp; Telegram Ready:</strong> Tap <strong className="text-emerald-300">⚡ Wallet</strong> to create an encrypted self-custody Stellar wallet in seconds, connect <strong className="text-white">Freighter/xBull</strong>, or try <strong className="text-sky-200">Testnet Demo</strong> · Need funds? Tap <strong className="text-amber-300">🚰 +10K XLM</strong>.
         </span>
         <span className="font-mono text-[11px] text-slate-400">
           45% Curve · 25% Soroswap · 29.7% Burn · 0.3% 15d Vesting

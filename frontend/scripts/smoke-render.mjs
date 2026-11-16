@@ -64,8 +64,8 @@ try {
     'AstroGate',
     'Memecoin Market',
     'Launch Coin',
-    'Testnet Demo',
-    'Connect Wallet',
+    'Demo',
+    'Wallet',
   ]
   for (const text of checks) {
     if (!html.includes(text)) {

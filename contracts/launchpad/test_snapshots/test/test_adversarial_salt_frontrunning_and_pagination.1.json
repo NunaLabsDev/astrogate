@@ -147,6 +147,26 @@
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
                     },
                     {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                    },
+                    {
+                      "i128": "70000000"
+                    }
+                  ]
+                }
+              },
+              "sub_invocations": []
+            },
+            {
+              "function": {
+                "contract_fn": {
+                  "contract_address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL",
+                  "function_name": "transfer",
+                  "args": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                    },
+                    {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                     },
                     {
@@ -226,6 +246,26 @@
             }
           },
           "sub_invocations": [
+            {
+              "function": {
+                "contract_fn": {
+                  "contract_address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL",
+                  "function_name": "transfer",
+                  "args": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                    },
+                    {
+                      "i128": "70000000"
+                    }
+                  ]
+                }
+              },
+              "sub_invocations": []
+            },
             {
               "function": {
                 "contract_fn": {
@@ -1347,7 +1387,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "200000"
+                      "i128": "140200000"
                     }
                   },
                   {
@@ -1451,7 +1491,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "480000000"
+                      "i128": "410000000"
                     }
                   },
                   {
@@ -1503,7 +1543,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "480000000"
+                      "i128": "410000000"
                     }
                   },
                   {

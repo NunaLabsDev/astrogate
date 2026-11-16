@@ -14,16 +14,21 @@ export function WalletButton() {
     publicKey,
     pending,
     mode,
+    hotAccounts,
+    hotActiveId,
+    hotUnlocked,
     demoAccounts,
     demoActive,
     demoPending,
     selectDemo,
     addDemoAccount,
     startDemo,
-    connect,
+    openWalletModal,
     disconnect,
   } = useWallet()
   const xlmBalance = useXlmBalance(publicKey)
+  const activeHot =
+    hotAccounts?.find((a) => a.id === hotActiveId) ?? hotAccounts?.[0] ?? null
 
   async function onStartDemo() {
     try {
@@ -51,14 +56,8 @@ export function WalletButton() {
     }
   }
 
-  async function onConnect() {
-    try {
-      await connect()
-    } catch (err) {
-      toast.error('Failed to connect wallet', {
-        message: errorMessage(err),
-      })
-    }
+  function onOpenWallet() {
+    openWalletModal('connect')
   }
 
   async function onDisconnect() {
@@ -127,14 +126,7 @@ export function WalletButton() {
               >
                 {demoPending ? '…' : '+'}
               </button>
-            ) : NETWORK_NAME !== 'mainnet' ? (
-          <span
-            title="Connected to Stellar Testnet"
-            className="hidden sm:inline-flex items-center rounded-md border border-sky-500/30 bg-sky-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
-          >
-            testnet
-          </span>
-        ) : null}
+            ) : null}
           </div>
         ) : NETWORK_NAME !== 'mainnet' ? (
           <span
@@ -144,24 +136,55 @@ export function WalletButton() {
             testnet
           </span>
         ) : null}
-        <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono sm:inline-flex">
-          {xlmBalance.data !== undefined ? (
-            <span className="text-emerald-300 font-semibold">
-              {xlmBalance.data.toLocaleString('en-US', { maximumFractionDigits: 1 })} XLM
-            </span>
-          ) : NETWORK_NAME !== 'mainnet' ? (
-          <span
-            title="Connected to Stellar Testnet"
-            className="hidden sm:inline-flex items-center rounded-md border border-sky-500/30 bg-sky-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
+        {mode === 'hot' ? (
+          <button
+            type="button"
+            onClick={() => openWalletModal(hotUnlocked ? 'manage' : 'unlock')}
+            className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+              hotUnlocked
+                ? 'border-sky-500/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25'
+                : 'border-amber-500/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+            }`}
+            title={
+              hotUnlocked
+                ? 'Manage Hot Wallet Vault, Backup Key & Accounts'
+                : 'Wallet locked — tap to enter PIN'
+            }
           >
-            testnet
+            <span>{hotUnlocked ? '⚡' : '🔒'}</span>
+            <span className="max-w-[78px] truncate">
+              {activeHot?.label ?? 'Vault'}
+            </span>
+            {xlmBalance.data !== undefined ? (
+              <span className="font-mono text-emerald-300">
+                {xlmBalance.data.toLocaleString('en-US', {
+                  maximumFractionDigits: 1,
+                })}{' '}
+                XLM
+              </span>
+            ) : null}
+            <code className="hidden sm:inline text-slate-300">
+              {shortAddress(publicKey)}
+            </code>
+          </button>
+        ) : (
+          <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono sm:inline-flex">
+            {xlmBalance.data !== undefined ? (
+              <span className="text-emerald-300 font-semibold">
+                {xlmBalance.data.toLocaleString('en-US', {
+                  maximumFractionDigits: 1,
+                })}{' '}
+                XLM
+              </span>
+            ) : null}
+            {xlmBalance.data !== undefined ? (
+              <span className="text-slate-600">·</span>
+            ) : null}
+            <code className="text-slate-200">{shortAddress(publicKey)}</code>
           </span>
-        ) : null}
-          {xlmBalance.data !== undefined ? <span className="text-slate-600">·</span> : null}
-          <code className="text-slate-200">{shortAddress(publicKey)}</code>
-        </span>
+        )}
         {NETWORK_NAME !== 'mainnet' &&
-        mode === 'wallet' &&
+        mode !== 'demo' &&
         xlmBalance.data !== undefined &&
         xlmBalance.data < 5 ? (
           <button
@@ -193,18 +216,18 @@ export function WalletButton() {
           disabled={demoPending || pending}
           onClick={() => void onStartDemo()}
           title="Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM"
-          className="min-h-[44px] rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+          className="min-h-[44px] rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
         >
-          {demoPending ? 'Funding…' : 'Testnet Demo'}
+          {demoPending ? 'Funding…' : 'Demo'}
         </button>
       ) : null}
       <button
         type="button"
         disabled={pending}
-        onClick={() => void onConnect()}
-        className="min-h-[44px] rounded-lg bg-emerald-500 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+        onClick={onOpenWallet}
+        className="min-h-[44px] rounded-lg bg-emerald-500 px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
       >
-        {pending ? 'Connecting…' : 'Connect Wallet'}
+        {pending ? 'Connecting…' : '⚡ Wallet'}
       </button>
     </div>
   )

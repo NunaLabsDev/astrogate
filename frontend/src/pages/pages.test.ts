@@ -12,15 +12,23 @@ vi.mock('../store/wallet', () => ({
       publicKey: null,
       pending: false,
       mode: 'wallet',
+      hotAccounts: [],
+      hotActiveId: null,
+      hotUnlocked: false,
+      walletModalOpen: false,
+      walletModalView: 'connect',
       demoAccounts: [],
       demoActive: 0,
       demoPending: false,
+      openWalletModal: vi.fn(),
+      closeWalletModal: vi.fn(),
       selectDemo: vi.fn(),
       addDemoAccount: vi.fn(),
       startDemo: vi.fn(),
       connect: vi.fn(),
       disconnect: vi.fn(),
       getSigner: () => null,
+      requireSignerOrPrompt: () => null,
     }
     return selector ? selector(state) : state
   },
@@ -58,25 +66,26 @@ describe('Page Components and Lifecycle', () => {
       expect(html).toContain('Fair')
     })
 
-    it('renders PortfolioPage with 1-click Testnet Demo & Connect Wallet CTAs when disconnected', () => {
+    it('renders PortfolioPage with 1-click Testnet Demo & Wallet CTAs when disconnected', () => {
       const html = renderWithProviders(createElement(PortfolioPage), '/portfolio')
       expect(html).toContain('Your Portfolio')
       expect(html).toContain('Testnet Demo (10k XLM)')
-      expect(html).toContain('Connect Wallet')
+      expect(html).toContain('Connect / Create Wallet')
       expect(html).not.toContain('Go to Demo Mode')
     })
 
-    it('renders CreateTokenForm with Testnet Demo option and on-chain Launchpad copy', () => {
+    it('renders CreateTokenForm with 7 XLM fee, Demo & Wallet CTAs', () => {
       const html = renderWithProviders(createElement(CreateTokenForm), '/create')
       expect(html).toContain('Create &amp; Launch')
+      expect(html).toContain('7<!-- --> XLM network maintenance fee')
       expect(html).toContain('Testnet Demo')
-      expect(html).toContain('Connect Wallet')
+      expect(html).toContain('Connect / Create Wallet')
     })
 
-    it('renders WalletButton with Testnet Demo and Connect Wallet buttons', () => {
+    it('renders WalletButton with Demo and Wallet buttons', () => {
       const html = renderWithProviders(createElement(WalletButton))
-      expect(html).toContain('Testnet Demo')
-      expect(html).toContain('Connect Wallet')
+      expect(html).toContain('Demo')
+      expect(html).toContain('Wallet')
     })
   })
 

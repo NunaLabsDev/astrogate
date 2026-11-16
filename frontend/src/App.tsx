@@ -1,5 +1,7 @@
-import { Link, NavLink, Route, Routes, useLocation } from 'react-router'
+import { useEffect } from 'react'
+import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { WalletButton } from './components/WalletButton'
+import { HotWalletModal } from './components/HotWalletModal'
 import { ScrollToTop } from './components/ScrollToTop'
 import { OfflineBanner } from './components/OfflineBanner'
 import { PwaInstallPrompt } from './components/PwaInstallPrompt'
@@ -11,6 +13,7 @@ import { PortfolioPage } from './pages/PortfolioPage'
 import { CreatePage } from './pages/CreatePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { BRAND } from './lib/brand'
+import { initTelegramMiniApp, syncTelegramBackButton } from './lib/telegram'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Market' },
@@ -49,8 +52,20 @@ function NavItems() {
 }
 
 export default function App() {
+  const { pathname } = useLocation()
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const { cleanup } = initTelegramMiniApp()
+    return cleanup
+  }, [])
+
+  useEffect(() => {
+    return syncTelegramBackButton(pathname !== '/', () => navigate(-1))
+  }, [pathname, navigate])
+
   return (
-    <div className="min-h-screen text-slate-100 w-full max-w-full overflow-x-hidden">
+    <div className="min-h-[calc(var(--app-vh,1vh)*100)] text-slate-100 w-full max-w-full overflow-x-hidden">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[110] focus:rounded-lg focus:bg-sky-500 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-slate-950"
@@ -118,6 +133,7 @@ export default function App() {
         </p>
       </footer>
 
+      <HotWalletModal />
       <PwaInstallPrompt />
     </div>
   )

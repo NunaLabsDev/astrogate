@@ -141,6 +141,7 @@ fn test_launchpad_initialization() {
     assert_eq!(client.get_xlm_sac(), Some(s.xlm_sac));
     assert_eq!(client.get_burn_address(), Some(s.burn_addr));
     assert_eq!(client.get_treasury(), Some(s.treasury));
+    assert_eq!(client.get_creation_fee(), 7 * STROOPS);
     assert!(client.get_token_wasm_hash().is_some());
     assert_eq!(client.get_launch_count(), 0);
 }
@@ -250,6 +251,8 @@ fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
     assert_eq!(curve_0.burn_vault_remaining, 2_970_000 * STROOPS);
     assert_eq!(curve_0.creator_vesting_total, 30_000 * STROOPS);
     assert_eq!(curve_0.creator_claimed, 0);
+    // Treasury received 7 XLM creation fee + 0.50% of 2 XLM initial buy (0.01 XLM)
+    assert_eq!(xlm_tok.balance(&s.treasury), 70_100_000);
 
     // Buyer 1 puts 10 XLM (standard 0.80% fee: 50 bps treasury + 30 bps floor bonus)
     let q_small = client.quote_buy(&res.token, &(10 * STROOPS));

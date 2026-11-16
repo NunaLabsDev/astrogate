@@ -76,7 +76,14 @@ export function SwapCard({
   onSwapped?: () => void
   onOpenLiquidityTools?: () => void
 }) {
-  const { publicKey, getSigner, connect, startDemo, demoPending, pending } = useWallet()
+  const {
+    publicKey,
+    requireSignerOrPrompt,
+    openWalletModal,
+    startDemo,
+    demoPending,
+    pending,
+  } = useWallet()
   const queryClient = useQueryClient()
   const [direction, setDirection] = useState<Direction>('buy')
   const [amount, setAmount] = useState('10')
@@ -230,9 +237,11 @@ export function SwapCard({
       setError('Connect your wallet or activate demo mode to execute a swap.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError(UNSUPPORTED_SIGNER_MESSAGE)
+      if (useWallet.getState().mode !== 'hot') {
+        setError(UNSUPPORTED_SIGNER_MESSAGE)
+      }
       return
     }
     if (amountIn <= 0n) {
@@ -770,10 +779,10 @@ export function SwapCard({
               <button
                 type="button"
                 disabled={pending}
-                onClick={() => void connect().catch((err) => toast.error('Failed to connect wallet', { message: errorMessage(err) }))}
+                onClick={() => openWalletModal('connect')}
                 className="min-h-[48px] w-full rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 px-6 py-3.5 text-base font-black text-slate-950 shadow-lg shadow-amber-500/25 transition-all active:scale-[0.99] disabled:opacity-60"
               >
-                {pending ? 'Connecting…' : '🔌 Connect Wallet to Trade'}
+                {pending ? 'Connecting…' : '⚡ Connect / Create Wallet to Trade'}
               </button>
               {NETWORK_NAME !== 'mainnet' ? (
                 <button

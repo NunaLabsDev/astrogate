@@ -275,6 +275,8 @@ const MAX_INITIAL_SUPPLY: i128 = 10_000_000_000_000_000_000;
 const MIN_LP_ALLOCATION_BPS: i128 = 9_950;
 /// Minimum 2 XLM (`20_000_000` stroops) initial buy / seed.
 const MIN_XLM_LP_STROOPS: i128 = 20_000_000;
+/// Fixed protocol creation fee (`7 XLM`) transferred directly to treasury on `launch_fair`.
+const CREATION_FEE_STROOPS: i128 = 7 * STROOPS_PER_UNIT;
 
 /// Fair-Flywheel v4.1 constants (10M supply, 7 decimals, 45 / 25 / 29.7 / 0.3).
 const FAIR_DECIMALS: u32 = 7;
@@ -359,6 +361,11 @@ impl Launchpad {
 
         Self::extend_ttl(e);
         let this = e.current_contract_address();
+        let xlm_sac = Self::require_xlm_sac(e)?;
+        let treasury = Self::require_treasury(e)?;
+        // Charge fixed 7 XLM network maintenance fee atomically straight to treasury.
+        token::Client::new(e, &xlm_sac).transfer(&params.creator, &treasury, &CREATION_FEE_STROOPS);
+
         let wasm_hash = Self::require_token_wasm_hash(e)?;
         let token_addr = Self::deploy_capped_token(
             e,
@@ -969,6 +976,10 @@ impl Launchpad {
 
     pub fn get_treasury(e: &Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Treasury)
+    }
+
+    pub fn get_creation_fee(_e: &Env) -> i128 {
+        CREATION_FEE_STROOPS
     }
 }
 

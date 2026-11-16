@@ -9,6 +9,22 @@ import type { Signer } from '@stellar/stellar-sdk/contract'
 import { BRAND } from '../lib/brand'
 import { NETWORK_NAME } from '../lib/network'
 import { walletSigner } from '../lib/signer'
+import { readStorageString, removeStorageKey, writeStorageString } from '../lib/storage'
+import {
+  createHotWalletAccount,
+  getHotWalletSigner,
+  importHotWalletAccount,
+  lockHotVault,
+  markHotAccountBackedUp,
+  readHotVaultSnapshot,
+  removeHotAccount as removeVaultAccount,
+  renameHotAccount as renameVaultAccount,
+  revealHotAccountSecret,
+  selectHotAccount as selectVaultAccount,
+  unlockHotVault,
+  wipeHotVault,
+  type HotAccountMeta,
+} from '../lib/hot-wallet'
 import {
   MAX_DEMO_ACCOUNTS,
   createDemoAccounts,
@@ -77,27 +93,64 @@ function walletKit(): typeof StellarWalletsKit {
   return kit
 }
 
-export type WalletMode = 'wallet' | 'demo'
+export type WalletMode = 'wallet' | 'hot' | 'demo'
+export type WalletModalView = 'connect' | 'unlock' | 'manage'
+
+const HOT_MODE_KEY = 'astrogate.hot.mode.v1'
+function loadHotMode(): boolean {
+  return readStorageString(HOT_MODE_KEY) === '1'
+}
+function saveHotMode(active: boolean): void {
+  if (active) writeStorageString(HOT_MODE_KEY, '1')
+  else removeStorageKey(HOT_MODE_KEY)
+}
 
 type WalletState = {
   publicKey: string | null
   pending: boolean
   error: string | null
   mode: WalletMode
+  /** Embedded self-custodial Hot Wallet Vault metadata & lock state. */
+  hotAccounts: HotAccountMeta[]
+  hotActiveId: string | null
+  hotUnlocked: boolean
+  walletModalOpen: boolean
+  walletModalView: WalletModalView
   /** Cuentas desechables de testnet (modo prueba, sin wallet). */
   demoAccounts: DemoAccount[]
   demoActive: number
   demoPending: boolean
   demoStage: string | null
   demoError: string | null
+  openWalletModal: (view?: WalletModalView) => void
+  closeWalletModal: () => void
   connect: () => Promise<void>
   disconnect: () => Promise<void>
+  createHotWallet: (params: {
+    pin: string
+    label?: string
+  }) => Promise<{ revealedSecret: string; publicKey: string }>
+  importHotWallet: (params: {
+    secret: string
+    pin: string
+    label?: string
+  }) => Promise<void>
+  unlockHotWallet: (pin: string) => Promise<void>
+  lockHotWallet: () => void
+  selectHotAccount: (id: string) => void
+  renameHotAccount: (id: string, label: string) => void
+  confirmHotBackup: (id: string) => void
+  revealHotSecret: (id: string, pin: string) => Promise<string>
+  removeHotAccount: (id: string, pin: string) => Promise<void>
+  wipeHotWallet: () => void
   startDemo: () => Promise<void>
   addDemoAccount: () => Promise<void>
   resetDemoAccounts: () => Promise<void>
   selectDemo: (index: number) => void
-  /** Firmante de la cuenta activa (wallet real o cuenta demo). */
+  /** Firmante de la cuenta activa (hot wallet desbloqueada, wallet externa o cuenta demo). */
   getSigner: () => Signer | null
+  /** Igual que getSigner, pero si hay una Hot Wallet bloqueada abre el sheet de PIN automáticamente. */
+  requireSignerOrPrompt: () => Signer | null
 }
 
 const isMainnet = NETWORK_NAME === 'mainnet'
@@ -106,8 +159,9 @@ const storedDemoActive = Math.min(
   loadActiveDemo(),
   Math.max(storedDemo.length - 1, 0),
 )
-// Si había cuentas demo y el modo seguía activo, se retoma la sesión (nunca en mainnet).
+const initialHot = readHotVaultSnapshot()
 const startInDemo = !isMainnet && storedDemo.length > 0 && loadDemoMode()
+const startInHot = !startInDemo && initialHot.exists && loadHotMode()
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error'
@@ -116,22 +170,49 @@ function messageOf(error: unknown): string {
 export const useWallet = create<WalletState>((set, get) => ({
   publicKey: startInDemo
     ? (storedDemo[storedDemoActive]?.publicKey ?? null)
-    : null,
+    : startInHot
+      ? initialHot.activePublicKey
+      : null,
   pending: false,
   error: null,
-  mode: startInDemo ? 'demo' : 'wallet',
+  mode: startInDemo ? 'demo' : startInHot ? 'hot' : 'wallet',
+  hotAccounts: initialHot.accounts,
+  hotActiveId: initialHot.activeId,
+  hotUnlocked: initialHot.unlocked,
+  walletModalOpen: false,
+  walletModalView: 'connect',
   demoAccounts: storedDemo,
   demoActive: storedDemoActive,
   demoPending: false,
   demoStage: null,
   demoError: null,
 
+  openWalletModal: (view) =>
+    set((state) => ({
+      walletModalOpen: true,
+      walletModalView:
+        view ??
+        (state.mode === 'hot' && state.publicKey
+          ? state.hotUnlocked
+            ? 'manage'
+            : 'unlock'
+          : 'connect'),
+      error: null,
+    })),
+
+  closeWalletModal: () => set({ walletModalOpen: false, error: null }),
+
   connect: async () => {
     set({ pending: true, error: null })
     try {
       const { address } = await walletKit().authModal()
       saveDemoMode(false)
-      set({ publicKey: address, mode: 'wallet' })
+      saveHotMode(false)
+      set({
+        publicKey: address,
+        mode: 'wallet',
+        walletModalOpen: false,
+      })
     } catch (error) {
       const message = messageOf(error)
       const dismissed =
@@ -153,11 +234,164 @@ export const useWallet = create<WalletState>((set, get) => ({
         set({ mode: 'wallet', publicKey: null })
         return
       }
+      if (get().mode === 'hot') {
+        lockHotVault()
+        saveHotMode(false)
+        set({
+          mode: 'wallet',
+          publicKey: null,
+          hotUnlocked: false,
+          walletModalOpen: false,
+        })
+        return
+      }
       await walletKit().disconnect()
       set({ publicKey: null })
     } finally {
       set({ pending: false })
     }
+  },
+
+  createHotWallet: async ({ pin, label }) => {
+    set({ pending: true, error: null })
+    try {
+      const res = await createHotWalletAccount({ pin, label })
+      saveDemoMode(false)
+      saveHotMode(true)
+      set({
+        mode: 'hot',
+        publicKey: res.activePublicKey,
+        hotAccounts: res.accounts,
+        hotActiveId: res.activeId,
+        hotUnlocked: true,
+      })
+      return {
+        revealedSecret: res.revealedSecret,
+        publicKey: res.activePublicKey,
+      }
+    } catch (error) {
+      const message = messageOf(error)
+      set({ error: message })
+      throw error
+    } finally {
+      set({ pending: false })
+    }
+  },
+
+  importHotWallet: async ({ secret, pin, label }) => {
+    set({ pending: true, error: null })
+    try {
+      const res = await importHotWalletAccount({ secret, pin, label })
+      saveDemoMode(false)
+      saveHotMode(true)
+      set({
+        mode: 'hot',
+        publicKey: res.activePublicKey,
+        hotAccounts: res.accounts,
+        hotActiveId: res.activeId,
+        hotUnlocked: true,
+      })
+    } catch (error) {
+      const message = messageOf(error)
+      set({ error: message })
+      throw error
+    } finally {
+      set({ pending: false })
+    }
+  },
+
+  unlockHotWallet: async (pin) => {
+    set({ pending: true, error: null })
+    try {
+      const res = await unlockHotVault({ pin })
+      saveDemoMode(false)
+      saveHotMode(true)
+      set({
+        mode: 'hot',
+        publicKey: res.activePublicKey,
+        hotAccounts: res.accounts,
+        hotActiveId: res.activeId,
+        hotUnlocked: true,
+      })
+    } catch (error) {
+      const message = messageOf(error)
+      set({ error: message })
+      throw error
+    } finally {
+      set({ pending: false })
+    }
+  },
+
+  lockHotWallet: () => {
+    lockHotVault()
+    set({ hotUnlocked: false })
+  },
+
+  selectHotAccount: (id) => {
+    const res = selectVaultAccount(id)
+    saveDemoMode(false)
+    saveHotMode(true)
+    const snap = readHotVaultSnapshot()
+    set({
+      mode: 'hot',
+      hotActiveId: res.activeId,
+      publicKey: res.activePublicKey,
+      hotAccounts: snap.accounts,
+      hotUnlocked: snap.unlocked,
+    })
+  },
+
+  renameHotAccount: (id, label) => {
+    const accounts = renameVaultAccount(id, label)
+    set({ hotAccounts: accounts })
+  },
+
+  confirmHotBackup: (id) => {
+    const accounts = markHotAccountBackedUp(id)
+    set({ hotAccounts: accounts })
+  },
+
+  revealHotSecret: async (id, pin) => {
+    const secret = await revealHotAccountSecret({ id, pin })
+    const snap = readHotVaultSnapshot()
+    set({ hotAccounts: snap.accounts })
+    return secret
+  },
+
+  removeHotAccount: async (id, pin) => {
+    const accounts = await removeVaultAccount({ id, pin })
+    if (accounts.length === 0) {
+      saveHotMode(false)
+      set({
+        mode: 'wallet',
+        publicKey: null,
+        hotAccounts: [],
+        hotActiveId: null,
+        hotUnlocked: false,
+        walletModalOpen: false,
+      })
+      return
+    }
+    const snap = readHotVaultSnapshot()
+    set({
+      hotAccounts: accounts,
+      hotActiveId: snap.activeId,
+      publicKey: snap.activePublicKey,
+      hotUnlocked: snap.unlocked,
+    })
+  },
+
+  wipeHotWallet: () => {
+    wipeHotVault()
+    saveHotMode(false)
+    set({
+      mode: get().mode === 'hot' ? 'wallet' : get().mode,
+      publicKey: get().mode === 'hot' ? null : get().publicKey,
+      hotAccounts: [],
+      hotActiveId: null,
+      hotUnlocked: false,
+      walletModalOpen: false,
+    })
   },
 
   startDemo: async () => {
@@ -169,11 +403,13 @@ export const useWallet = create<WalletState>((set, get) => ({
       const index = Math.min(demoActive, demoAccounts.length - 1)
       saveActiveDemo(index)
       saveDemoMode(true)
+      saveHotMode(false)
       set({
         mode: 'demo',
         demoActive: index,
         publicKey: demoAccounts[index].publicKey,
         demoError: null,
+        walletModalOpen: false,
       })
       return
     }
@@ -198,6 +434,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       saveDemoAccounts(accounts)
       saveActiveDemo(0)
       saveDemoMode(true)
+      saveHotMode(false)
       set({
         demoAccounts: accounts,
         demoActive: 0,
@@ -276,6 +513,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       saveDemoAccounts(accounts)
       saveActiveDemo(0)
       saveDemoMode(true)
+      saveHotMode(false)
       set({
         demoAccounts: accounts,
         demoActive: 0,
@@ -300,21 +538,36 @@ export const useWallet = create<WalletState>((set, get) => ({
     if (!account) return
     saveActiveDemo(index)
     saveDemoMode(true)
+    saveHotMode(false)
     set({
       mode: 'demo',
       demoActive: index,
       publicKey: account.publicKey,
       demoError: null,
+      walletModalOpen: false,
     })
   },
 
   getSigner: () => {
     const { mode, publicKey, demoAccounts, demoActive } = get()
     if (!publicKey) return null
+    if (mode === 'hot') {
+      return getHotWalletSigner(publicKey)
+    }
     if (mode === 'demo') {
       const account = demoAccounts[demoActive]
       return account ? demoSigner(account) : null
     }
     return walletSigner(publicKey)
+  },
+
+  requireSignerOrPrompt: () => {
+    const signer = get().getSigner()
+    if (signer) return signer
+    const { mode, hotUnlocked, openWalletModal } = get()
+    if (mode === 'hot' && !hotUnlocked) {
+      openWalletModal('unlock')
+    }
+    return null
   },
 }))

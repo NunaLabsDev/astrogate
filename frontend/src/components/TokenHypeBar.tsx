@@ -33,7 +33,7 @@ export function TokenHypeBar({
   pairId?: string | null
   decimals?: number
 }) {
-  const { publicKey, getSigner, connect } = useWallet()
+  const { publicKey, requireSignerOrPrompt, openWalletModal } = useWallet()
   const queryClient = useQueryClient()
   const shouts = useTokenShouts(tokenId)
   const kingShout = useKingShout(tokenId)
@@ -53,12 +53,14 @@ export function TokenHypeBar({
     e.preventDefault()
     setError(null)
     if (!publicKey) {
-      void connect()
+      openWalletModal('connect')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError(UNSUPPORTED_SIGNER_MESSAGE)
+      if (useWallet.getState().mode !== 'hot') {
+        setError(UNSUPPORTED_SIGNER_MESSAGE)
+      }
       return
     }
 

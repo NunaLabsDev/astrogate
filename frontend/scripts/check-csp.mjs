@@ -28,6 +28,8 @@ const REQUIRED_ORIGINS = [
   'https://api.binance.com',
   'https://api.coingecko.com',
   'https://friendbot.stellar.org',
+  'https://telegram.org',
+  'https://web.telegram.org',
 ]
 
 /** Origen eliminado del código (lib/xlm.ts ya no consulta CryptoCompare). */
@@ -37,7 +39,6 @@ const RETIRED_ORIGINS = ['cryptocompare']
 const SHARED_SECURITY_HEADERS = [
   'content-security-policy',
   'x-content-type-options',
-  'x-frame-options',
   'referrer-policy',
   'permissions-policy',
   'strict-transport-security',
