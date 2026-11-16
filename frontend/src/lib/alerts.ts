@@ -1,3 +1,5 @@
+import { FAIR_LAUNCH_TOTAL_BASIS } from './tokenomics'
+
 export interface LaunchAlertPayload {
   tokenId: string
   name: string
@@ -59,9 +61,10 @@ export function isAlertsConfigured(config: AlertTransportConfig = readAlertConfi
 }
 
 export function formatLaunchAlertMessage(payload: LaunchAlertPayload): string {
+  const formattedCap = Number(FAIR_LAUNCH_TOTAL_BASIS).toLocaleString('en-US')
   const lines = [
     `🚀 New AstroGate Fair Launch: $${payload.symbol} (${payload.name})`,
-    `Supply: 100,000,000 fixed · LP locked 99.5%`,
+    `Supply: ${formattedCap} fixed · LP locked 99.5%`,
     `Seed Pool: ${payload.seedXlm} XLM`,
     `Token: ${payload.tokenId}`,
     `Creator: ${payload.creator}`,

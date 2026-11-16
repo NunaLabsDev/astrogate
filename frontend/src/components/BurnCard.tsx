@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useTokenInfo } from '../hooks/useTokenInfo'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { validateXlmReserve } from '../lib/xlm'
 import { tokenClient, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -21,6 +23,7 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
   const queryClient = useQueryClient()
   const balance = useTokenBalance(publicKey, token.id)
   const info = useTokenInfo(token.id)
+  const xlmBalance = useXlmBalance(publicKey)
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +53,11 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
     }
     if (balance.data !== undefined && amountBase > balance.data) {
       setError('You cannot burn more tokens than your balance.')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 

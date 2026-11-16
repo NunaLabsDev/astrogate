@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLpPosition } from '../hooks/useLpPosition'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { validateXlmReserve } from '../lib/xlm'
 import { errorMessage, formatAmount, shortAddress } from '../lib/format'
 import {
   lpSharePercent,
@@ -25,6 +27,7 @@ export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
   const { publicKey, getSigner } = useWallet()
   const queryClient = useQueryClient()
   const position = useLpPosition(token.id, publicKey)
+  const xlmBalance = useXlmBalance(publicKey)
   const [percent, setPercent] = useState<Percent>(100)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,6 +53,11 @@ export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
     if (!publicKey || !data) return
     if (lpAmount <= 0n) {
       setError('No LP tokens available to withdraw.')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
     const signer = getSigner()

@@ -3,8 +3,8 @@
 AstroGate is a decentralized, zero-backend Fair Launchpad and automated market maker (AMM) built natively on Stellar/Soroban. It introduces fair, anti-rug memecoin launch mechanics to the Stellar ecosystem:
 
 - **Zero Protocol Deploy Fee**: Deploy a fair launch for only your XLM seed liquidity + standard Stellar network gas (~0.05 XLM).
-- **0.5% Creator · 99.5% Pool Allocation**: 500,000 tokens immediate to creator; 99,500,000 tokens seeded directly into the Soroswap AMM pair (`launch_fair`).
-- **Mandatory Anti-Rug LP Burn & On-Chain Registry**: 100% of initial LP tokens are irrevocably transferred on launch to Stellar's canonical dead address (`GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`) and recorded in the Launchpad v2 registry (`get_launches`, `get_launch`).
+- **0.5% Creator · 99.5% Pool Allocation**: 50,000 tokens immediate to creator; 9,950,000 tokens seeded directly into the Soroswap AMM pair (`launch_fair`, min 2 XLM seed).
+- **Mandatory Anti-Rug LP Burn & On-Chain Registry**: 100% of initial LP tokens are irrevocably transferred on launch to Stellar's canonical dead address (`GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`) and recorded in the Launchpad v3 registry (`get_launches`, `get_launch`).
 - **Permanent Mint Freezing & On-Chain Burn-to-Chat**: Contract ownership is renounced immediately on launch (`renounce_ownership`), token supply is sealed via OpenZeppelin `Capped`, and traders can burn tokens on-chain to post live shouts (`burn_shout`, `get_shouts`).
 - **Real-Time Live Pricing & 0ms Quotes**: Multi-source XLM oracle waterfall combined with instant deterministic `997/1000` constant-product AMM math and RPC failover across testnet nodes. Zero mock data.
 - **Zero-Backend Architecture**: Identity = non-custodial wallet (`@creit.tech/stellar-wallets-kit`) or 1-click Testnet Demo keypair. Data = Stellar Horizon + Soroban RPC.

@@ -6,7 +6,31 @@ export const XLM_FEE_BUFFER = 10_000_000n
 
 import { HORIZON_URL } from './network'
 import { readStorageJson, writeStorageJson } from './storage'
-import { parseAmount } from './format'
+import { formatAmount, parseAmount } from './format'
+
+/**
+ * Validates that an account holds at least `spentXlmStroops + XLM_FEE_BUFFER`
+ * (keeping 1 XLM for Stellar base reserve & Soroban transaction fees).
+ * Returns `null` when valid or balance is not loaded yet (`undefined`).
+ */
+export function validateXlmReserve(
+  xlmBalance: number | undefined,
+  spentXlmStroops = 0n,
+): string | null {
+  if (xlmBalance === undefined) return null
+  const balanceStroops = xlmToStroops(xlmBalance)
+  if (spentXlmStroops > 0n && spentXlmStroops > balanceStroops) {
+    return `Insufficient XLM balance (${formatAmount(balanceStroops, XLM_DECIMALS)} XLM available).`
+  }
+  const required = spentXlmStroops + XLM_FEE_BUFFER
+  if (balanceStroops < required) {
+    if (spentXlmStroops > 0n) {
+      return `Insufficient XLM balance. You have ${formatAmount(balanceStroops, XLM_DECIMALS)} XLM, but need at least ${formatAmount(required, XLM_DECIMALS)} XLM (including 1 XLM network reserve & fee buffer).`
+    }
+    return 'Leave at least 1 XLM in your wallet to cover transaction fees and Stellar minimum reserve.'
+  }
+  return null
+}
 
 /** Horizon account not yet funded/created resolves to zero balance (not an error). */
 export async function fetchXlmBalance(publicKey: string): Promise<number> {

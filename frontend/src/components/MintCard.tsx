@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenInfo } from '../hooks/useTokenInfo'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { validateXlmReserve } from '../lib/xlm'
 import { tokenClient, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -21,6 +23,7 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
   const { publicKey, demoAccounts, getSigner } = useWallet()
   const queryClient = useQueryClient()
   const info = useTokenInfo(token.id)
+  const xlmBalance = useXlmBalance(publicKey)
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
@@ -43,6 +46,12 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
       `Permanently renounce ownership of ${token.symbol ?? 'this token'}?\n\nThis action is irreversible on-chain: minting will be disabled forever.`,
     )
     if (!confirmed) return
+
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
+      return
+    }
 
     const signer = getSigner()
     if (!signer) {
@@ -100,6 +109,11 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
     const amountBase = parseAmount(amount, token.decimals)
     if (amountBase <= 0n) {
       setError('Enter an amount greater than 0.')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 

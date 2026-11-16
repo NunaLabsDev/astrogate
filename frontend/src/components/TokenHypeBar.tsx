@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenShouts } from '../hooks/useTokenShouts'
 import { useTokenBalance } from '../hooks/useTokenBalance'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { validateXlmReserve } from '../lib/xlm'
 import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
 import { burnAndShout } from '../lib/token'
 import { toast } from '../lib/toast'
@@ -29,6 +31,7 @@ export function TokenHypeBar({
   const queryClient = useQueryClient()
   const shouts = useTokenShouts(tokenId)
   const balance = useTokenBalance(publicKey, tokenId)
+  const xlmBalance = useXlmBalance(publicKey)
 
   const [message, setMessage] = useState('')
   const [burnAmountInput, setBurnAmountInput] = useState('1')
@@ -66,6 +69,11 @@ export function TokenHypeBar({
     }
     if (balance.data !== undefined && burnAmountBase > balance.data) {
       setError(`Insufficient $${symbol} balance to burn.`)
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 

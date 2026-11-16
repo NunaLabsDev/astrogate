@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenBalance } from '../hooks/useTokenBalance'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { validateXlmReserve } from '../lib/xlm'
 import { tokenClient, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -25,6 +27,7 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
   const { publicKey, demoAccounts, getSigner } = useWallet()
   const queryClient = useQueryClient()
   const balance = useTokenBalance(publicKey, token.id)
+  const xlmBalance = useXlmBalance(publicKey)
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
@@ -73,6 +76,11 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
     }
     if (balance.data !== undefined && amountBase > balance.data) {
       setError('Insufficient token balance.')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 

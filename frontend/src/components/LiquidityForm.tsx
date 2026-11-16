@@ -6,7 +6,7 @@ import { explorerContractUrl } from '../lib/explorer'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
 import { useXlmBalance } from '../hooks/useXlmBalance'
-import { XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
+import { validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
 import { ShareButton } from './ShareButton'
 import type { LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
@@ -110,12 +110,9 @@ export function LiquidityForm({
       setError('Insufficient token balance.')
       return
     }
-    if (xlmBase !== undefined && xlmDesired > xlmBase) {
-      setError('Insufficient XLM balance.')
-      return
-    }
-    if (xlmBase !== undefined && xlmDesired + XLM_FEE_BUFFER > xlmBase) {
-      setError('Leave at least 1 XLM free for transaction fees and minimum network reserve.')
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, xlmDesired)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 

@@ -4,6 +4,7 @@ import {
   fetchXlmBalance,
   fetchXlmBalanceRaw,
   fetchXlmBalanceStroops,
+  validateXlmReserve,
   xlmToStroops,
 } from './xlm'
 
@@ -80,5 +81,17 @@ describe('fetchXlmUsdPrice', () => {
     )
     const { fetchXlmUsdPrice } = await import('./xlm')
     await expect(fetchXlmUsdPrice()).resolves.toBe(DEFAULT_XLM_USD_PRICE)
+  })
+})
+
+describe('validateXlmReserve', () => {
+  it('protege la reserva mínima de 1 XLM más el gasto de la tx', () => {
+    expect(validateXlmReserve(undefined)).toBeNull()
+    expect(validateXlmReserve(1.5)).toBeNull()
+    expect(validateXlmReserve(1.0)).toBeNull()
+    expect(validateXlmReserve(0.95)).toContain('at least 1 XLM')
+    expect(validateXlmReserve(5, 4_0000000n)).toBeNull()
+    expect(validateXlmReserve(5, 4_5000000n)).toContain('need at least 5.5 XLM')
+    expect(validateXlmReserve(5, 6_0000000n)).toContain('Insufficient XLM balance')
   })
 })

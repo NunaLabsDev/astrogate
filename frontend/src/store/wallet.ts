@@ -100,13 +100,14 @@ type WalletState = {
   getSigner: () => Signer | null
 }
 
-const storedDemo = loadDemoAccounts()
+const isMainnet = NETWORK_NAME === 'mainnet'
+const storedDemo = isMainnet ? [] : loadDemoAccounts()
 const storedDemoActive = Math.min(
   loadActiveDemo(),
   Math.max(storedDemo.length - 1, 0),
 )
-// Si había cuentas demo y el modo seguía activo, se retoma la sesión.
-const startInDemo = storedDemo.length > 0 && loadDemoMode()
+// Si había cuentas demo y el modo seguía activo, se retoma la sesión (nunca en mainnet).
+const startInDemo = !isMainnet && storedDemo.length > 0 && loadDemoMode()
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown error'
@@ -160,6 +161,9 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   startDemo: async () => {
+    if (isMainnet) {
+      throw new Error('Demo accounts are disabled on Stellar Mainnet.')
+    }
     const { demoAccounts, demoActive } = get()
     if (demoAccounts.length > 0) {
       const index = Math.min(demoActive, demoAccounts.length - 1)
@@ -214,6 +218,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   addDemoAccount: async () => {
+    if (isMainnet) return
     const { demoAccounts, demoPending } = get()
     if (demoPending) return
     if (demoAccounts.length >= MAX_DEMO_ACCOUNTS) {
@@ -250,7 +255,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   resetDemoAccounts: async () => {
-    if (get().demoPending) return
+    if (isMainnet || get().demoPending) return
     set({
       demoPending: true,
       demoStage: 'Regenerating new testnet accounts…',

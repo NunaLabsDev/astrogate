@@ -1,3 +1,6 @@
+import { NETWORK_NAME } from './network'
+import { MIN_SEED_XLM } from './tokenomics'
+
 /** Formats an on-chain amount (base units) to readable decimal. Handles negative amounts cleanly. */
 export function formatAmount(amount: bigint, decimals: number): string {
   if (decimals <= 0) return amount.toString()
@@ -93,6 +96,15 @@ export function errorMessage(error: unknown): string {
   ) {
     return 'Insufficient balance to complete transaction.'
   }
+  if (raw.includes('Error(Contract, #101)')) {
+    return 'Insufficient token allowance for this operation.'
+  }
+  if (raw.includes('Error(Contract, #103)')) {
+    return 'Invalid token amount (must be positive).'
+  }
+  if (raw.includes('Error(Contract, #2100)')) {
+    return 'Operation restricted to token owner (ownership may be renounced).'
+  }
   if (
     raw.includes('Error(Auth, InvalidAction)') ||
     lower.includes('unauthorized')
@@ -100,6 +112,7 @@ export function errorMessage(error: unknown): string {
     return 'Authorization denied by contract (check active account or permissions).'
   }
   if (
+    raw.includes('Error(Contract, #507)') ||
     lower.includes('insufficient output amount') ||
     lower.includes('insufficientoutputamount')
   ) {
@@ -133,7 +146,7 @@ export function errorMessage(error: unknown): string {
     lower.includes('invalidamount') ||
     lower.includes('invalid amount')
   ) {
-    return 'Invalid amount: check minimum XLM LP (1 XLM), supply, or burn shout amount.'
+    return `Invalid amount: check minimum XLM LP (${MIN_SEED_XLM} XLM), supply, or burn shout amount.`
   }
   if (
     raw.includes('Error(Contract, #3)') ||
@@ -161,7 +174,8 @@ export function errorMessage(error: unknown): string {
     lower.includes('429') ||
     lower.includes('too many requests')
   ) {
-    return 'Testnet RPC node is overloaded or unreachable. Please try again in a few seconds.'
+    const netLabel = NETWORK_NAME === 'mainnet' ? 'Mainnet' : 'Testnet'
+    return `${netLabel} RPC node is overloaded or unreachable. Please try again in a few seconds.`
   }
   return raw
 }

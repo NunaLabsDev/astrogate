@@ -1,5 +1,20 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 30 — Endurecimiento Producción Testnet, Seguridad de Fondos & Limpieza)
+Sincronización final de seguridad, protección de fondos/reservas, aislamiento mainnet/testnet y limpieza general del repositorio para uso por usuarios reales en Testnet como entorno equivalente a producción. *AI-generated; revisión humana pendiente.*
+- **Protección uniforme de reserva mínima y gas (`validateXlmReserve` en `frontend/src/lib/xlm.ts`)**:
+  - Centralizada la validación de balance XLM (`XLM_FEE_BUFFER = 1 XLM` + XLM gastado) en todos los flujos que firman en red: `SwapCard.tsx`, `CreateTokenForm.tsx`, `LiquidityForm.tsx`, `LiquidityPosition.tsx`, `TransferCard.tsx`, `BurnCard.tsx`, `TokenHypeBar.tsx`, `MintCard.tsx` y `TokenPage.tsx` (`onExtendTtl`), evitando transacciones rechazadas o erosión de la reserva base Stellar.
+  - Añadida confirmación explícita (`window.confirm`) en `SwapCard.tsx` antes de firmar swaps con impacto de precio `>= 15%` o tolerancia de slippage `>= 10%`.
+- **Errores legibles de contratos y red (`frontend/src/lib/format.ts`)**:
+  - Traducidos los códigos on-chain `#507` (slippage excedido en Soroswap), `#101` (allowance insuficiente), `#103` (monto negativo/inválido), `#2100` (solo owner / ownership renunciada) y corregido `#2` al mínimo real de `2 XLM` (`MIN_SEED_XLM`).
+- **Aislamiento Mainnet vs Testnet y limpieza**:
+  - `wallet.ts`, `WalletButton.tsx`, `SwapCard.tsx`, `CreateTokenForm.tsx` y `PortfolioPage.tsx` bloquean/ocultan el modo Friendbot Demo si `VITE_STELLAR_NETWORK=mainnet`; en Testnet `WalletButton.tsx` muestra el badge `testnet` junto a wallets reales conectadas.
+  - Sincronizados `alerts.ts` (`10,000,000 fixed`), `README.md` (`50,000` / `9,950,000`, `Launchpad v3`), `SECURITY.md` (v3, `10M`, guardas de slippage/reserva) y `frontend/.env.example`; eliminado directorio residual vacío `frontend/.wrangler`.
+- **Verificación completa en verde (post-edición final)**:
+  - Rust: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` (`35/35`: `12` launchpad + `23` astro-token).
+  - Frontend: `cd frontend && npm run check` (`tsc -b`, `vite build`, `oxlint` `0` warnings/errors en `123` archivos, `vitest` `25` suites / `183` tests OK, `smoke:render`, `verify:pwa`, `check:csp`) y `npm-audit-ratchet.mjs` (30 dentro del baseline, `0` critical).
+  - Testnet en vivo: `verify:launchpad` (`CBUKQRYZLWOHNFEX2PLEMGEYBFFT7V7Z52W2NB474XX2IRLWKCOQZ5AU`), `verify:discovery` (`16` pares / `6` listados), `verify:token-events` (`11` eventos ASTRO), `verify:frontend` (`CATW2PPMZZ5OL6N4HXDYYSBJAQ7JVNSWCQHVNXJI3PRZHANVNCFSOQVA`, `1 token -> 5 stroops XLM`), `verify:demo` (`CDZHERYCFUU4RLDFWA4AJYFNOSRFLNZOAFE3RSDWT4FUEDPNLE5D2M5A`), `verify:adversarial` (`CCM6LAXW25IZL7PEN62IRKMCCD3TSQQDERGBUY2U4SLAATAIQAOUN3F5`) y `keepalive:ttl` (`0` fallos en Launchpad v3, ASTRO y los 10 lanzamientos registrados).
+
 ## Handoff rápido (Nov 16 2026, sesión 29 — Calibración 10M / 2 XLM Stroop Floor, Launchpad v3 & Pruebas Adversariales Multi-Cuenta)
 Calibración exacta de tokenomics al piso mínimo de Stellar (`1 XLM = 10^7 stroops`), redespliegue de Launchpad v3 en Testnet, hardening de seguridad y batería de ataques multi-cuenta verificada en vivo. *AI-generated; revisión humana pendiente.*
 - **Calibración exacta de tokenomics (`10M` supply / `9.95M` LP / `50K` creator / mínimo `2 XLM`)**:

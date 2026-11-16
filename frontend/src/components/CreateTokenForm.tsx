@@ -22,7 +22,8 @@ import {
   SEED_LIQUIDITY_PRESETS,
   STELLAR_BURN_ADDRESS,
 } from '../lib/tokenomics'
-import { DEFAULT_XLM_USD_PRICE, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
+import { NETWORK_NAME } from '../lib/network'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER } from '../lib/xlm'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { explorerContractUrl, explorerTxUrl } from '../lib/explorer'
@@ -237,20 +238,16 @@ export function CreateTokenForm({
     const initialSupply = parseAmount(
       String(FAIR_LAUNCH_TOTAL_BASIS),
       targetDecimals,
-    ) // 100 Million (fixed on-chain by launch_fair)
+    ) // 10 Million (fixed on-chain by launch_fair)
     const seedXlm = seedXlmStroops
     if (seedXlm < MIN_SEED_XLM_STROOPS) {
       setError(`Minimum initial liquidity is ${MIN_SEED_XLM} XLM.`)
       return
     }
 
-    const currentXlmBase =
-      xlmBalance.data !== undefined ? xlmToStroops(xlmBalance.data) : undefined
-    const requiredStroops = seedXlm + XLM_FEE_BUFFER
-    if (currentXlmBase !== undefined && currentXlmBase < requiredStroops) {
-      setError(
-        `Insufficient XLM balance. You have ${formatAmount(currentXlmBase, XLM_DECIMALS)} XLM, but need at least ${formatAmount(requiredStroops, XLM_DECIMALS)} XLM (${formatAmount(seedXlm, XLM_DECIMALS)} XLM seed + ${feeBufferXlm} XLM fee buffer).`,
-      )
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, seedXlm)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 
@@ -866,14 +863,16 @@ export function CreateTokenForm({
 
           {!publicKey ? (
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                disabled={demoPending || pending}
-                onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
-                className="min-h-[44px] rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 text-sm font-semibold text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
-              >
-                {demoPending ? 'Funding Demo…' : 'Testnet Demo'}
-              </button>
+              {NETWORK_NAME !== 'mainnet' ? (
+                <button
+                  type="button"
+                  disabled={demoPending || pending}
+                  onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
+                  className="min-h-[44px] rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-2.5 text-sm font-semibold text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+                >
+                  {demoPending ? 'Funding Demo…' : 'Testnet Demo'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={pending}

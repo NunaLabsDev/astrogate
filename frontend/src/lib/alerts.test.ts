@@ -76,7 +76,7 @@ describe('alerts helpers', () => {
       seedXlm: '25',
       creator: 'GTEST123',
     })
-    expect(msg).toContain('100,000,000 fixed')
+    expect(msg).toContain('10,000,000 fixed')
     expect(msg).toContain('$ADOGE')
   })
 

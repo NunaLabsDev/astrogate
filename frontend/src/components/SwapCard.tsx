@@ -31,7 +31,8 @@ import {
 import { notifySwapAlert } from '../lib/alerts'
 import { AMOUNT_PERCENTS, FORM_INPUT_CLASS, UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { explorerTxUrl } from '../lib/explorer'
-import { DEFAULT_XLM_USD_PRICE, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
+import { NETWORK_NAME } from '../lib/network'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
 import type { LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -194,16 +195,9 @@ export function SwapCard({
       )
       return
     }
-    if (
-      isBuy &&
-      inputBalanceBase !== undefined &&
-      amountIn + XLM_FEE_BUFFER > inputBalanceBase
-    ) {
-      setError('Leave at least 1 XLM for transaction fees and minimum balance.')
-      return
-    }
-    if (!isBuy && xlmBase !== undefined && xlmBase < XLM_FEE_BUFFER) {
-      setError('Leave at least 1 XLM in your wallet to cover transaction fees.')
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, isBuy ? amountIn : 0n)
+    if (xlmReserveError) {
+      setError(xlmReserveError)
       return
     }
 
@@ -215,6 +209,16 @@ export function SwapCard({
           : 'No quote available for that amount (pool may lack sufficient liquidity).',
       )
       return
+    }
+
+    if ((impact !== null && impact >= 15) || slippage >= 10) {
+      const reasons: string[] = []
+      if (impact !== null && impact >= 15) reasons.push(`high price impact (${impact.toFixed(1)}%)`)
+      if (slippage >= 10) reasons.push(`wide slippage tolerance (${slippage}%)`)
+      const proceed = window.confirm(
+        `Caution: This trade has ${reasons.join(' and ')}.\n\nAre you sure you want to submit this swap?`,
+      )
+      if (!proceed) return
     }
 
     setBusy(true)
@@ -626,14 +630,16 @@ export function SwapCard({
               >
                 {pending ? 'Connecting…' : '🔌 Connect Wallet to Trade'}
               </button>
-              <button
-                type="button"
-                disabled={demoPending || pending}
-                onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
-                className="min-h-[48px] rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-xs font-bold text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
-              >
-                {demoPending ? 'Funding…' : 'Testnet Demo'}
-              </button>
+              {NETWORK_NAME !== 'mainnet' ? (
+                <button
+                  type="button"
+                  disabled={demoPending || pending}
+                  onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
+                  className="min-h-[48px] rounded-xl border border-sky-500/40 bg-sky-500/10 px-4 py-3 text-xs font-bold text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+                >
+                  {demoPending ? 'Funding…' : 'Testnet Demo'}
+                </button>
+              ) : null}
             </div>
           ) : !pool.data?.exists ? null : (
             <button

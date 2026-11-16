@@ -5,7 +5,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 ## Scope
 
 - `contracts/token/`: SEP-41 fungible token built on OpenZeppelin Stellar (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`), with 90-day TTL extension (`extend_ttl`) across state-changing operations.
-- `contracts/launchpad/` (v2): Atomic launchpad contract with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`) and bounded on-chain Burn-to-Chat (`burn_shout`, `get_shouts`). Deploys token, seeds Soroswap pool, burns 100% of initial LP tokens, and renounces token ownership in a single transaction.
+- `contracts/launchpad/` (v3): Atomic launchpad contract (`CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`) and bounded on-chain Burn-to-Chat (`burn_shout`, `get_shouts`). Enforces 10M fixed supply (`9.95M` LP + `0.5%` creator, min `2 XLM` seed aligned with Stellar's 7-decimal stroop floor), deploys token, seeds Soroswap pool, burns 100% of initial LP tokens, and renounces token ownership in a single transaction.
 - `frontend/`: Static SPA (Vite + React 19 + TypeScript) deployed on Cloudflare Workers (`https://astrogate-stellar.pepepop2000.workers.dev`); identity is the connected wallet and state is read directly from Soroban RPC and Horizon.
 - External AMM integration with **Soroswap** (Factory and Router deployed on Stellar Testnet).
 
@@ -25,7 +25,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 - **Anti-Frontrunning Salt Derivation**: `contracts/launchpad` hashes `(creator, salt)` with `sha256` before calling `deployer().with_current_contract(derived_salt)`, preventing third parties from front-running a creator's salt.
 - **Strict CSP & HTTP Security Headers**: Configured identically across `frontend/public/_headers`, `frontend/vercel.json`, and `frontend/nginx.conf` (`X-Content-Type-Options: nosniff`, `frame-ancestors 'none'`, `object-src 'none'`, explicit `connect-src` and `font-src` allowlists including Reown fonts), verified in CI via `npm run check:csp`.
 - **Bounded On-Chain Metadata & Safe Rendering**: Launch metadata (`LaunchRecord.meta`) is capped on-chain at `512` UTF-8 bytes, encodes only compact HTTPS-validated logo links and sanitized URLs (`encodeOnChainMeta` / `decodeOnChainMeta`), and renders strictly as plain text via React without `dangerouslySetInnerHTML`. Burn-to-Chat shouts (`burn_shout`) are bounded to `1..=160` bytes with at most `15` shouts persisted per token.
-- **Slippage & Balance Guards**: Swaps use live Soroswap router quotes (`router_get_amount_out`), enforce minimum output amounts (`amount_out_min`), and validate balances + gas reserves before prompting wallet signatures.
+- **Slippage, Price Impact & Balance Guards**: Swaps use live Soroswap router quotes (`router_get_amount_out`), enforce minimum output amounts (`amount_out_min`), require explicit user confirmation before swaps with `>= 15%` price impact or `>= 10%` slippage, and validate balances + Stellar's 1 XLM base reserve/fee buffer across all state-changing transactions before prompting wallet signatures.
 - **Non-Caching Service Worker**: `frontend/public/sw.js` only caches the static application shell and assets; it never caches Soroban RPC, Horizon, or wallet relay requests.
 
 ## Known Limitations

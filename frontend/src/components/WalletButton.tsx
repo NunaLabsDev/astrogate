@@ -2,6 +2,7 @@ import { useWallet } from '../store/wallet'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { MAX_DEMO_ACCOUNTS } from '../lib/demo'
 import { errorMessage, shortAddress } from '../lib/format'
+import { NETWORK_NAME } from '../lib/network'
 import { toast } from '../lib/toast'
 
 export function WalletButton() {
@@ -106,15 +107,36 @@ export function WalletButton() {
               >
                 {demoPending ? '…' : '+'}
               </button>
-            ) : null}
+            ) : NETWORK_NAME !== 'mainnet' ? (
+          <span
+            title="Connected to Stellar Testnet"
+            className="hidden sm:inline-flex items-center rounded-md border border-sky-500/30 bg-sky-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
+          >
+            testnet
+          </span>
+        ) : null}
           </div>
+        ) : NETWORK_NAME !== 'mainnet' ? (
+          <span
+            title="Connected to Stellar Testnet"
+            className="hidden sm:inline-flex items-center rounded-md border border-sky-500/30 bg-sky-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
+          >
+            testnet
+          </span>
         ) : null}
         <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono sm:inline-flex">
           {xlmBalance.data !== undefined ? (
             <span className="text-emerald-300 font-semibold">
               {xlmBalance.data.toLocaleString('en-US', { maximumFractionDigits: 1 })} XLM
             </span>
-          ) : null}
+          ) : NETWORK_NAME !== 'mainnet' ? (
+          <span
+            title="Connected to Stellar Testnet"
+            className="hidden sm:inline-flex items-center rounded-md border border-sky-500/30 bg-sky-950/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-sky-300"
+          >
+            testnet
+          </span>
+        ) : null}
           {xlmBalance.data !== undefined ? <span className="text-slate-600">·</span> : null}
           <code className="text-slate-200">{shortAddress(publicKey)}</code>
         </span>
@@ -131,15 +153,17 @@ export function WalletButton() {
 
   return (
     <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        disabled={demoPending || pending}
-        onClick={() => void onStartDemo()}
-        title="Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM"
-        className="min-h-[44px] rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
-      >
-        {demoPending ? 'Funding…' : 'Testnet Demo'}
-      </button>
+      {NETWORK_NAME !== 'mainnet' ? (
+        <button
+          type="button"
+          disabled={demoPending || pending}
+          onClick={() => void onStartDemo()}
+          title="Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM"
+          className="min-h-[44px] rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+        >
+          {demoPending ? 'Funding…' : 'Testnet Demo'}
+        </button>
+      ) : null}
       <button
         type="button"
         disabled={pending}

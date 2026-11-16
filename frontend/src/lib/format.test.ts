@@ -103,7 +103,16 @@ describe('errorMessage', () => {
       'Launchpad contract is not initialized on this network.',
     )
     expect(errorMessage(new Error('HostError: Error(Contract, #2)'))).toBe(
-      'Invalid amount: check minimum XLM LP (1 XLM), supply, or burn shout amount.',
+      'Invalid amount: check minimum XLM LP (2 XLM), supply, or burn shout amount.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #507)'))).toBe(
+      'Price moved beyond your allowed slippage. Increase slippage tolerance or reduce amount.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #101)'))).toBe(
+      'Insufficient token allowance for this operation.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #2100)'))).toBe(
+      'Operation restricted to token owner (ownership may be renounced).',
     )
     expect(errorMessage(new Error('HostError: Error(Contract, #4)'))).toBe(
       'Invalid metadata: name/symbol must be 1–32 bytes, message 1–160 bytes, and off-chain metadata ≤ 512 bytes.',

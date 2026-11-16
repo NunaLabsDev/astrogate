@@ -52,7 +52,8 @@ import {
   type RugProofStatus,
 } from '../lib/tokenomics'
 import { extendTokenTtl, type LaunchpadToken } from '../lib/token'
-import { DEFAULT_XLM_USD_PRICE, XLM_DECIMALS } from '../lib/xlm'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS } from '../lib/xlm'
+import { useXlmBalance } from '../hooks/useXlmBalance'
 import { errorMessage } from '../lib/format'
 import { toast } from '../lib/toast'
 
@@ -134,6 +135,7 @@ export function TokenPage() {
   const connect = useWallet((state) => state.connect)
   const info = useTokenInfo(queryId)
   const userBalance = useTokenBalance(publicKey, queryId)
+  const xlmBalance = useXlmBalance(publicKey)
   const creatorBalance = useTokenBalance(info.data?.creator ?? null, queryId)
   const pool = useSoroswapPool(queryId || null)
   const history = useReserveHistory(queryId, pool.data)
@@ -180,6 +182,11 @@ export function TokenPage() {
   async function onExtendTtl() {
     if (!publicKey) {
       void connect()
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
       return
     }
     const signer = getSigner()

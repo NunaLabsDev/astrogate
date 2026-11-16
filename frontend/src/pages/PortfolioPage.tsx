@@ -5,6 +5,7 @@ import { useTokenList } from '../hooks/useTokenList'
 import { useTokenMetadata } from '../hooks/useTokenMetadata'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { useWallet } from '../store/wallet'
+import { NETWORK_NAME } from '../lib/network'
 import { useCreatedTokens } from '../store/creations'
 import { fetchTokenBalance } from '../lib/token'
 import { errorMessage, formatAmount, shortAddress } from '../lib/format'
@@ -121,16 +122,20 @@ export function PortfolioPage() {
 
       {!publicKey ? (
         <section className="rounded-xl border border-amber-900 bg-amber-950/20 p-4 text-sm text-amber-200 sm:p-6">
-          Connect your wallet or start a 1-click Testnet demo wallet to inspect your launches and balances.
+          {NETWORK_NAME === 'mainnet'
+            ? 'Connect your Stellar wallet to inspect your launches and balances.'
+            : 'Connect your wallet or start a 1-click Testnet demo wallet to inspect your launches and balances.'}
           <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={demoPending || pending}
-              onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
-              className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
-            >
-              {demoPending ? 'Funding Demo…' : 'Testnet Demo (10k XLM)'}
-            </button>
+            {NETWORK_NAME !== 'mainnet' ? (
+              <button
+                type="button"
+                disabled={demoPending || pending}
+                onClick={() => void startDemo().catch((err) => toast.error('Failed to start demo', { message: errorMessage(err) }))}
+                className="inline-flex min-h-[44px] items-center rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-60"
+              >
+                {demoPending ? 'Funding Demo…' : 'Testnet Demo (10k XLM)'}
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={pending}
