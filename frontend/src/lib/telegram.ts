@@ -3,6 +3,33 @@
  * Safely no-ops inside normal web browsers and Node smoke renders.
  */
 
+export const TELEGRAM_BOT_USERNAME = 'AstroGateSorobanBot'
+
+export interface TelegramCloudStorage {
+  setItem: (
+    key: string,
+    value: string,
+    callback?: (error: string | null, stored?: boolean) => void,
+  ) => void
+  getItem: (
+    key: string,
+    callback: (error: string | null, value?: string) => void,
+  ) => void
+  getItems: (
+    keys: string[],
+    callback: (error: string | null, values?: Record<string, string>) => void,
+  ) => void
+  removeItem: (
+    key: string,
+    callback?: (error: string | null, removed?: boolean) => void,
+  ) => void
+  removeItems: (
+    keys: string[],
+    callback?: (error: string | null, removed?: boolean) => void,
+  ) => void
+  getKeys: (callback: (error: string | null, keys?: string[]) => void) => void
+}
+
 export interface TelegramWebApp {
   initData?: string
   initDataUnsafe?: {
@@ -19,6 +46,7 @@ export interface TelegramWebApp {
   viewportHeight?: number
   viewportStableHeight?: number
   isExpanded?: boolean
+  isVersionAtLeast?: (version: string) => boolean
   ready?: () => void
   expand?: () => void
   disableVerticalSwipes?: () => void
@@ -27,6 +55,7 @@ export interface TelegramWebApp {
   openTelegramLink?: (url: string) => void
   onEvent?: (event: string, cb: () => void) => void
   offEvent?: (event: string, cb: () => void) => void
+  CloudStorage?: TelegramCloudStorage
   BackButton?: {
     show: () => void
     hide: () => void
@@ -45,21 +74,143 @@ export interface TelegramContextInfo {
   firstName?: string
   username?: string
   startParam?: string
+  cloudStorageAvailable: boolean
 }
+
+const CLOUD_TIMEOUT_MS = 3_000
 
 export function getTelegramWebApp(): TelegramWebApp | null {
   const win = (globalThis as { window?: { Telegram?: { WebApp?: TelegramWebApp } } })
     .window
   const tg = win?.Telegram?.WebApp
   if (!tg) return null
-  // Telegram injects platform even without initData in some preview contexts
-  const hasPayload = Boolean(tg.initData || tg.initDataUnsafe?.user || (tg.platform && tg.platform !== 'unknown'))
+  const hasPayload = Boolean(
+    tg.initData ||
+      tg.initDataUnsafe?.user ||
+      (tg.platform && tg.platform !== 'unknown'),
+  )
   return hasPayload ? tg : null
+}
+
+export function isTelegramCloudAvailable(): boolean {
+  const tg = getTelegramWebApp()
+  if (!tg?.CloudStorage) return false
+  if (typeof tg.isVersionAtLeast === 'function' && !tg.isVersionAtLeast('6.9')) {
+    return false
+  }
+  return true
+}
+
+export function readTelegramUser(): {
+  id?: number
+  firstName?: string
+  username?: string
+} {
+  const user = getTelegramWebApp()?.initDataUnsafe?.user
+  if (!user) return {}
+  return {
+    id: user.id,
+    firstName: user.first_name,
+    username: user.username,
+  }
+}
+
+export function readTelegramStartParam(): string | null {
+  const fromInit = getTelegramWebApp()?.initDataUnsafe?.start_param?.trim()
+  if (fromInit) return fromInit
+  const search = (globalThis as { location?: { search?: string } }).location?.search
+  if (search) {
+    const param = new URLSearchParams(search).get('tgWebAppStartParam')?.trim()
+    if (param) return param
+  }
+  return null
+}
+
+/** Builds a Telegram Mini App deep link (when running inside TMA or sharing to Telegram). */
+export function telegramMiniAppUrl(startParam?: string): string {
+  const base = `https://t.me/${TELEGRAM_BOT_USERNAME}`
+  return startParam
+    ? `${base}?startapp=${encodeURIComponent(startParam)}`
+    : base
+}
+
+/** Promisified CloudStorage wrappers with timeout guard so broken WebViews never hang. */
+function runCloudOp<T>(
+  fallback: T,
+  exec: (resolve: (value: T) => void) => void,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        resolve(fallback)
+      }
+    }, CLOUD_TIMEOUT_MS)
+
+    const done = (val: T) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(val)
+    }
+
+    try {
+      exec(done)
+    } catch {
+      done(fallback)
+    }
+  })
+}
+
+export async function telegramCloudGetItems(
+  keys: string[],
+): Promise<Record<string, string>> {
+  const cs = getTelegramWebApp()?.CloudStorage
+  if (!cs || !isTelegramCloudAvailable() || keys.length === 0) return {}
+  return runCloudOp<Record<string, string>>({}, (done) => {
+    cs.getItems(keys, (err, values) => {
+      done(!err && values ? values : {})
+    })
+  })
+}
+
+export async function telegramCloudSetItem(
+  key: string,
+  value: string,
+): Promise<boolean> {
+  const cs = getTelegramWebApp()?.CloudStorage
+  if (!cs || !isTelegramCloudAvailable()) return false
+  return runCloudOp<boolean>(false, (done) => {
+    cs.setItem(key, value, (err, stored) => {
+      done(!err && Boolean(stored))
+    })
+  })
+}
+
+export async function telegramCloudRemoveItems(keys: string[]): Promise<boolean> {
+  const cs = getTelegramWebApp()?.CloudStorage
+  if (!cs || !isTelegramCloudAvailable() || keys.length === 0) return false
+  return runCloudOp<boolean>(false, (done) => {
+    cs.removeItems(keys, (err, removed) => {
+      done(!err && Boolean(removed))
+    })
+  })
+}
+
+export async function telegramCloudGetKeys(): Promise<string[]> {
+  const cs = getTelegramWebApp()?.CloudStorage
+  if (!cs || !isTelegramCloudAvailable()) return []
+  return runCloudOp<string[]>([], (done) => {
+    cs.getKeys((err, keys) => {
+      done(!err && Array.isArray(keys) ? keys : [])
+    })
+  })
 }
 
 /**
  * Initializes Telegram Mini App lifecycle (`ready`, `expand`, dark theme chrome,
- * and dynamic `--tg-viewport-height` CSS tracking for virtual keyboards).
+ * and dynamic `--app-vh` CSS tracking for virtual keyboards).
  * Returns cleanup listener and context metadata.
  */
 export function initTelegramMiniApp(): {
@@ -69,7 +220,11 @@ export function initTelegramMiniApp(): {
   const tg = getTelegramWebApp()
   if (!tg) {
     return {
-      info: { isMiniApp: false, platform: 'web' },
+      info: {
+        isMiniApp: false,
+        platform: 'web',
+        cloudStorageAvailable: false,
+      },
       cleanup: () => {},
     }
   }
@@ -85,8 +240,13 @@ export function initTelegramMiniApp(): {
   }
 
   const syncViewport = () => {
-    const height = tg.viewportStableHeight ?? tg.viewportHeight ?? globalThis.innerHeight
-    if (typeof height === 'number' && height > 0 && typeof document !== 'undefined') {
+    const height =
+      tg.viewportStableHeight ?? tg.viewportHeight ?? globalThis.innerHeight
+    if (
+      typeof height === 'number' &&
+      height > 0 &&
+      typeof document !== 'undefined'
+    ) {
       document.documentElement.style.setProperty('--app-vh', `${height * 0.01}px`)
     }
   }
@@ -100,7 +260,8 @@ export function initTelegramMiniApp(): {
       platform: tg.platform ?? 'telegram',
       firstName: tg.initDataUnsafe?.user?.first_name,
       username: tg.initDataUnsafe?.user?.username,
-      startParam: tg.initDataUnsafe?.start_param,
+      startParam: readTelegramStartParam() ?? undefined,
+      cloudStorageAvailable: isTelegramCloudAvailable(),
     },
     cleanup: () => {
       tg.offEvent?.('viewportChanged', syncViewport)

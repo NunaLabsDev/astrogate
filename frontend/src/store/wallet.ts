@@ -11,16 +11,20 @@ import { NETWORK_NAME } from '../lib/network'
 import { walletSigner } from '../lib/signer'
 import { readStorageString, removeStorageKey, writeStorageString } from '../lib/storage'
 import {
+  clearVaultFromTelegramCloud,
   createHotWalletAccount,
+  defaultVaultStorage,
   getHotWalletSigner,
   importHotWalletAccount,
   lockHotVault,
   markHotAccountBackedUp,
+  pushVaultToTelegramCloud,
   readHotVaultSnapshot,
   removeHotAccount as removeVaultAccount,
   renameHotAccount as renameVaultAccount,
   revealHotAccountSecret,
   selectHotAccount as selectVaultAccount,
+  syncVaultWithTelegramCloud,
   unlockHotVault,
   wipeHotVault,
   type HotAccountMeta,
@@ -114,6 +118,7 @@ type WalletState = {
   hotAccounts: HotAccountMeta[]
   hotActiveId: string | null
   hotUnlocked: boolean
+  telegramCloudSynced: boolean
   walletModalOpen: boolean
   walletModalView: WalletModalView
   /** Cuentas desechables de testnet (modo prueba, sin wallet). */
@@ -124,6 +129,7 @@ type WalletState = {
   demoError: string | null
   openWalletModal: (view?: WalletModalView) => void
   closeWalletModal: () => void
+  hydrateFromTelegramCloud: () => Promise<void>
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   createHotWallet: (params: {
@@ -179,6 +185,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   hotAccounts: initialHot.accounts,
   hotActiveId: initialHot.activeId,
   hotUnlocked: initialHot.unlocked,
+  telegramCloudSynced: false,
   walletModalOpen: false,
   walletModalView: 'connect',
   demoAccounts: storedDemo,
@@ -201,6 +208,35 @@ export const useWallet = create<WalletState>((set, get) => ({
     })),
 
   closeWalletModal: () => set({ walletModalOpen: false, error: null }),
+
+  hydrateFromTelegramCloud: async () => {
+    const syncRes = await syncVaultWithTelegramCloud()
+    if (!syncRes.synced) return
+    const snap = readHotVaultSnapshot()
+    const shouldActivateHot =
+      snap.exists &&
+      snap.activePublicKey &&
+      (syncRes.restoredFromCloud ||
+        (get().mode !== 'demo' && !get().publicKey && loadHotMode()))
+
+    if (shouldActivateHot) {
+      saveHotMode(true)
+      set({
+        mode: 'hot',
+        publicKey: snap.activePublicKey,
+        hotAccounts: snap.accounts,
+        hotActiveId: snap.activeId,
+        hotUnlocked: snap.unlocked,
+        telegramCloudSynced: true,
+      })
+      return
+    }
+    set({
+      hotAccounts: snap.accounts,
+      hotActiveId: snap.activeId,
+      telegramCloudSynced: true,
+    })
+  },
 
   connect: async () => {
     set({ pending: true, error: null })
@@ -265,6 +301,9 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotActiveId: res.activeId,
         hotUnlocked: true,
       })
+      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
+        if (ok) set({ telegramCloudSynced: true })
+      })
       return {
         revealedSecret: res.revealedSecret,
         publicKey: res.activePublicKey,
@@ -291,6 +330,9 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotActiveId: res.activeId,
         hotUnlocked: true,
       })
+      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
+        if (ok) set({ telegramCloudSynced: true })
+      })
     } catch (error) {
       const message = messageOf(error)
       set({ error: message })
@@ -312,6 +354,9 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotAccounts: res.accounts,
         hotActiveId: res.activeId,
         hotUnlocked: true,
+      })
+      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
+        if (ok) set({ telegramCloudSynced: true })
       })
     } catch (error) {
       const message = messageOf(error)
@@ -339,22 +384,26 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotAccounts: snap.accounts,
       hotUnlocked: snap.unlocked,
     })
+    void pushVaultToTelegramCloud(defaultVaultStorage.load())
   },
 
   renameHotAccount: (id, label) => {
     const accounts = renameVaultAccount(id, label)
     set({ hotAccounts: accounts })
+    void pushVaultToTelegramCloud(defaultVaultStorage.load())
   },
 
   confirmHotBackup: (id) => {
     const accounts = markHotAccountBackedUp(id)
     set({ hotAccounts: accounts })
+    void pushVaultToTelegramCloud(defaultVaultStorage.load())
   },
 
   revealHotSecret: async (id, pin) => {
     const secret = await revealHotAccountSecret({ id, pin })
     const snap = readHotVaultSnapshot()
     set({ hotAccounts: snap.accounts })
+    void pushVaultToTelegramCloud(defaultVaultStorage.load())
     return secret
   },
 
@@ -362,6 +411,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     const accounts = await removeVaultAccount({ id, pin })
     if (accounts.length === 0) {
       saveHotMode(false)
+      void clearVaultFromTelegramCloud()
       set({
         mode: 'wallet',
         publicKey: null,
@@ -379,17 +429,20 @@ export const useWallet = create<WalletState>((set, get) => ({
       publicKey: snap.activePublicKey,
       hotUnlocked: snap.unlocked,
     })
+    void pushVaultToTelegramCloud(defaultVaultStorage.load())
   },
 
   wipeHotWallet: () => {
     wipeHotVault()
     saveHotMode(false)
+    void clearVaultFromTelegramCloud()
     set({
       mode: get().mode === 'hot' ? 'wallet' : get().mode,
       publicKey: get().mode === 'hot' ? null : get().publicKey,
       hotAccounts: [],
       hotActiveId: null,
       hotUnlocked: false,
+      telegramCloudSynced: false,
       walletModalOpen: false,
     })
   },

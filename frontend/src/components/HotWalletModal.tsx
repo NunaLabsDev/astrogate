@@ -5,7 +5,11 @@ import { useXlmBalance } from '../hooks/useXlmBalance'
 import { fundTestnetAddress } from '../lib/demo'
 import { errorMessage, shortAddress } from '../lib/format'
 import { NETWORK_NAME } from '../lib/network'
-import { triggerTelegramHaptic } from '../lib/telegram'
+import {
+  isTelegramCloudAvailable,
+  readTelegramUser,
+  triggerTelegramHaptic,
+} from '../lib/telegram'
 import { toast } from '../lib/toast'
 import { MAX_HOT_WALLETS, MIN_VAULT_PIN_LENGTH } from '../lib/hot-wallet'
 
@@ -30,6 +34,7 @@ function HotWalletDialog() {
     hotAccounts,
     hotActiveId,
     hotUnlocked,
+    telegramCloudSynced,
     walletModalView,
     demoPending,
     closeWalletModal,
@@ -51,6 +56,8 @@ function HotWalletDialog() {
   const activeAccount =
     hotAccounts.find((a) => a.id === hotActiveId) ?? hotAccounts[0] ?? null
   const xlmBalance = useXlmBalance(publicKey)
+  const tgCloudReady = isTelegramCloudAvailable()
+  const tgUser = readTelegramUser()
 
   const [tab, setTab] = useState<ConnectTab>('create')
   const [label, setLabel] = useState('')
@@ -233,6 +240,15 @@ function HotWalletDialog() {
             <p className="text-[11px] text-slate-400">
               Non-custodial AES-GCM vault · keys never leave your device.
             </p>
+            {tgCloudReady ? (
+              <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-300">
+                ☁️{' '}
+                {telegramCloudSynced ? 'Synced' : 'Syncing'} encrypted to{' '}
+                {tgUser.username
+                  ? `@${tgUser.username}`
+                  : tgUser.firstName ?? 'Telegram profile'}
+              </p>
+            ) : null}
           </div>
           <button
             type="button"

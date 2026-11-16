@@ -1,5 +1,6 @@
 import { BRAND } from '../lib/brand'
 import { useCopy } from '../hooks/useCopy'
+import { getTelegramWebApp, shareToTelegram } from '../lib/telegram'
 
 type Props = {
   text: string
@@ -11,6 +12,10 @@ export function ShareButton({ text, url, label = 'Share 🎉' }: Props) {
   const { copied, copy } = useCopy()
 
   async function onShare() {
+    if (getTelegramWebApp()) {
+      shareToTelegram(text, url)
+      return
+    }
     const nav = typeof navigator !== 'undefined' ? navigator : undefined
     if (nav?.share) {
       try {

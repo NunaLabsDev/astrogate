@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getTelegramWebApp,
   initTelegramMiniApp,
+  isTelegramCloudAvailable,
+  readTelegramStartParam,
   syncTelegramBackButton,
+  telegramCloudGetItems,
+  telegramCloudSetItem,
   triggerTelegramHaptic,
 } from './telegram'
 
@@ -85,5 +89,50 @@ describe('telegram mini app bridge', () => {
 
     cleanup()
     expect(offEvent).toHaveBeenCalledWith('viewportChanged', expect.any(Function))
+  })
+
+  it('expone readTelegramStartParam y wrappers CloudStorage con guardas de versión', async () => {
+    const bag = new Map<string, string>()
+    ;(globalThis as { window?: unknown }).window = {
+      Telegram: {
+        WebApp: {
+          platform: 'android',
+          isVersionAtLeast: (v: string) => v === '6.9',
+          initDataUnsafe: { start_param: 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE' },
+          CloudStorage: {
+            setItem: (k: string, val: string, cb?: (err: string | null, ok?: boolean) => void) => {
+              bag.set(k, val)
+              cb?.(null, true)
+            },
+            getItem: (k: string, cb: (err: string | null, val?: string) => void) => {
+              cb(null, bag.get(k) ?? '')
+            },
+            getItems: (keys: string[], cb: (err: string | null, vals?: Record<string, string>) => void) => {
+              const out: Record<string, string> = {}
+              for (const k of keys) if (bag.has(k)) out[k] = bag.get(k)!
+              cb(null, out)
+            },
+            removeItem: (k: string, cb?: (err: string | null, ok?: boolean) => void) => {
+              bag.delete(k)
+              cb?.(null, true)
+            },
+            removeItems: (keys: string[], cb?: (err: string | null, ok?: boolean) => void) => {
+              for (const k of keys) bag.delete(k)
+              cb?.(null, true)
+            },
+            getKeys: (cb: (err: string | null, keys?: string[]) => void) => {
+              cb(null, Array.from(bag.keys()))
+            },
+          },
+        },
+      },
+    }
+
+    expect(isTelegramCloudAvailable()).toBe(true)
+    expect(readTelegramStartParam()).toBe(
+      'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+    )
+    expect(await telegramCloudSetItem('k1', 'v1')).toBe(true)
+    expect(await telegramCloudGetItems(['k1'])).toEqual({ k1: 'v1' })
   })
 })

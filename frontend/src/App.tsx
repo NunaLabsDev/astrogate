@@ -13,7 +13,12 @@ import { PortfolioPage } from './pages/PortfolioPage'
 import { CreatePage } from './pages/CreatePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { BRAND } from './lib/brand'
-import { initTelegramMiniApp, syncTelegramBackButton } from './lib/telegram'
+import {
+  initTelegramMiniApp,
+  readTelegramStartParam,
+  syncTelegramBackButton,
+} from './lib/telegram'
+import { useWallet } from './store/wallet'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Market' },
@@ -54,10 +59,28 @@ function NavItems() {
 export default function App() {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const hydrateFromTelegramCloud = useWallet(
+    (state) => state.hydrateFromTelegramCloud,
+  )
 
   useEffect(() => {
-    const { cleanup } = initTelegramMiniApp()
+    const { info, cleanup } = initTelegramMiniApp()
+    if (info.isMiniApp) {
+      void hydrateFromTelegramCloud()
+      const startParam = readTelegramStartParam()
+      if (startParam && pathname === '/') {
+        if (/^C[A-Z2-7]{55}$/.test(startParam)) {
+          void navigate(`/token/${startParam}`, { replace: true })
+        } else if (startParam === 'create') {
+          void navigate('/create', { replace: true })
+        } else if (startParam === 'portfolio') {
+          void navigate('/portfolio', { replace: true })
+        }
+      }
+    }
     return cleanup
+    // Run once on Mini App mount to avoid overriding manual navigation
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {

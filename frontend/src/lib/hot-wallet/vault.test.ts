@@ -3,6 +3,10 @@ import { Keypair } from '@stellar/stellar-sdk'
 import type { HotVaultStorageAdapter, HotVaultStore } from './types'
 import { decryptSecretWithPin, encryptSecretWithPin } from './crypto'
 import {
+  clearVaultFromTelegramCloud,
+  syncVaultWithTelegramCloud,
+} from './telegram-sync'
+import {
   createHotWalletAccount,
   getHotWalletSigner,
   importHotWalletAccount,
@@ -31,6 +35,7 @@ function createMemoryAdapter(): HotVaultStorageAdapter {
 
 afterEach(() => {
   lockHotVault()
+  delete (globalThis as { window?: unknown }).window
 })
 
 describe('hot-wallet crypto', () => {
@@ -132,5 +137,76 @@ describe('hot-wallet vault lifecycle', () => {
     await expect(unlockHotVault({ pin: '7391', adapter })).rejects.toThrow(
       /Too many wrong PIN attempts/i,
     )
+  })
+
+  it('sincroniza y restaura el vault CIFRADO en Telegram CloudStorage sin perder la wallet al borrar local', async () => {
+    const cloudMap = new Map<string, string>()
+    ;(globalThis as { window?: unknown }).window = {
+      Telegram: {
+        WebApp: {
+          platform: 'ios',
+          isVersionAtLeast: () => true,
+          CloudStorage: {
+            setItem: (k: string, val: string, cb?: (err: string | null, ok?: boolean) => void) => {
+              cloudMap.set(k, val)
+              cb?.(null, true)
+            },
+            getItem: (k: string, cb: (err: string | null, val?: string) => void) => {
+              cb(null, cloudMap.get(k) ?? '')
+            },
+            getItems: (keys: string[], cb: (err: string | null, vals?: Record<string, string>) => void) => {
+              const out: Record<string, string> = {}
+              for (const k of keys) if (cloudMap.has(k)) out[k] = cloudMap.get(k)!
+              cb(null, out)
+            },
+            removeItem: (k: string, cb?: (err: string | null, ok?: boolean) => void) => {
+              cloudMap.delete(k)
+              cb?.(null, true)
+            },
+            removeItems: (keys: string[], cb?: (err: string | null, ok?: boolean) => void) => {
+              for (const k of keys) cloudMap.delete(k)
+              cb?.(null, true)
+            },
+            getKeys: (cb: (err: string | null, keys?: string[]) => void) => {
+              cb(null, Array.from(cloudMap.keys()))
+            },
+          },
+        },
+      },
+    }
+
+    const phoneAdapter = createMemoryAdapter()
+    const created = await createHotWalletAccount({
+      pin: '551199',
+      label: 'Phone',
+      adapter: phoneAdapter,
+    })
+
+    // Sync local encrypted vault up to Telegram CloudStorage
+    const pushSync = await syncVaultWithTelegramCloud(phoneAdapter)
+    expect(pushSync.synced).toBe(true)
+    expect(pushSync.restoredFromCloud).toBe(false)
+    // Verify plaintext S... key NEVER stored in CloudStorage
+    const allCloudValues = Array.from(cloudMap.values()).join(' ')
+    expect(allCloudValues).not.toContain(created.revealedSecret)
+
+    // Simulate WebView wiping localStorage or opening on Telegram Desktop
+    lockHotVault()
+    const desktopAdapter = createMemoryAdapter()
+    expect(readHotVaultSnapshot(desktopAdapter).exists).toBe(false)
+
+    const pullSync = await syncVaultWithTelegramCloud(desktopAdapter)
+    expect(pullSync.synced).toBe(true)
+    expect(pullSync.restoredFromCloud).toBe(true)
+    expect(readHotVaultSnapshot(desktopAdapter).activePublicKey).toBe(
+      created.activePublicKey,
+    )
+
+    // User unlocks restored wallet seamlessly with their existing PIN
+    await unlockHotVault({ pin: '551199', adapter: desktopAdapter })
+    expect(isHotAccountUnlocked(created.activePublicKey)).toBe(true)
+
+    expect(await clearVaultFromTelegramCloud()).toBe(true)
+    expect(cloudMap.size).toBe(0)
   })
 })
