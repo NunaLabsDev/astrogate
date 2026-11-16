@@ -1,5 +1,12 @@
 import { Client as AstroTokenClient } from '../contracts'
 import { Client as LaunchpadClient } from '../contracts/launchpad'
+import type {
+  BuyQuote,
+  CurveState,
+  SellQuote,
+  ShoutRecord,
+  TradeResult,
+} from '../contracts/launchpad/types'
 import {
   executeWithRpcFailover,
   LAUNCHPAD_CONTRACT_ID,
@@ -7,6 +14,8 @@ import {
   RPC_URL,
 } from './network'
 import type { Signer } from '@stellar/stellar-sdk/contract'
+
+export type { BuyQuote, CurveState, SellQuote, ShoutRecord, TradeResult }
 
 /** Token del launchpad recién creado por el usuario. */
 export interface LaunchpadToken {
@@ -79,7 +88,7 @@ export async function launchTokenAtomic(params: {
   xlmLpAmount: bigint
   signer: Signer
   onHash?: (hash: string) => void
-}): Promise<{ token: string; pair: string; lpMinted: bigint; hash?: string }> {
+}): Promise<{ token: string; pair: string | null; lpMinted: bigint; hash?: string }> {
   const { name, symbol, decimals, initialSupply, tokenLpAmount, xlmLpAmount, signer, onHash } =
     params
   const client = launchpadClient(signer)
@@ -127,7 +136,7 @@ export async function launchFairAtomic(params: {
   meta?: string
   signer: Signer
   onHash?: (hash: string) => void
-}): Promise<{ token: string; pair: string; lpMinted: bigint; hash?: string }> {
+}): Promise<{ token: string; pair: string | null; lpMinted: bigint; hash?: string }> {
   const { name, symbol, xlmLpAmount, meta = '', signer, onHash } = params
   const client = launchpadClient(signer)
   const salt = crypto.getRandomValues(new Uint8Array(32))
@@ -190,6 +199,182 @@ export async function burnAndShout(params: {
     throw new Error(err?.message ?? `Burn shout error: ${JSON.stringify(err)}`)
   }
   return { hash }
+}
+
+/**
+ * Fetches live Fair-Flywheel v4 bonding curve, graduation, burn vault, and
+ * creator vesting state for a token from Launchpad storage.
+ */
+export async function fetchCurveState(
+  tokenId: string,
+): Promise<CurveState | null> {
+  if (!tokenId) return null
+  try {
+    return await executeWithRpcFailover(async (rpcUrl) => {
+      const tx = await launchpadClient(undefined, rpcUrl).get_curve({
+        token: tokenId,
+      })
+      return tx.result ?? null
+    })
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetches the active pinned King Shout (`>= 1,000` burned tokens) for a token.
+ */
+export async function fetchKingShout(
+  tokenId: string,
+): Promise<ShoutRecord | null> {
+  if (!tokenId) return null
+  try {
+    return await executeWithRpcFailover(async (rpcUrl) => {
+      const tx = await launchpadClient(undefined, rpcUrl).get_king_shout({
+        token: tokenId,
+      })
+      return tx.result ?? null
+    })
+  } catch {
+    return null
+  }
+}
+
+/** Quotes an XLM -> token buy directly against the on-chain Launchpad curve. */
+export async function quoteCurveBuyRpc(
+  tokenId: string,
+  xlmAmount: bigint,
+): Promise<BuyQuote> {
+  return executeWithRpcFailover(async (rpcUrl) => {
+    const tx = await launchpadClient(undefined, rpcUrl).quote_buy({
+      token: tokenId,
+      xlm_amount: xlmAmount,
+    })
+    const res = tx.result
+    if (res.isErr()) {
+      const err = res.unwrapErr()
+      throw new Error(err?.message ?? `Quote buy error: ${JSON.stringify(err)}`)
+    }
+    return res.unwrap()
+  })
+}
+
+/** Quotes a token -> XLM sell directly against the on-chain Launchpad curve. */
+export async function quoteCurveSellRpc(
+  tokenId: string,
+  tokenAmount: bigint,
+): Promise<SellQuote> {
+  return executeWithRpcFailover(async (rpcUrl) => {
+    const tx = await launchpadClient(undefined, rpcUrl).quote_sell({
+      token: tokenId,
+      token_amount: tokenAmount,
+    })
+    const res = tx.result
+    if (res.isErr()) {
+      const err = res.unwrapErr()
+      throw new Error(err?.message ?? `Quote sell error: ${JSON.stringify(err)}`)
+    }
+    return res.unwrap()
+  })
+}
+
+/** Buys tokens on an active Fair-Flywheel v4 virtual bonding curve (may auto-graduate). */
+export async function buyCurveToken(params: {
+  tokenId: string
+  maxXlmIn: bigint
+  minTokensOut: bigint
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ trade: TradeResult; hash?: string }> {
+  const { tokenId, maxXlmIn, minTokensOut, signer, onHash } = params
+  const tx = await launchpadClient(signer).buy_curve({
+    buyer: signer.address,
+    token: tokenId,
+    max_xlm_in: maxXlmIn,
+    min_tokens_out: minTokensOut,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Curve buy error: ${JSON.stringify(err)}`)
+  }
+  return { trade: unwrap.unwrap(), hash }
+}
+
+/** Sells tokens back to an active Fair-Flywheel v4 virtual bonding curve. */
+export async function sellCurveToken(params: {
+  tokenId: string
+  tokenAmount: bigint
+  minXlmOut: bigint
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ trade: TradeResult; hash?: string }> {
+  const { tokenId, tokenAmount, minXlmOut, signer, onHash } = params
+  const tx = await launchpadClient(signer).sell_curve({
+    seller: signer.address,
+    token: tokenId,
+    token_amount: tokenAmount,
+    min_xlm_out: minXlmOut,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Curve sell error: ${JSON.stringify(err)}`)
+  }
+  return { trade: unwrap.unwrap(), hash }
+}
+
+/** Claims unlocked post-graduation 15-day vesting tranches (creator only). */
+export async function claimCreatorVesting(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ claimed: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  const tx = await launchpadClient(signer).claim_creator_vesting({
+    creator: signer.address,
+    token: tokenId,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Claim vesting error: ${JSON.stringify(err)}`)
+  }
+  return { claimed: unwrap.unwrap(), hash }
+}
+
+/** Permissionlessly triggers Stage 2 Milestone Burn (1,485,000 tokens) at >= 2,500 XLM pair depth. */
+export async function triggerMilestoneBurn(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ burned: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  const tx = await launchpadClient(signer).trigger_milestone_burn({
+    token: tokenId,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Milestone burn error: ${JSON.stringify(err)}`)
+  }
+  return { burned: unwrap.unwrap(), hash }
 }
 
 /**

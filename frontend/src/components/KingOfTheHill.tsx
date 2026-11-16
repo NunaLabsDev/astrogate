@@ -3,23 +3,25 @@ import type { TokenListing } from '../lib/discovery'
 import type { LaunchpadToken } from '../lib/token'
 import { formatAmount } from '../lib/format'
 import { tokenPriceInXlmNumber } from '../lib/soroswap'
-import { graduationProgress } from '../lib/tokenomics'
+import { graduationProgressForListing } from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { useTokenInfo } from '../hooks/useTokenInfo'
 import { useTokenMetadata } from '../hooks/useTokenMetadata'
 import { TokenArt } from './TokenArt'
 
-/** King of the Hill: el par con más XLM acumulado en la curva. */
+function effectiveKingLiquidity(t: TokenListing): bigint {
+  return t.curve && !t.curve.graduated ? t.curve.curve_xlm_net : t.pool.reserveXlm
+}
+
+/** King of the Hill: el par con más XLM acumulado en la curva o pool. */
 function pickKing(tokens: TokenListing[]): TokenListing | null {
-  const king = [...tokens].sort((a, b) =>
-    b.pool.reserveXlm > a.pool.reserveXlm
-      ? 1
-      : b.pool.reserveXlm < a.pool.reserveXlm
-        ? -1
-        : 0,
-  )[0]
-  return king && king.pool.reserveXlm > 0n ? king : null
+  const king = [...tokens].sort((a, b) => {
+    const aLiq = effectiveKingLiquidity(a)
+    const bLiq = effectiveKingLiquidity(b)
+    return bLiq > aLiq ? 1 : bLiq < aLiq ? -1 : 0
+  })[0]
+  return king && effectiveKingLiquidity(king) > 0n ? king : null
 }
 
 export function KingOfTheHill({
@@ -37,9 +39,10 @@ export function KingOfTheHill({
 
   if (!king) return null
 
-  const grad = graduationProgress(king.pool.reserveXlm)
+  const grad = graduationProgressForListing(king)
   const priceXlm = tokenPriceInXlmNumber(king.pool, king.decimals)
-  const reserveXlmNum = Number(king.pool.reserveXlm) / 1e7
+  const displayLiquidity = effectiveKingLiquidity(king)
+  const reserveXlmNum = Number(displayLiquidity) / 1e7
   const liquidityUsd = reserveXlmNum * xlmUsd
   const totalSupply = kingInfo.data
     ? Number(kingInfo.data.totalSupply) / 10 ** kingInfo.data.decimals
@@ -87,7 +90,7 @@ export function KingOfTheHill({
               <span>
                 Liquidity:{' '}
                 <strong className="font-mono text-emerald-300">
-                  {formatAmount(king.pool.reserveXlm, 7)} XLM
+                  {formatAmount(displayLiquidity, 7)} XLM
                 </strong>{' '}
                 <span className="text-slate-400">
                   (≈ ${liquidityUsd.toLocaleString('en-US', { maximumFractionDigits: 0 })} USD)

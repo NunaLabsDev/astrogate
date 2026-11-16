@@ -162,6 +162,30 @@ export function errorMessage(error: unknown): string {
   ) {
     return 'Invalid metadata: name/symbol must be 1–32 bytes, message 1–160 bytes, and off-chain metadata ≤ 512 bytes.'
   }
+  if (
+    raw.includes('Error(Contract, #5)') ||
+    lower.includes('slippageexceeded')
+  ) {
+    return 'Price moved beyond your allowed slippage. Increase slippage tolerance or reduce amount.'
+  }
+  if (
+    raw.includes('Error(Contract, #6)') ||
+    lower.includes('invalidcurvestate')
+  ) {
+    return 'This token has already graduated to Soroswap DEX or is not in the expected bonding curve phase.'
+  }
+  if (
+    raw.includes('Error(Contract, #7)') ||
+    lower.includes('curvenotfound')
+  ) {
+    return 'Bonding curve or creator vesting state does not exist for this token.'
+  }
+  if (
+    raw.includes('Error(Contract, #8)') ||
+    lower.includes('milestonenotreached')
+  ) {
+    return 'Milestone condition not yet reached (requires >= 2,500 XLM DEX depth or next 3-day vesting tranche).'
+  }
   if (lower.includes('expired') || lower.includes('deadline')) {
     return 'Transaction timed out (deadline expired). Please try again.'
   }

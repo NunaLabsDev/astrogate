@@ -102,10 +102,11 @@ try {
   const signerC = demo.demoSigner(bystander)
   const decimals = 7
   const unit = 10n ** BigInt(decimals)
+  const tokenomics = await vite.ssrLoadModule('/src/lib/tokenomics.ts')
 
-  // 1. Atomic Launchpad v3 Fair Launch (1 tx: 10M supply, 99.5% LP burned, ownership renounced)
+  // 1. Atomic Launchpad v4 Fair-Flywheel Launch (1 tx: 10M cap, 40/30/29.7/0.3, initial buy)
   const fairMeta = metadataLib.encodeOnChainMeta({
-    description: 'Automated Launchpad v3 E2E Fair Launch',
+    description: 'Automated Launchpad v4 E2E Fair-Flywheel Launch',
   })
   const launch = await tokenLib.launchFairAtomic({
     name: `Demo ${Date.now()}`,
@@ -115,10 +116,11 @@ try {
     signer: signerA,
   })
   const token = launch.token
-  console.log('Launchpad v3 token creado por A:', token, '| par:', launch.pair)
+  console.log('Launchpad v4 token creado por A:', token, '| pair:', launch.pair ?? 'Virtual Curve Active')
 
-  const [record, audit, supplyInitial, creatorBalInitial] = await Promise.all([
+  const [record, curveInit, audit, supplyInitial, creatorBalInitial] = await Promise.all([
     discoveryLib.fetchLaunchpadRecord(token),
+    tokenLib.fetchCurveState(token),
     sdkLib.verifyAntiRug(token),
     tokenLib.tokenClient(token).total_supply(),
     tokenLib.fetchTokenBalance(token, sender.publicKey),
@@ -126,93 +128,87 @@ try {
   if (!record || record.creator !== sender.publicKey) {
     throw new Error('LaunchRecord no encontrado o creator no coincide')
   }
-  if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.lpBurned || !audit.ownershipRenounced) {
+  if (!curveInit || curveInit.graduated) {
+    throw new Error(`CurveState inicial inesperado: ${JSON.stringify(curveInit)}`)
+  }
+  if (curveInit.burn_vault_remaining !== 2_970_000n * unit) {
+    throw new Error(`burn_vault_remaining inesperado: ${curveInit.burn_vault_remaining}`)
+  }
+  if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.ownershipRenounced) {
     throw new Error(`verifyAntiRug fallo: ${JSON.stringify(audit)}`)
   }
   if (supplyInitial.result !== 10_000_000n * unit) {
     throw new Error(`supply inicial inesperado: ${supplyInitial.result.toString()}`)
   }
-  if (creatorBalInitial !== 50_000n * unit) {
-    throw new Error(`asignacion 0.5% creador inesperada: ${creatorBalInitial.toString()}`)
+  const expectedCreatorTokens = tokenomics.localCurveQuoteBuy(0n, 0n, 5n * unit)?.tokens_out ?? 0n
+  if (creatorBalInitial !== expectedCreatorTokens || creatorBalInitial !== curveInit.tokens_sold) {
+    throw new Error(`compra inicial curva no coincide: ${creatorBalInitial.toString()} vs ${expectedCreatorTokens.toString()}`)
   }
-  console.log('verifyAntiRug + registro v3 OK (50K creator, 9.95M pool, LP quemado, owner renunciado)')
+  console.log('verifyAntiRug + registro v4 OK (Curva 3K vXLM, creator compro', creatorBalInitial.toString(), 'base units)')
 
-  // 2. Transfer A -> B + B compra via Soroswap con cotizacion local 0ms
+  // 2. Transfer A -> B + B compra en Virtual Bonding Curve con paridad local 0ms vs RPC
   const transfer = await tokenLib.tokenClient(token, signerA).transfer({
     from: sender.publicKey,
     to: receiver.publicKey,
-    amount: 100n * unit,
+    amount: 500n * unit,
   })
   await transfer.signAndSend()
   const balBAfterXfer = await tokenLib.fetchTokenBalance(token, receiver.publicKey)
-  if (balBAfterXfer !== 100n * unit) {
+  if (balBAfterXfer !== 500n * unit) {
     throw new Error('transfer A -> B no llego completo')
   }
 
-  const poolBeforeBuy = await soroswap.fetchPoolState(token)
-  const buyQuoteLocal = soroswap.localQuoteXlmForToken(1n * unit, poolBeforeBuy)
-  if (buyQuoteLocal <= 0n) {
-    throw new Error('localQuoteXlmForToken devolvio 0')
+  const curveNow = await tokenLib.fetchCurveState(token)
+  const buyXlm = 5n * unit
+  const localBuy = tokenomics.localCurveQuoteBuy(curveNow.curve_xlm_net, curveNow.tokens_sold, buyXlm)
+  const rpcBuy = await tokenLib.quoteCurveBuyRpc(token, buyXlm)
+  if (!localBuy || localBuy.tokens_out !== rpcBuy.tokens_out) {
+    throw new Error(`Paridad quote_buy fallo: local=${localBuy?.tokens_out} rpc=${rpcBuy.tokens_out}`)
   }
-  const buySwap = await soroswap.swapXlmForToken({
+  const buyRes = await tokenLib.buyCurveToken({
     tokenId: token,
-    amountIn: 1n * unit,
-    amountOutMin: soroswap.withSlippage(buyQuoteLocal, 2),
+    maxXlmIn: buyXlm,
+    minTokensOut: soroswap.withSlippage(localBuy.tokens_out, 2),
     signer: signerB,
   })
-  const bought = buySwap[1] ?? 0n
-  if (bought <= 0n) {
-    throw new Error('swapXlmForToken no devolvio tokens')
+  const bought = buyRes.trade.tokens
+  if (bought !== localBuy.tokens_out) {
+    throw new Error('buyCurveToken output mismatch')
   }
   const balBAfterBuy = await tokenLib.fetchTokenBalance(token, receiver.publicKey)
   if (balBAfterBuy !== balBAfterXfer + bought) {
-    throw new Error('balance de B tras compra no cuadra')
+    throw new Error('balance de B tras compra en curva no cuadra')
   }
-  console.log('A transfirio 100 DEMO a B; B compro', bought.toString(), 'base units con 1 XLM')
+  console.log('B compro', bought.toString(), 'base units en Bonding Curve (paridad 1:1 con RPC)')
 
-  // 3. A anade y retira liquidez comunitaria (remove_liquidity atomico)
-  const poolForLp = await soroswap.fetchPoolState(token)
-  const lpTokenIn = 20_000n * unit
-  const matchedXlm = (lpTokenIn * poolForLp.reserveXlm) / poolForLp.reserveToken
-  const addedLp = await soroswap.addLiquidity({
-    tokenId: token,
-    amountToken: lpTokenIn,
-    amountXlm: matchedXlm > 0n ? matchedXlm : 1n * unit,
-    signer: signerA,
-  })
-  if (addedLp.lpAmount <= 0n) {
-    throw new Error('addLiquidity comunitario devolvio 0 LP')
+  // 3. B vende parte de sus tokens en Bonding Curve + Burn-to-Chat (min 25) + Extend TTL
+  const sellAmount = 1_000n * unit
+  const curveBeforeSell = await tokenLib.fetchCurveState(token)
+  const localSell = tokenomics.localCurveQuoteSell(
+    curveBeforeSell.curve_xlm_net,
+    curveBeforeSell.tokens_sold,
+    sellAmount,
+  )
+  const rpcSell = await tokenLib.quoteCurveSellRpc(token, sellAmount)
+  if (!localSell || localSell.net_xlm_out !== rpcSell.net_xlm_out) {
+    throw new Error(`Paridad quote_sell fallo: local=${localSell?.net_xlm_out} rpc=${rpcSell.net_xlm_out}`)
   }
-  const removedLp = await soroswap.withdrawLiquidity({
+  const sellRes = await tokenLib.sellCurveToken({
     tokenId: token,
-    lpAmount: addedLp.lpAmount,
-    signer: signerA,
-  })
-  if (removedLp.xlmAmount <= 0n || removedLp.tokenAmount <= 0n) {
-    throw new Error('withdrawLiquidity devolvio 0')
-  }
-  console.log('A proveyo y retiro liquidez comunitaria LP:', addedLp.lpAmount.toString())
-
-  // 4. B vende parte de sus tokens por XLM + Burn-to-Chat on-chain + Extend TTL
-  const poolBeforeSell = await soroswap.fetchPoolState(token)
-  const sellAmount = 50n * unit
-  const sellQuoteLocal = soroswap.localQuoteTokenForXlm(sellAmount, poolBeforeSell)
-  const sellSwap = await soroswap.swapTokenForXlm({
-    tokenId: token,
-    amountIn: sellAmount,
-    amountOutMin: soroswap.withSlippage(sellQuoteLocal, 2),
+    tokenAmount: sellAmount,
+    minXlmOut: soroswap.withSlippage(localSell.net_xlm_out, 2),
     signer: signerB,
   })
-  if (!sellSwap[1] || sellSwap[1] <= 0n) {
-    throw new Error('swapTokenForXlm no devolvio XLM')
+  if (sellRes.trade.xlm !== localSell.net_xlm_out) {
+    throw new Error('sellCurveToken output mismatch')
   }
-  console.log('B vendio 50 DEMO ->', sellSwap[1].toString(), 'stroops XLM')
+  console.log('B vendio 1,000 DEMO en curva ->', sellRes.trade.xlm.toString(), 'stroops XLM')
 
-  const shoutText = `Live E2E shout ${Date.now()}`
+  const shoutText = `Live v4 E2E shout ${Date.now()}`
   const supplyBeforeShout = (await tokenLib.tokenClient(token).total_supply()).result
   await tokenLib.burnAndShout({
     tokenId: token,
-    amount: 10n * unit,
+    amount: 25n * unit,
     message: shoutText,
     signer: signerB,
   })
@@ -223,16 +219,16 @@ try {
   if (!shouts.some((s) => s.sender === receiver.publicKey && s.message === shoutText)) {
     throw new Error('burn_shout no aparecio en get_shouts on-chain')
   }
-  if (supplyAfterShout.result !== supplyBeforeShout - 10n * unit) {
+  if (supplyAfterShout.result !== supplyBeforeShout - 25n * unit) {
     throw new Error('burn_shout no redujo total_supply exactamente')
   }
-  console.log('Burn-to-Chat on-chain OK y total_supply reducido tras quema')
+  console.log('Burn-to-Chat (>= 25) on-chain OK y total_supply reducido tras quema')
 
-  // 5. C ejecuta extendTokenTtl sin permisos especiales
+  // 4. C ejecuta extendTokenTtl sin permisos especiales
   await tokenLib.extendTokenTtl({ tokenId: token, signer: signerC })
   console.log('extendTokenTtl (90 dias) OK desde cuenta C')
 
-  console.log('\nOK: E2E completo Launchpad v3 + Soroswap AMM + Burn-to-Chat + TTL verificado en Testnet')
+  console.log('\nOK: E2E completo Launchpad v4 Fair-Flywheel Curve + Burn-to-Chat + TTL verificado en Testnet')
 } catch (err) {
   failed = true
   console.error('\nFALLO:', err?.message ?? err)

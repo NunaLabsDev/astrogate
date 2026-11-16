@@ -64,7 +64,7 @@ export function formatLaunchAlertMessage(payload: LaunchAlertPayload): string {
   const formattedCap = Number(FAIR_LAUNCH_TOTAL_BASIS).toLocaleString('en-US')
   const lines = [
     `🚀 New AstroGate Fair Launch: $${payload.symbol} (${payload.name})`,
-    `Supply: ${formattedCap} fixed · LP locked 99.5%`,
+    `Supply: ${formattedCap} fixed · 40% Curve / 30% DEX / 29.7% Burn Vault / 0.3% 15d Vesting`,
     `Seed Pool: ${payload.seedXlm} XLM`,
     `Token: ${payload.tokenId}`,
     `Creator: ${payload.creator}`,
@@ -89,7 +89,7 @@ export function formatSwapAlertMessage(payload: SwapAlertPayload): string {
     `Token: ${payload.tokenId}`,
   ]
   if (isGraduating) {
-    lines.push(`Pool progress: ${gradPct.toFixed(1)}% of 2,000 XLM target`)
+    lines.push(`Curve progress: ${gradPct.toFixed(1)}% of 1,000 XLM target`)
   }
   if (payload.explorerUrl) {
     lines.push(`Tx: ${payload.explorerUrl}`)

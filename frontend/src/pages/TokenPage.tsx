@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { useTokenInfo } from '../hooks/useTokenInfo'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
+import { useCurveState } from '../hooks/useCurveState'
 import { useReserveHistory } from '../hooks/useReserveHistory'
 import { useTokenEvents } from '../hooks/useTokenEvents'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
@@ -42,16 +44,24 @@ import { isValidContractAddress } from '../lib/address'
 import { analyzeTokenHolders, type HolderRiskLevel } from '../lib/holders'
 import {
   calculateSupplySharePercent,
+  curveVirtualReserves,
   DEVELOPER_TREASURY_ADDRESS,
   GRADUATION_TARGET_XLM,
-  graduationProgress,
+  graduationProgressForListing,
+  MILESTONE_2_PAIR_XLM,
   rugProofStatus,
   SOROSWAP_SWAP_FEE_PERCENT,
   STELLAR_BURN_ADDRESS,
+  STROOPS_PER_UNIT,
   whaleThresholdBase,
   type RugProofStatus,
 } from '../lib/tokenomics'
-import { extendTokenTtl, type LaunchpadToken } from '../lib/token'
+import {
+  claimCreatorVesting,
+  extendTokenTtl,
+  triggerMilestoneBurn,
+  type LaunchpadToken,
+} from '../lib/token'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS } from '../lib/xlm'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { errorMessage } from '../lib/format'
@@ -130,6 +140,7 @@ export function TokenPage() {
   const validId = isValidContractAddress(id) || isMockToken
   const queryId = validId ? id : ''
 
+  const queryClient = useQueryClient()
   const publicKey = useWallet((state) => state.publicKey)
   const getSigner = useWallet((state) => state.getSigner)
   const connect = useWallet((state) => state.connect)
@@ -138,7 +149,24 @@ export function TokenPage() {
   const xlmBalance = useXlmBalance(publicKey)
   const creatorBalance = useTokenBalance(info.data?.creator ?? null, queryId)
   const pool = useSoroswapPool(queryId || null)
-  const history = useReserveHistory(queryId, pool.data)
+  const curve = useCurveState(queryId || null)
+  const isBondingCurve = Boolean(curve.data && !curve.data.graduated)
+  const effectivePool = useMemo(() => {
+    if (isBondingCurve && curve.data) {
+      const v = curveVirtualReserves(
+        curve.data.curve_xlm_net,
+        curve.data.tokens_sold,
+      )
+      return {
+        exists: true,
+        pairId: '',
+        reserveToken: v.virtualTokens,
+        reserveXlm: v.virtualXlm,
+      }
+    }
+    return pool.data
+  }, [isBondingCurve, curve.data, pool.data])
+  const history = useReserveHistory(queryId, effectivePool)
   const events = useTokenEvents(queryId)
   const shouts = useTokenShouts(queryId)
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
@@ -154,6 +182,7 @@ export function TokenPage() {
     'thread' | 'trades' | 'holders' | 'audit'
   >('thread')
   const [extendingTtl, setExtendingTtl] = useState(false)
+  const [busyFlywheel, setBusyFlywheel] = useState<'milestone' | 'vesting' | null>(null)
 
   const holderAnalysis = useMemo(
     () =>
@@ -205,14 +234,67 @@ export function TokenPage() {
     }
   }
 
-  const token: LaunchpadToken = useMemo(
-    () => ({
-      id,
-      decimals: info.data?.decimals ?? 7,
-      symbol: info.data?.symbol,
-    }),
-    [id, info.data?.decimals, info.data?.symbol],
-  )
+  async function onTriggerMilestoneBurn() {
+    if (!publicKey) {
+      void connect()
+      return
+    }
+    const signer = getSigner()
+    if (!signer) {
+      toast.error('Active wallet does not support signing')
+      return
+    }
+    setBusyFlywheel('milestone')
+    try {
+      const { burned, hash } = await triggerMilestoneBurn({ tokenId: id, signer })
+      toast.success('🔥 Milestone Proof-of-Burn executed!', {
+        message: `Burned ${formatAmount(burned, token.decimals)} $${token.symbol} permanently`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+      ])
+    } catch (err) {
+      toast.error('Milestone burn unavailable', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onClaimCreatorVesting() {
+    if (!publicKey) {
+      void connect()
+      return
+    }
+    const signer = getSigner()
+    if (!signer) {
+      toast.error('Active wallet does not support signing')
+      return
+    }
+    setBusyFlywheel('vesting')
+    try {
+      const { claimed, hash } = await claimCreatorVesting({ tokenId: id, signer })
+      toast.success('⏳ Creator vesting tranche claimed!', {
+        message: `Received ${formatAmount(claimed, token.decimals)} $${token.symbol}`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+      ])
+    } catch (err) {
+      toast.error('Nothing unlocked yet', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  const token: LaunchpadToken = {
+    id,
+    decimals: info.data?.decimals ?? 7,
+    symbol: info.data?.symbol,
+  }
 
   const trades = useMemo(() => {
     if (!events.data) return []
@@ -271,9 +353,12 @@ export function TokenPage() {
     )
   }
 
-  const priceNumber = pool.data ? tokenPriceInXlmNumber(pool.data, token.decimals) : 0
+  const priceNumber = effectivePool ? tokenPriceInXlmNumber(effectivePool, token.decimals) : 0
   const priceUsd = priceNumber > 0 ? priceNumber * xlmUsd : 0
-  const liquidity = pool.data?.reserveXlm ?? 0n
+  const liquidity =
+    isBondingCurve && curve.data
+      ? curve.data.curve_xlm_net
+      : (pool.data?.reserveXlm ?? 0n)
   const liquidityXlmNum = Number(liquidity) / 10 ** XLM_DECIMALS
   const liquidityUsd = liquidityXlmNum * xlmUsd
   const totalSupplyWhole =
@@ -281,13 +366,15 @@ export function TokenPage() {
   const marketCapXlm = priceNumber > 0 ? totalSupplyWhole * priceNumber : 0
   const marketCapUsd = marketCapXlm * xlmUsd
 
-  const reserveToken = pool.data?.reserveToken ?? 0n
+  const reserveToken = effectivePool?.reserveToken ?? 0n
   const poolSupplyPct =
-    reserveToken > 0n && info.data.totalSupply > 0n
+    reserveToken > 0n && info.data.totalSupply > 0n && !isBondingCurve
       ? calculateSupplySharePercent(reserveToken, info.data.totalSupply)
       : 0
   const circulatingWalletsBase =
-    info.data.totalSupply > reserveToken ? info.data.totalSupply - reserveToken : 0n
+    !isBondingCurve && info.data.totalSupply > reserveToken
+      ? info.data.totalSupply - reserveToken
+      : (curve.data?.tokens_sold ?? 0n)
   const walletsSupplyPct =
     circulatingWalletsBase > 0n && info.data.totalSupply > 0n
       ? calculateSupplySharePercent(circulatingWalletsBase, info.data.totalSupply)
@@ -300,8 +387,8 @@ export function TokenPage() {
 
   const userBalBase = userBalance.data ?? 0n
   const userBalValueXlm =
-    userBalBase > 0n && pool.data?.exists && pool.data.reserveToken > 0n
-      ? (userBalBase * pool.data.reserveXlm) / pool.data.reserveToken
+    userBalBase > 0n && effectivePool?.exists && effectivePool.reserveToken > 0n
+      ? (userBalBase * effectivePool.reserveXlm) / effectivePool.reserveToken
       : 0n
   const userBalValueUsd = (Number(userBalValueXlm) / 10 ** XLM_DECIMALS) * xlmUsd
 
@@ -314,7 +401,10 @@ export function TokenPage() {
     lpFullyBurned: lpBurn.data?.fullyBurned,
   })
 
-  const grad = graduationProgress(liquidity)
+  const grad = graduationProgressForListing({
+    pool: effectivePool ?? { exists: false, pairId: '', reserveToken: 0n, reserveXlm: 0n },
+    curve: curve.data,
+  })
   const graduationPercent = Math.min(100, Math.round(grad.percent))
 
   const safeTelegram = sanitizeTelegramUrl(meta.data?.telegram)
@@ -347,6 +437,14 @@ export function TokenPage() {
                 ${token.symbol}
               </span>
               <SecurityBadge status={security} />
+              {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
+                <span
+                  className="rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[10px] font-semibold text-sky-300 flex items-center gap-1"
+                  title="Mint renounced & reserves locked in Launchpad v4 Virtual Bonding Curve"
+                >
+                  ⚡ Fair Curve Vault
+                </span>
+              ) : null}
               <HolderRiskBadge
                 risk={holderAnalysis.riskLevel}
                 label={holderAnalysis.riskLabel}
@@ -513,10 +611,10 @@ export function TokenPage() {
 
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
           <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
-            Pool Liquidity (TVL)
+            {isBondingCurve ? 'Curve Real Vault (TVL)' : 'Pool Liquidity (TVL)'}
           </p>
           <p className="mt-1 text-base font-bold text-emerald-300">
-            {pool.data?.exists
+            {effectivePool?.exists
               ? `${formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM`
               : '0 XLM'}
           </p>
@@ -527,15 +625,25 @@ export function TokenPage() {
 
         <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3.5">
           <p className="text-[11px] uppercase tracking-wide text-slate-400 font-sans">
-            AMM Token Reserve
+            {isBondingCurve ? 'Curve Remaining Supply' : 'AMM Token Reserve'}
           </p>
           <p className="mt-1 text-base font-bold text-sky-300">
-            {pool.data?.exists
-              ? `${formatGroupedAmount(reserveToken, token.decimals)}`
-              : '0'}
+            {isBondingCurve && curve.data
+              ? `${formatGroupedAmount(
+                  curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
+                    .remainingCurveTokens,
+                  token.decimals,
+                )}`
+              : pool.data?.exists
+                ? `${formatGroupedAmount(reserveToken, token.decimals)}`
+                : '0'}
           </p>
           <p className="text-[11px] text-slate-400">
-            {pool.data?.exists ? `${poolSupplyPct.toFixed(2)}% of total supply` : '100% outside pool'}
+            {isBondingCurve && curve.data
+              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} bought · 3M DEX locked`
+              : pool.data?.exists
+                ? `${poolSupplyPct.toFixed(2)}% of total supply`
+                : '100% outside pool'}
           </p>
         </div>
 
@@ -570,10 +678,81 @@ export function TokenPage() {
             symbol={token.symbol}
             decimals={token.decimals}
             events={events.data}
-            pool={pool.data}
+            pool={effectivePool}
+            curve={curve.data}
             totalSupply={info.data.totalSupply}
             xlmUsd={xlmUsd}
           />
+
+          {curve.data ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-amber-500/30 bg-slate-900/50 p-3.5 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-amber-300">
+                    🔥 Milestone Proof-of-Burn Vault
+                  </span>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    Stage {curve.data.burn_milestone_stage} / 2
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  {curve.data.burn_milestone_stage === 0
+                    ? `2,970,000 $${token.symbol} vaulted: 1.485M burns on graduation + 1.485M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                    : curve.data.burn_milestone_stage === 1
+                      ? `1,485,000 burned at graduation ✓ · 1,485,000 remaining unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                      : `All 2,970,000 $${token.symbol} vault tokens permanently burned via token.burn() ✓`}
+                </p>
+                {curve.data.graduated && curve.data.burn_milestone_stage === 1 ? (
+                  <button
+                    type="button"
+                    disabled={
+                      busyFlywheel !== null ||
+                      !pool.data?.exists ||
+                      pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                    }
+                    onClick={() => void onTriggerMilestoneBurn()}
+                    className="w-full rounded-xl bg-amber-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
+                  >
+                    {busyFlywheel === 'milestone'
+                      ? 'Burning Milestone 2…'
+                      : pool.data?.exists &&
+                          pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                        ? '🔥 Trigger Milestone 2 Burn (1.485M)'
+                        : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Soroswap Depth`}
+                  </button>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-sky-500/30 bg-slate-900/50 p-3.5 text-xs space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-sky-300">
+                    ⏳ Creator 15-Day Vesting (0.3%)
+                  </span>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
+                    {formatAmount(curve.data.creator_vesting_total, token.decimals)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  30,000 ${token.symbol} locked until graduation, then 5 tranches of 20% (6,000) every 3 days.
+                </p>
+                {curve.data.graduated &&
+                publicKey === curve.data.creator &&
+                curve.data.creator_claimed < curve.data.creator_vesting_total ? (
+                  <button
+                    type="button"
+                    disabled={busyFlywheel !== null}
+                    onClick={() => void onClaimCreatorVesting()}
+                    className="w-full rounded-xl bg-sky-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
+                  >
+                    {busyFlywheel === 'vesting'
+                      ? 'Claiming Tranche…'
+                      : '⏳ Claim Unlocked Creator Vesting'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {/* Tabbed Interactive Section: Thread | Live Trades | Holders & Risk | Audit & Contract */}
           <div className="space-y-3">

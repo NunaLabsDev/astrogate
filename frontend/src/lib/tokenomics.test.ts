@@ -1,28 +1,96 @@
 import { describe, expect, it } from 'vitest'
 import { localAmountOut } from './soroswap'
 import {
+  BASE_CURVE_FEE_BPS,
+  BURN_VAULT_TOKENS_ALLOC_BASE,
   calculateSupplySharePercent,
   costToBuyPoolShareStroops,
   costToBuyPoolShareXlm,
+  CREATOR_VESTING_ALLOC_BASE,
+  CREATOR_VESTING_SCHEDULE,
+  CURVE_TOKENS_ALLOC_BASE,
   DEFAULT_OPTIMIZED_SEED_XLM,
+  DEX_TOKENS_ALLOC_BASE,
+  FAIR_INITIAL_SUPPLY_BASE,
+  GRADUATION_TARGET_XLM,
   graduationProgress,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
   poolAllocationBase,
   rugProofStatus,
   SEED_LIQUIDITY_PRESETS,
   STELLAR_BURN_ADDRESS,
+  STROOPS_PER_UNIT,
   WHALE_TRADE_SHARE_BPS,
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (single source for 9.95M/50K figures)', () => {
-  it('reparte 0.5% creador y 99.5% pool sobre el supply estándar de 10M', () => {
-    const tenMillion = 10_000_000n * 10_000_000n // 10M con 7 decimales
-    expect(poolAllocationBase(tenMillion)).toBe(9_950_000n * 10_000_000n) // 9.95M (99.5%)
+describe('allocation math (Fair-Flywheel v4: 40 / 30 / 29.7 / 0.3)', () => {
+  it('reparte 40% curva, 30% DEX, 29.7% quema, 0.3% vesting sobre 10M', () => {
+    expect(
+      CURVE_TOKENS_ALLOC_BASE +
+        DEX_TOKENS_ALLOC_BASE +
+        BURN_VAULT_TOKENS_ALLOC_BASE +
+        CREATOR_VESTING_ALLOC_BASE,
+    ).toBe(FAIR_INITIAL_SUPPLY_BASE)
+    expect(poolAllocationBase(FAIR_INITIAL_SUPPLY_BASE)).toBe(
+      9_970_000n * STROOPS_PER_UNIT,
+    )
     expect(STELLAR_BURN_ADDRESS).toHaveLength(56)
+    expect(CREATOR_VESTING_SCHEDULE).toHaveLength(5)
+    expect(
+      CREATOR_VESTING_SCHEDULE.reduce((sum, p) => sum + p.tokensAmount, 0),
+    ).toBe(30_000)
   })
 
   it('devuelve 0 sobre supplies inválidos', () => {
     expect(poolAllocationBase(0n)).toBe(0n)
+  })
+})
+
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust)', () => {
+  it('aplica fee estándar 80 bps (0.50% treasury + 0.30% floor) bajo <= 2% de vXLM', () => {
+    const q = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
+    expect(q).not.toBeNull()
+    expect(q!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
+    expect(q!.treasury_fee).toBe(500_000n)
+    expect(q!.floor_bonus).toBe(300_000n)
+    expect(q!.will_graduate).toBe(false)
+    expect(q!.tokens_out).toBeGreaterThan(50_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBeLessThan(60_000n * STROOPS_PER_UNIT)
+  })
+
+  it('aplica recargo anti-ballena progresivo en compras > 2% de vXLM hacia el floor', () => {
+    // 200 XLM sobre 3,000 vXLM = 666 bps (> 200 bps) -> whale = (666 - 200) / 2 = 233 bps
+    const q = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
+    expect(q).not.toBeNull()
+    expect(q!.total_fee_bps).toBe(80n + 233n)
+    expect(q!.floor_bonus).toBeGreaterThan(q!.treasury_fee)
+  })
+
+  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva', () => {
+    const q = localCurveQuoteBuy(
+      950n * STROOPS_PER_UNIT,
+      3_800_000n * STROOPS_PER_UNIT,
+      100n * STROOPS_PER_UNIT,
+    )
+    expect(q).not.toBeNull()
+    expect(q!.will_graduate).toBe(true)
+    expect(q!.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBe(200_000n * STROOPS_PER_UNIT)
+    expect(q!.total_xlm_charged).toBeLessThan(100n * STROOPS_PER_UNIT)
+  })
+
+  it('cotiza venta en curva sin exceder el vault neto', () => {
+    const buy = localCurveQuoteBuy(0n, 0n, 20n * STROOPS_PER_UNIT)!
+    const sell = localCurveQuoteSell(
+      buy.net_xlm_to_curve,
+      buy.tokens_out,
+      buy.tokens_out,
+    )
+    expect(sell).not.toBeNull()
+    expect(sell!.net_xlm_out).toBeLessThan(20n * STROOPS_PER_UNIT)
+    expect(sell!.gross_xlm_out).toBeLessThanOrEqual(buy.net_xlm_to_curve)
   })
 })
 
@@ -44,19 +112,20 @@ describe('whale threshold', () => {
 describe('graduationProgress', () => {
   const stroops = 10_000_000n
 
-  it('clasifica etapas desde sin liquidez hasta graduado en 2000 XLM', () => {
+  it('clasifica etapas desde sin liquidez hasta graduado en 1000 XLM', () => {
+    expect(GRADUATION_TARGET_XLM).toBe(1_000)
     expect(graduationProgress(0n).stage).toBe('no-pool')
-    expect(graduationProgress(100n * stroops).stage).toBe('seed')
-    expect(graduationProgress(500n * stroops).stage).toBe('rising')
-    expect(graduationProgress(500n * stroops).percent).toBe(25)
-    expect(graduationProgress(1_200n * stroops).stage).toBe('heating')
-    const grad = graduationProgress(2_500n * stroops)
+    expect(graduationProgress(50n * stroops).stage).toBe('seed')
+    expect(graduationProgress(250n * stroops).stage).toBe('rising')
+    expect(graduationProgress(250n * stroops).percent).toBe(25)
+    expect(graduationProgress(600n * stroops).stage).toBe('heating')
+    const grad = graduationProgress(1_000n * stroops)
     expect(grad.stage).toBe('graduated')
     expect(grad.graduated).toBe(true)
     expect(grad.percent).toBe(100)
 
     // NaN en targetXlm no rompe el cálculo
-    const nanTarget = graduationProgress(500n * stroops, Number.NaN)
+    const nanTarget = graduationProgress(250n * stroops, Number.NaN)
     expect(nanTarget.stage).toBe('rising')
     expect(nanTarget.percent).toBe(25)
   })

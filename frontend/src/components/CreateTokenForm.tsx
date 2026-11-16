@@ -11,14 +11,19 @@ import {
 } from '../lib/soroswap'
 import {
   allocationOfBps,
-  costToBuyPoolShareXlm,
+  BURN_VAULT_ALLOCATION_BPS,
   CREATOR_ALLOCATION_BPS,
+  CURVE_ALLOCATION_BPS,
+  CURVE_VIRTUAL_TOKEN_START_BASE,
+  CURVE_VIRTUAL_XLM_START_STROOPS,
   DEFAULT_OPTIMIZED_SEED_XLM,
+  DEX_ALLOCATION_BPS,
   FAIR_LAUNCH_DECIMALS,
   FAIR_LAUNCH_TOTAL_BASIS,
+  GRADUATION_TARGET_XLM,
+  localCurveQuoteBuy,
   MIN_SEED_XLM,
   MIN_SEED_XLM_STROOPS,
-  POOL_ALLOCATION_BPS,
   SEED_LIQUIDITY_PRESETS,
   STELLAR_BURN_ADDRESS,
 } from '../lib/tokenomics'
@@ -63,7 +68,7 @@ type LaunchStep = 'launching' | null
 
 type CreatedLaunchSnapshot = {
   id: string
-  pair: string
+  pair: string | null
   name: string
   symbol: string
   seedXlm: bigint
@@ -111,21 +116,45 @@ export function CreateTokenForm({
   const feeBufferXlm = Number(XLM_FEE_BUFFER) / 10 ** XLM_DECIMALS
   const totalRequiredStroops = seedXlmStroops + XLM_FEE_BUFFER
 
-  const poolTokensWhole = allocationOfBps(
+  const curveTokensWhole = allocationOfBps(
     FAIR_LAUNCH_TOTAL_BASIS,
-    POOL_ALLOCATION_BPS,
+    CURVE_ALLOCATION_BPS,
   )
-  const creatorTokensWhole = allocationOfBps(
+  const dexTokensWhole = allocationOfBps(
+    FAIR_LAUNCH_TOTAL_BASIS,
+    DEX_ALLOCATION_BPS,
+  )
+  const burnVaultTokensWhole = allocationOfBps(
+    FAIR_LAUNCH_TOTAL_BASIS,
+    BURN_VAULT_ALLOCATION_BPS,
+  )
+  const creatorVestingTokensWhole = allocationOfBps(
     FAIR_LAUNCH_TOTAL_BASIS,
     CREATOR_ALLOCATION_BPS,
   )
+  const initialBuyQuote =
+    seedXlmStroops >= MIN_SEED_XLM_STROOPS
+      ? localCurveQuoteBuy(0n, 0n, seedXlmStroops)
+      : null
+  const creatorBoughtTokensWhole = initialBuyQuote
+    ? Number(initialBuyQuote.tokens_out) / 1e7
+    : 0
+  const postBuyVirtualXlm =
+    Number(
+      CURVE_VIRTUAL_XLM_START_STROOPS +
+        (initialBuyQuote?.net_xlm_to_curve ?? 0n),
+    ) / 1e7
+  const postBuyVirtualTok =
+    Number(
+      CURVE_VIRTUAL_TOKEN_START_BASE - (initialBuyQuote?.tokens_out ?? 0n),
+    ) / 1e7
   const spotPriceXlm =
-    seedXlmNumber > 0 ? seedXlmNumber / Number(poolTokensWhole) : 0
+    postBuyVirtualTok > 0 ? postBuyVirtualXlm / postBuyVirtualTok : 0
   const spotPriceUsd = spotPriceXlm * xlmUsd
   const initialMarketCapXlm =
     spotPriceXlm * Number(FAIR_LAUNCH_TOTAL_BASIS)
   const initialMarketCapUsd = initialMarketCapXlm * xlmUsd
-  const sniperCost10PctXlm = costToBuyPoolShareXlm(seedXlmStroops, 10)
+  const sniperCost10PctXlm = Number(CURVE_VIRTUAL_XLM_START_STROOPS) / 1e7 * 0.1
   const sniperCost10PctUsd = sniperCost10PctXlm * xlmUsd
 
   const [name, setName] = useState('')
@@ -298,8 +327,10 @@ export function CreateTokenForm({
       const ticker = cleanSymbol
       const finalHash = atomicResult.hash ?? deployHash
 
-      // 2. Warm pair, SEP-41 metadata, IndexedDB listing, and on-chain social meta caches immediately
-      cachePairId(newId, pairId)
+      // 2. Warm pair (if graduated), SEP-41 metadata, IndexedDB listing, and on-chain social meta caches immediately
+      if (pairId) {
+        cachePairId(newId, pairId)
+      }
       setCachedTokenMetadata(newId, {
         name: cleanName,
         symbol: ticker,
@@ -315,19 +346,26 @@ export function CreateTokenForm({
         })
       }
 
+      const initCurveQuote = localCurveQuoteBuy(0n, 0n, seedXlm)
+      const vXlmStart = CURVE_VIRTUAL_XLM_START_STROOPS + (initCurveQuote?.net_xlm_to_curve ?? seedXlm)
+      const vTokStart = CURVE_VIRTUAL_TOKEN_START_BASE - (initCurveQuote?.tokens_out ?? 0n)
+
       await putStoredTokens([
         {
           id: newId,
           name: cleanName,
           symbol: ticker,
           decimals: targetDecimals,
-          pairId,
-          reserveToken: (poolTokensWhole * 10n ** BigInt(targetDecimals)).toString(),
-          reserveXlm: seedXlm.toString(),
+          pairId: pairId ?? '',
+          reserveToken: vTokStart.toString(),
+          reserveXlm: vXlmStart.toString(),
           ledger: Number.MAX_SAFE_INTEGER,
           creator: publicKey,
           meta: encodedMeta || undefined,
           isAntiRugVerified: true,
+          curveGraduated: Boolean(pairId),
+          curveXlmNet: (initCurveQuote?.net_xlm_to_curve ?? seedXlm).toString(),
+          curveTokensSold: (initCurveQuote?.tokens_out ?? 0n).toString(),
           updatedAt: nowTimestampMs(),
         },
       ])
@@ -419,7 +457,7 @@ export function CreateTokenForm({
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white truncate">Create & Launch</h2>
             <p className="mt-0.5 text-xs text-slate-400">
-              10M fixed supply · 99.5% LP burned · mint renounced
+              10M fixed supply · 40% Fair Curve · 30% Soroswap · 29.7% Milestone Burn · 0.3% 15d Vesting
             </p>
           </div>
         </div>
@@ -449,14 +487,12 @@ export function CreateTokenForm({
                   Token: {createdLaunch.id}
                 </p>
                 <p className="font-mono text-xs text-slate-400 break-all">
-                  Pair: {createdLaunch.pair}
+                  {createdLaunch.pair
+                    ? `Pair: ${createdLaunch.pair}`
+                    : `Phase: Virtual Bonding Curve (Graduates to Soroswap at ${GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)`}
                 </p>
                 <p className="text-xs text-emerald-200/90">
-                  ✓ 9,950,000 ${createdLaunch.symbol} +{' '}
-                  {formatAmount(createdLaunch.seedXlm, XLM_DECIMALS)} XLM → Pool ·
-                  50,000 ${createdLaunch.symbol} (0.5%) → Your Wallet ·{' '}
-                  {formatAmount(createdLaunch.lpMinted, 7)} LP burned to{' '}
-                  {shortAddress(STELLAR_BURN_ADDRESS)}
+                  ✓ 4,000,000 ${createdLaunch.symbol} Curve (3,000 vXLM) · 3,000,000 Soroswap Reserve · 2,970,000 Proof-of-Burn Vault · 30,000 (0.3%) Creator 15d Vesting
                 </p>
               </div>
             </div>
@@ -476,14 +512,16 @@ export function CreateTokenForm({
               >
                 Token ↗
               </a>
-              <a
-                href={explorerContractUrl(createdLaunch.pair)}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500"
-              >
-                Pair ↗
-              </a>
+              {createdLaunch.pair ? (
+                <a
+                  href={explorerContractUrl(createdLaunch.pair)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-medium text-slate-300 hover:border-slate-500"
+                >
+                  Pair ↗
+                </a>
+              ) : null}
               {createdLaunch.hash ? (
                 <a
                   href={explorerTxUrl(createdLaunch.hash)}
@@ -709,7 +747,7 @@ export function CreateTokenForm({
                 {
                   label: 'Single-Transaction Fair Launch',
                   status: 'active',
-                  detail: `Atomic deployment: SEP-41 token created, ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM + 99.5% tokens deposited to Soroswap, 100% LP burned to dead address, and ownership renounced in 1 signature.`,
+                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 40% curve / 30% Soroswap / 29.7% burn vault / 0.3% 15d vesting locked, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy executed, and mint ownership renounced in 1 signature.`,
                 },
               ]}
             />
@@ -770,7 +808,7 @@ export function CreateTokenForm({
           <div className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-slate-200">
-                🔍 Where Your XLM & Tokens Go (Atomic On-Chain Split)
+                🔍 Fair-Flywheel v4 Split (40 / 30 / 29.7 / 0.3 — 3,000 vXLM → {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
               </span>
               <span className="font-mono text-[11px] text-emerald-400">
                 {symbol || 'TOKEN'} Total Cap: 10,000,000
@@ -780,34 +818,34 @@ export function CreateTokenForm({
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 font-mono">
               <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  Soroswap AMM Pool (99.5%)
+                  40% Bonding Curve + 30% DEX
                 </p>
                 <p className="mt-1 font-bold text-white">
-                  {Number(poolTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
+                  {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
                 </p>
                 <p className="text-[11px] text-emerald-300">
-                  + {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM
+                  Initial buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
                 </p>
               </div>
 
               <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  Creator Wallet (0.5%)
+                  29.7% Milestone Burn + 0.3% Vesting
                 </p>
                 <p className="mt-1 font-bold text-amber-300">
-                  {Number(creatorTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
+                  {Number(burnVaultTokensWhole).toLocaleString('en-US')} 🔥 + {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳
                 </p>
                 <p className="text-[11px] text-slate-400 truncate">
-                  → {publicKey ? shortAddress(publicKey) : 'Your wallet'}
+                  5×3d post-grad vesting → {publicKey ? shortAddress(publicKey) : 'Creator'}
                 </p>
               </div>
 
               <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-2.5">
                 <p className="text-[10px] uppercase tracking-wide text-slate-400">
-                  LP Custody & Mint
+                  LP Custody &amp; Mint
                 </p>
                 <p className="mt-1 font-bold text-emerald-300">
-                  100% LP Burned 🔥
+                  100% LP Burned at 1K XLM 🔥
                 </p>
                 <p className="text-[11px] text-slate-400">
                   Mint renounced ({shortAddress(STELLAR_BURN_ADDRESS)})

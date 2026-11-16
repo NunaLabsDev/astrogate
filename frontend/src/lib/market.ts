@@ -1,5 +1,17 @@
-import { GRADUATION_TARGET_XLM } from './tokenomics'
+import { GRADUATION_TARGET_XLM, STROOPS_PER_UNIT } from './tokenomics'
 import type { TokenListing } from './discovery'
+
+function effectiveLiquidityStroops(t: TokenListing): bigint {
+  if (t.curve && !t.curve.graduated) {
+    return t.curve.curve_xlm_net
+  }
+  return t.pool.reserveXlm
+}
+
+function isGraduatedToken(t: TokenListing): boolean {
+  if (t.curve) return t.curve.graduated
+  return t.pool.reserveXlm >= BigInt(GRADUATION_TARGET_XLM) * STROOPS_PER_UNIT
+}
 
 export type MarketSortKey =
   | 'recent'
@@ -45,21 +57,25 @@ export function filterAndSortTokens(
   const sorted = [...filtered].sort((a, b) => {
     switch (sort) {
       case 'graduation': {
-        const aSeeded = a.pool.exists && a.pool.reserveXlm > 0n
-        const bSeeded = b.pool.exists && b.pool.reserveXlm > 0n
+        const aLiq = effectiveLiquidityStroops(a)
+        const bLiq = effectiveLiquidityStroops(b)
+        const aSeeded = a.pool.exists && aLiq > 0n
+        const bSeeded = b.pool.exists && bLiq > 0n
         if (aSeeded && !bSeeded) return -1
         if (!aSeeded && bSeeded) return 1
         if (!aSeeded && !bSeeded) return b.ledger - a.ledger
 
-        const targetStroops = BigInt(GRADUATION_TARGET_XLM) * 10_000_000n
-        const aGrad = a.pool.reserveXlm >= targetStroops
-        const bGrad = b.pool.reserveXlm >= targetStroops
+        const aGrad = isGraduatedToken(a)
+        const bGrad = isGraduatedToken(b)
         if (!aGrad && bGrad) return -1
         if (aGrad && !bGrad) return 1
-        return compareBigInt(a.pool.reserveXlm, b.pool.reserveXlm)
+        return compareBigInt(aLiq, bLiq)
       }
       case 'liquidity':
-        return compareBigInt(a.pool.reserveXlm, b.pool.reserveXlm)
+        return compareBigInt(
+          effectiveLiquidityStroops(a),
+          effectiveLiquidityStroops(b),
+        )
       case 'price': {
         const aValid =
           a.pool.exists && a.pool.reserveToken > 0n && a.pool.reserveXlm > 0n

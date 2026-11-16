@@ -1,17 +1,17 @@
 #![no_std]
 
-//! AstroGate Atomic Launchpad Contract.
+//! AstroGate Fair-Flywheel Launchpad Contract (v4).
 //!
-//! Provides a single-transaction, 100% Anti-Rug fair-launch pipeline on Stellar Soroban:
-//! 1. Pulls initial XLM liquidity from creator.
-//! 2. Deterministically deploys the SEP-41 token with initial supply.
-//! 3. Sends the remaining share (up to 0.5%) to creator.
-//! 4. Renounces token ownership on-chain (permanently disabling future minting).
-//! 5. Creates / resolves the Soroswap AMM Pair with Native XLM SAC.
-//! 6. Directly seeds 99.5% token supply and XLM into the Soroswap Pair.
-//! 7. Mints 100% of the LP tokens directly to Stellar's dead address (`GAAAA...WHF`),
-//!    making the liquidity mathematically locked forever.
-//! 8. Publishes a typed `launch` event for indexers and bots.
+//! Provides a complete anti-whale, zero-cliff launchpad lifecycle on Stellar Soroban:
+//! 1. Fixed 10M token supply (7 decimals): 40% Virtual Curve (4M), 30% Soroswap DEX
+//!    Graduation Reserve (3M), 29.7% Milestone Proof-of-Burn Vault (2.97M), and
+//!    0.3% Creator 15-day Post-Graduation Vesting (30K).
+//! 2. Deep Virtual LP (3,000 vXLM -> 1,000 real XLM goal) with progressive
+//!    anti-whale fee-to-floor surcharges and zero pre-graduation creator dumps.
+//! 3. Atomic Soroswap graduation at 1,000 XLM net curve raise (0.00% price jump,
+//!    100% LP burned to `GAAAA...WHF`, Milestone 1 burns 1.485M tokens via `token.burn`).
+//! 4. Permissionless Milestone 2 burn (remaining 1.485M when Soroswap pool reaches
+//!    2,500 XLM) and 3-tier Burn-to-Chat (`25 / 250 / 1,000+` King Shout).
 
 mod contract;
 #[cfg(test)]

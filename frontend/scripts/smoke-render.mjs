@@ -151,8 +151,9 @@ try {
     ),
   )
   if (
-    !hypeHtml.includes('On-Chain Burn-to-Chat') ||
-    !hypeHtml.includes('Burn &amp; Shout') && !hypeHtml.includes('Connect to Shout')
+    !hypeHtml.includes('Burn-to-Chat') ||
+    !hypeHtml.includes('King Shout') ||
+    (!hypeHtml.includes('Burn &amp; Shout') && !hypeHtml.includes('Connect to Shout'))
   ) {
     throw new Error('el componente TokenHypeBar no renderiza Burn-to-Chat')
   }

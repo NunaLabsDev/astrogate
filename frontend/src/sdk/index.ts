@@ -25,9 +25,15 @@ import {
 } from '../lib/soroswap'
 import {
   burnAndShout,
+  buyCurveToken,
+  claimCreatorVesting,
   extendTokenTtl,
+  fetchCurveState,
+  fetchKingShout,
   launchFairAtomic,
+  sellCurveToken,
   tokenClient,
+  triggerMilestoneBurn,
 } from '../lib/token'
 import { decodeOnChainMeta, encodeOnChainMeta } from '../lib/token-metadata'
 import type { Signer } from '@stellar/stellar-sdk/contract'
@@ -48,7 +54,14 @@ import {
   SOROSWAP_ROUTER,
   XLM_SAC,
 } from '../lib/network'
-import { STELLAR_BURN_ADDRESS, graduationProgress } from '../lib/tokenomics'
+import {
+  curveVirtualReserves,
+  graduationProgress,
+  graduationProgressForListing,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
+  STELLAR_BURN_ADDRESS,
+} from '../lib/tokenomics'
 import { formatAmount } from '../lib/format'
 import {
   classifyTokenEvent,
@@ -111,7 +124,11 @@ export async function getMarketTokens(options?: {
 }): Promise<SdkTokenOverview[]> {
   const listings = await discoverTokens(options)
   return listings.map((token: TokenListing) => {
-    const grad = graduationProgress(token.pool.reserveXlm)
+    const grad = graduationProgressForListing(token)
+    const reserveXlmDisplay =
+      token.curve && !token.curve.graduated
+        ? token.curve.curve_xlm_net
+        : token.pool.reserveXlm
     return {
       id: token.id,
       name: token.name,
@@ -120,7 +137,7 @@ export async function getMarketTokens(options?: {
       pairId: token.pool.pairId,
       priceXlm: formatTokenPrice(tokenPriceInXlmNumber(token.pool, token.decimals)),
       reserveToken: formatAmount(token.pool.reserveToken, token.decimals),
-      reserveXlm: formatAmount(token.pool.reserveXlm, 7),
+      reserveXlm: formatAmount(reserveXlmDisplay, 7),
       graduationPercent: grad.percent,
       isGraduated: grad.graduated,
     }
@@ -135,7 +152,7 @@ export async function getTokenDetails(tokenId: string): Promise<SdkTokenDetails>
     throw new Error(`Invalid Stellar contract address: ${tokenId}`)
   }
 
-  const [meta, pool] = await Promise.all([
+  const [meta, rawPool, curve] = await Promise.all([
     executeWithRpcFailover(async (rpcUrl) => {
       const client = tokenClient(tokenId, undefined, rpcUrl)
       const [nameTx, symbolTx, decimalsTx] = await Promise.all([
@@ -150,9 +167,23 @@ export async function getTokenDetails(tokenId: string): Promise<SdkTokenDetails>
       }
     }),
     fetchPoolState(tokenId),
+    fetchCurveState(tokenId),
   ])
 
-  const graduation = graduationProgress(pool.reserveXlm)
+  const pool =
+    !rawPool.exists && curve && !curve.graduated
+      ? (() => {
+          const v = curveVirtualReserves(curve.curve_xlm_net, curve.tokens_sold)
+          return {
+            exists: true,
+            pairId: '',
+            reserveToken: v.virtualTokens,
+            reserveXlm: v.virtualXlm,
+          }
+        })()
+      : rawPool
+
+  const graduation = graduationProgressForListing({ pool, curve })
 
   return {
     id: tokenId,
@@ -166,7 +197,8 @@ export async function getTokenDetails(tokenId: string): Promise<SdkTokenDetails>
 }
 
 /**
- * Quotes an exact AMM swap against Soroswap reserves.
+ * Quotes an exact trade against either an active Fair-Flywheel v4 curve
+ * (pre-graduation) or a Soroswap pair (post-graduation).
  * Direction: 'buy' = XLM -> Token, 'sell' = Token -> XLM.
  */
 export async function quoteSwap(params: {
@@ -179,12 +211,63 @@ export async function quoteSwap(params: {
     throw new Error('amountIn must be greater than zero')
   }
 
+  const slippage = params.slippagePercent ?? 2
+  const curve = await fetchCurveState(params.tokenId)
+  if (curve && !curve.graduated) {
+    const v = curveVirtualReserves(curve.curve_xlm_net, curve.tokens_sold)
+    if (params.direction === 'buy') {
+      const quote = localCurveQuoteBuy(
+        curve.curve_xlm_net,
+        curve.tokens_sold,
+        params.amountIn,
+      )
+      if (!quote) {
+        throw new Error('Order cannot be quoted on the current bonding curve.')
+      }
+      const minOut = withSlippage(quote.tokens_out, slippage)
+      const impact = priceImpactPercent(
+        quote.net_xlm_to_curve,
+        quote.tokens_out,
+        v.virtualXlm,
+        v.virtualTokens,
+      )
+      return {
+        direction: 'buy',
+        amountIn: quote.total_xlm_charged.toString(),
+        amountOutEstimated: quote.tokens_out.toString(),
+        amountOutMinimum: minOut.toString(),
+        priceImpactPercent: impact,
+      }
+    }
+    const quote = localCurveQuoteSell(
+      curve.curve_xlm_net,
+      curve.tokens_sold,
+      params.amountIn,
+    )
+    if (!quote) {
+      throw new Error('Sell order exceeds current bonding curve XLM depth.')
+    }
+    const minOut = withSlippage(quote.net_xlm_out, slippage)
+    const impact = priceImpactPercent(
+      params.amountIn,
+      quote.gross_xlm_out,
+      v.virtualTokens,
+      v.virtualXlm,
+    )
+    return {
+      direction: 'sell',
+      amountIn: params.amountIn.toString(),
+      amountOutEstimated: quote.net_xlm_out.toString(),
+      amountOutMinimum: minOut.toString(),
+      priceImpactPercent: impact,
+    }
+  }
+
   const pool = await fetchPoolState(params.tokenId)
   if (!pool.exists || pool.reserveXlm === 0n || pool.reserveToken === 0n) {
     throw new Error(`No active AMM liquidity pool found for token ${params.tokenId}`)
   }
 
-  const slippage = params.slippagePercent ?? 2
   if (params.direction === 'buy') {
     const quoted = await quoteXlmForToken(params.amountIn, pool)
     const minOut = withSlippage(quoted, slippage)
@@ -240,9 +323,10 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
     }
   }
 
-  const [pool, launchRecord] = await Promise.all([
+  const [pool, launchRecord, curve] = await Promise.all([
     fetchPoolState(tokenId),
     fetchLaunchpadRecord(tokenId),
+    fetchCurveState(tokenId),
   ])
   const verifiedLaunchpad = Boolean(launchRecord)
   const notes: string[] = []
@@ -250,24 +334,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
     notes.push('Verified in AstroGate Launchpad on-chain registry.')
   }
 
-  if (!pool.exists || !pool.pairId) {
-    return {
-      tokenId,
-      pairId: null,
-      lpBurnAddress: STELLAR_BURN_ADDRESS,
-      ownershipRenounced: false,
-      lpBurned: false,
-      verifiedLaunchpad,
-      isAntiRugVerified: false,
-      auditNotes: [...notes, 'No active Soroswap AMM pool found on-chain.'],
-    }
-  }
-
-  notes.push(`Soroswap Pair verified: ${pool.pairId}`)
-  notes.push(`Canonical Stellar Burn Address: ${STELLAR_BURN_ADDRESS}`)
-
-  // 1. Verify owner status with RPC failover. Fail-closed: un error de red / RPC
-  // NUNCA cuenta como "renunciado". Solo `get_owner() -> None` (o burn address) lo es.
+  // Verify owner status with RPC failover (both pre-grad curve & graduated pair).
   let ownershipRenounced = false
   try {
     const owner = await executeWithRpcFailover(async (rpcUrl) => {
@@ -289,7 +356,39 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
     )
   }
 
-  // 2. Verify LP Token Burn (descontando MINIMUM_LIQUIDITY bloqueado por el par)
+  if (curve && !curve.graduated) {
+    notes.push(
+      'Active Fair-Flywheel v4 Virtual Bonding Curve: DEX reserves (3M), Burn Vault (2.97M), and Creator 15d Vesting (30K) are custody-locked inside Launchpad.',
+    )
+    return {
+      tokenId,
+      pairId: null,
+      lpBurnAddress: STELLAR_BURN_ADDRESS,
+      ownershipRenounced,
+      lpBurned: false,
+      verifiedLaunchpad,
+      isAntiRugVerified: ownershipRenounced && verifiedLaunchpad && curve.real_xlm_vault > 0n,
+      auditNotes: notes,
+    }
+  }
+
+  if (!pool.exists || !pool.pairId) {
+    return {
+      tokenId,
+      pairId: null,
+      lpBurnAddress: STELLAR_BURN_ADDRESS,
+      ownershipRenounced,
+      lpBurned: false,
+      verifiedLaunchpad,
+      isAntiRugVerified: false,
+      auditNotes: [...notes, 'No active Soroswap AMM pool found on-chain.'],
+    }
+  }
+
+  notes.push(`Soroswap Pair verified: ${pool.pairId}`)
+  notes.push(`Canonical Stellar Burn Address: ${STELLAR_BURN_ADDRESS}`)
+
+  // Verify LP Token Burn (descontando MINIMUM_LIQUIDITY bloqueado por el par)
   let lpBurned = false
   try {
     const { burnedLp: burnBalance, totalSupply, fullyBurned } =
@@ -383,18 +482,27 @@ export const AstroGateConstants = {
 }
 
 export {
+  buyCurveToken,
   checkRpcHealth,
+  claimCreatorVesting,
   classifyTokenEvent,
   decodeOnChainMeta,
   DEVELOPER_TREASURY_ADDRESS,
   encodeOnChainMeta,
   executeWithRpcFailover,
   extendTokenTtl,
+  fetchCurveState,
+  fetchKingShout,
   fetchTokenEvents,
   fetchTokenShouts,
+  graduationProgressForListing,
   isValidContractAddress,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
   localQuoteTokenForXlm,
   localQuoteXlmForToken,
   parseTokenEvent,
+  sellCurveToken,
+  triggerMilestoneBurn,
 }
 export type { TokenEvent, TokenShout, TokenTradeRole }

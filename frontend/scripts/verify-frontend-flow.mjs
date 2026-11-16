@@ -188,54 +188,58 @@ try {
     poolAfterWithdraw.reserveXlm.toString(),
   )
 
-  // 5. Camino completo de un token nuevo (v2 launch_fair): lanzar -> par seed -> quote -> swap.
+  // 5. Camino completo Fair-Flywheel v4 (launch_fair): curva virtual -> buy_curve -> sell_curve -> discovery.
+  const unit = 10n ** BigInt(DECIMALS)
   const launched = await tokenLib.launchFairAtomic({
     name: `Flow ${Date.now()}`,
     symbol: 'FLOW',
-    xlmLpAmount: 5n * 10n ** BigInt(DECIMALS),
+    xlmLpAmount: 5n * unit,
     signer,
   })
   const token = launched.token
   console.log(
-    '\ntoken nuevo:',
+    '\ntoken nuevo (v4):',
     token,
     '| par:',
-    launched.pair,
-    '| LP quemados:',
-    launched.lpMinted.toString(),
+    launched.pair ?? 'Virtual Curve Active',
   )
 
-  const newPool = await soroswap.fetchPoolState(token)
-  if (!newPool.exists || newPool.reserveToken <= 0n || newPool.reserveXlm <= 0n) {
-    throw new Error('el par nuevo de launch_fair no existe o tiene reservas 0')
+  const curveInit = await tokenLib.fetchCurveState(token)
+  if (!curveInit || curveInit.graduated || curveInit.curve_xlm_net <= 0n) {
+    throw new Error('el estado inicial de la curva Fair-Flywheel v4 no es valido')
   }
   console.log(
-    'reservas del par nuevo:',
-    newPool.reserveToken.toString(),
-    '/',
-    newPool.reserveXlm.toString(),
+    'curva inicial:',
+    curveInit.tokens_sold.toString(),
+    'tokens vendidos /',
+    curveInit.curve_xlm_net.toString(),
+    'stroops netos en vault',
   )
-  // 1 whole token en un pool 9.95M / 5 XLM cotiza ~5 stroops (> 0n, sin sub-stroop loss!)
-  const oneTokenQuote = await soroswap.quoteTokenForXlm(1n * 10n ** BigInt(DECIMALS), newPool)
-  console.log('cotizacion 1 token ->', oneTokenQuote.toString(), 'stroops XLM')
-  if (oneTokenQuote <= 0n) throw new Error('la cotizacion de 1 token del par nuevo cayo a 0 stroops')
 
-  // 1,000 tokens de los 50,000 del creador (2% de su asignacion): cotizan ~5,010 stroops
-  const sellAmount = 1_000n * 10n ** BigInt(DECIMALS)
-  const newQuote = await soroswap.quoteTokenForXlm(sellAmount, newPool)
-  console.log('cotizacion 1,000 token ->', newQuote.toString(), 'XLM (base units)')
-  if (newQuote <= 0n) throw new Error('la cotizacion del par nuevo es 0')
-
-  const newSwap = await soroswap.swapTokenForXlm({
+  const buyQuote = await tokenLib.quoteCurveBuyRpc(token, 5n * unit)
+  if (buyQuote.tokens_out <= 0n) throw new Error('la cotizacion buy_curve devolvio 0')
+  const buyExec = await tokenLib.buyCurveToken({
     tokenId: token,
-    amountIn: sellAmount,
-    amountOutMin: soroswap.withSlippage(newQuote),
+    maxXlmIn: 5n * unit,
+    minTokensOut: soroswap.withSlippage(buyQuote.tokens_out, 2),
     signer,
   })
-  console.log('swap del par nuevo -> out:', newSwap[1]?.toString())
+  console.log('buy_curve 5 XLM -> tokens:', buyExec.trade.tokens.toString())
 
-  // 6. El token nuevo tiene que aparecer en el mercado (eventos de la factory).
-  // Los eventos se indexan en el ledger siguiente: reintentos acotados.
+  const sellAmount = 1_000n * unit
+  const sellQuote = await tokenLib.quoteCurveSellRpc(token, sellAmount)
+  console.log('cotizacion sell_curve 1,000 FLOW ->', sellQuote.net_xlm_out.toString(), 'stroops XLM')
+  if (sellQuote.net_xlm_out <= 0n) throw new Error('la cotizacion de venta en curva es 0')
+
+  const sellExec = await tokenLib.sellCurveToken({
+    tokenId: token,
+    tokenAmount: sellAmount,
+    minXlmOut: soroswap.withSlippage(sellQuote.net_xlm_out, 2),
+    signer,
+  })
+  console.log('sell_curve -> out:', sellExec.trade.xlm.toString(), 'stroops XLM')
+
+  // 6. El token nuevo aparece inmediatamente en el mercado (registro on-chain v4 + curva virtual).
   let listing = null
   for (let attempt = 1; attempt <= 5 && !listing; attempt++) {
     const tokens = await discovery.discoverTokens({ maxTokens: 12 })
@@ -245,21 +249,20 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500))
     }
   }
-  if (!listing) throw new Error('el token nuevo no aparece en el mercado')
+  if (!listing || !listing.curve) throw new Error('el token nuevo v4 no aparece en el mercado con su CurveState')
   console.log(
     'mercado:',
     listing.symbol,
     '|',
     listing.name,
-    '| reservas',
+    '| reservas virtuales',
     listing.pool.reserveToken.toString(),
     '/',
     listing.pool.reserveXlm.toString(),
   )
 
-  console.log('\nOK: pool + cotizacion + swap + liquidez + retiro (mismo codigo que la UI)')
-  console.log('OK: token nuevo -> par -> liquidez -> swap')
-  console.log('OK: el token nuevo aparece en el mercado (descubierto de eventos)')
+  console.log('\nOK: pool + cotizacion + swap + liquidez + retiro Soroswap (mismo codigo que la UI)')
+  console.log('OK: Fair-Flywheel v4 launch -> buy_curve -> sell_curve -> discovery')
 } catch (err) {
   failed = true
   console.error('\nFALLO:', err?.message ?? err)

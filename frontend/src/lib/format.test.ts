@@ -120,6 +120,18 @@ describe('errorMessage', () => {
     expect(errorMessage(new Error('PairAlreadySeeded'))).toBe(
       'Soroswap pair already exists with non-zero liquidity. Tokens cannot be launched over existing pairs.',
     )
+    expect(errorMessage(new Error('HostError: Error(Contract, #5)'))).toBe(
+      'Price moved beyond your allowed slippage. Increase slippage tolerance or reduce amount.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #6)'))).toBe(
+      'This token has already graduated to Soroswap DEX or is not in the expected bonding curve phase.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #7)'))).toBe(
+      'Bonding curve or creator vesting state does not exist for this token.',
+    )
+    expect(errorMessage(new Error('HostError: Error(Contract, #8)'))).toBe(
+      'Milestone condition not yet reached (requires >= 2,500 XLM DEX depth or next 3-day vesting tranche).',
+    )
   })
 })
 

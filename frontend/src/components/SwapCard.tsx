@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
+import { useCurveState } from '../hooks/useCurveState'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
@@ -24,7 +25,11 @@ import {
 import {
   calculateSupplySharePercent,
   costToBuyPoolShareStroops,
-  graduationProgress,
+  curveVirtualReserves,
+  GRADUATION_TARGET_XLM,
+  graduationProgressForListing,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
   SOROSWAP_SWAP_FEE_PERCENT,
   whaleThresholdBase,
 } from '../lib/tokenomics'
@@ -33,7 +38,7 @@ import { AMOUNT_PERCENTS, FORM_INPUT_CLASS, UNSUPPORTED_SIGNER_MESSAGE } from '.
 import { explorerTxUrl } from '../lib/explorer'
 import { NETWORK_NAME } from '../lib/network'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
-import type { LaunchpadToken } from '../lib/token'
+import { buyCurveToken, sellCurveToken, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { toast } from '../lib/toast'
@@ -87,9 +92,25 @@ export function SwapCard({
   const outputSymbol = isBuy ? tokenSymbol : 'XLM'
 
   const pool = useSoroswapPool(token.id)
+  const curve = useCurveState(token.id)
   const tokenBalance = useTokenBalance(publicKey, token.id)
   const xlmBalance = useXlmBalance(publicKey)
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
+
+  const isBondingCurve = Boolean(curve.data && !curve.data.graduated)
+  const curveReserves =
+    isBondingCurve && curve.data
+      ? curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
+      : null
+  const effectivePool =
+    isBondingCurve && curveReserves
+      ? {
+          exists: true,
+          pairId: '',
+          reserveToken: curveReserves.virtualTokens,
+          reserveXlm: curveReserves.virtualXlm,
+        }
+      : pool.data
 
   const xlmBase =
     xlmBalance.data !== undefined
@@ -105,32 +126,67 @@ export function SwapCard({
 
   const amountIn = parseAmount(amount, inputDecimals)
 
-  // Instant deterministic 0ms AMM quote matching Soroswap router (997/1000 fee).
-  const quoted =
-    amountIn > 0n && pool.data?.exists
+  const curveBuyQuote =
+    isBondingCurve && isBuy && curve.data && amountIn > 0n
+      ? localCurveQuoteBuy(
+          curve.data.curve_xlm_net,
+          curve.data.tokens_sold,
+          amountIn,
+        )
+      : null
+  const curveSellQuote =
+    isBondingCurve && !isBuy && curve.data && amountIn > 0n
+      ? localCurveQuoteSell(
+          curve.data.curve_xlm_net,
+          curve.data.tokens_sold,
+          amountIn,
+        )
+      : null
+
+  // Instant deterministic 0ms quote (Virtual Curve pre-grad or Soroswap DEX post-grad).
+  const quoted = isBondingCurve
+    ? isBuy
+      ? curveBuyQuote?.tokens_out
+      : curveSellQuote?.net_xlm_out
+    : amountIn > 0n && pool.data?.exists
       ? isBuy
         ? localQuoteXlmForToken(amountIn, pool.data)
         : localQuoteTokenForXlm(amountIn, pool.data)
       : undefined
+
+  const effectiveAmountIn =
+    isBondingCurve && isBuy && curveBuyQuote
+      ? curveBuyQuote.total_xlm_charged
+      : amountIn
+  const curveFeeBps = isBondingCurve
+    ? isBuy
+      ? (curveBuyQuote?.total_fee_bps ?? 80n)
+      : (curveSellQuote?.total_fee_bps ?? 80n)
+    : 30n
+
   const minimum = quoted !== undefined ? withSlippage(quoted, slippage) : null
   const impact =
-    pool.data?.exists && quoted !== undefined && amountIn > 0n
+    effectivePool?.exists && quoted !== undefined && amountIn > 0n
       ? priceImpactPercent(
-          amountIn,
-          quoted,
-          isBuy ? pool.data.reserveXlm : pool.data.reserveToken,
-          isBuy ? pool.data.reserveToken : pool.data.reserveXlm,
+          isBondingCurve && isBuy && curveBuyQuote
+            ? curveBuyQuote.net_xlm_to_curve
+            : amountIn,
+          isBondingCurve && !isBuy && curveSellQuote
+            ? curveSellQuote.gross_xlm_out
+            : quoted,
+          isBuy ? effectivePool.reserveXlm : effectivePool.reserveToken,
+          isBuy ? effectivePool.reserveToken : effectivePool.reserveXlm,
         )
       : null
 
-  const spotPriceXlm = pool.data
-    ? tokenPriceInXlmNumber(pool.data, token.decimals)
+  const spotPriceXlm = effectivePool
+    ? tokenPriceInXlmNumber(effectivePool, token.decimals)
     : 0
   const inputUsd =
-    amountIn > 0n
+    effectiveAmountIn > 0n
       ? isBuy
-        ? (Number(amountIn) / 10 ** XLM_DECIMALS) * xlmUsd
-        : (Number(amountIn) / 10 ** token.decimals) * spotPriceXlm * xlmUsd
+        ? (Number(effectiveAmountIn) / 10 ** XLM_DECIMALS) * xlmUsd
+        : (Number(effectiveAmountIn) / 10 ** token.decimals) * spotPriceXlm * xlmUsd
       : 0
   const outputUsd =
     quoted !== undefined && quoted > 0n
@@ -140,8 +196,8 @@ export function SwapCard({
       : 0
   const tradedTokenBase = isBuy ? (quoted ?? 0n) : amountIn
   const poolSharePct =
-    pool.data?.exists && tradedTokenBase > 0n
-      ? calculateSupplySharePercent(tradedTokenBase, pool.data.reserveToken)
+    effectivePool?.exists && tradedTokenBase > 0n
+      ? calculateSupplySharePercent(tradedTokenBase, effectivePool.reserveToken)
       : 0
   const isWhaleOrder =
     tradedTokenBase > 0n &&
@@ -224,30 +280,60 @@ export function SwapCard({
     setBusy(true)
     let hash: string | undefined
     try {
-      const amounts = isBuy
-        ? await swapXlmForToken({
-            tokenId: token.id,
-            amountIn,
-            amountOutMin: withSlippage(quotedAmount, slippage),
-            signer,
-            onHash: (value) => {
-              hash = value
-            },
-          })
-        : await swapTokenForXlm({
-            tokenId: token.id,
-            amountIn,
-            amountOutMin: withSlippage(quotedAmount, slippage),
-            signer,
-            onHash: (value) => {
-              hash = value
-            },
-          })
+      let actualIn = amountIn
+      let received = quotedAmount
+      let didGraduate = false
 
-      const received = amounts[1] ?? quotedAmount
-      const inFormatted = formatAmount(amountIn, inputDecimals)
+      if (isBondingCurve) {
+        const res = isBuy
+          ? await buyCurveToken({
+              tokenId: token.id,
+              maxXlmIn: amountIn,
+              minTokensOut: withSlippage(quotedAmount, slippage),
+              signer,
+              onHash: (value) => {
+                hash = value
+              },
+            })
+          : await sellCurveToken({
+              tokenId: token.id,
+              tokenAmount: amountIn,
+              minXlmOut: withSlippage(quotedAmount, slippage),
+              signer,
+              onHash: (value) => {
+                hash = value
+              },
+            })
+        hash = res.hash ?? hash
+        actualIn = isBuy ? res.trade.xlm : res.trade.tokens
+        received = isBuy ? res.trade.tokens : res.trade.xlm
+        didGraduate = res.trade.graduated
+      } else {
+        const amounts = isBuy
+          ? await swapXlmForToken({
+              tokenId: token.id,
+              amountIn,
+              amountOutMin: withSlippage(quotedAmount, slippage),
+              signer,
+              onHash: (value) => {
+                hash = value
+              },
+            })
+          : await swapTokenForXlm({
+              tokenId: token.id,
+              amountIn,
+              amountOutMin: withSlippage(quotedAmount, slippage),
+              signer,
+              onHash: (value) => {
+                hash = value
+              },
+            })
+        received = amounts[1] ?? quotedAmount
+      }
+
+      const inFormatted = formatAmount(actualIn, inputDecimals)
       const outFormatted = formatAmount(received, outputDecimals)
-      setSwapped({ direction, in: amountIn, out: received, hash })
+      setSwapped({ direction, in: actualIn, out: received, hash })
       setAmount('')
       recordActivity({
         kind: 'swap',
@@ -261,17 +347,39 @@ export function SwapCard({
         account: publicKey,
         hash,
       })
-      toast.success('Swap completed', {
-        message: `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol}`,
-        hash,
+      toast.success(
+        didGraduate
+          ? '🎓 Graduated to Soroswap & Swap Completed!'
+          : 'Swap completed',
+        {
+          message: didGraduate
+            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} · LP burned & 1.485M burned!`
+            : `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol}`,
+          hash,
+        },
+      )
+      const postGrad = graduationProgressForListing({
+        pool: effectivePool ?? {
+          exists: false,
+          pairId: '',
+          reserveToken: 0n,
+          reserveXlm: 0n,
+        },
+        curve: curve.data
+          ? {
+              ...curve.data,
+              graduated: curve.data.graduated || didGraduate,
+              curve_xlm_net: isBuy
+                ? curve.data.curve_xlm_net +
+                  (curveBuyQuote?.net_xlm_to_curve ?? actualIn)
+                : curve.data.curve_xlm_net >
+                    (curveSellQuote?.gross_xlm_out ?? received)
+                  ? curve.data.curve_xlm_net -
+                    (curveSellQuote?.gross_xlm_out ?? received)
+                  : 0n,
+            }
+          : null,
       })
-      const currentXlmReserve = pool.data?.reserveXlm ?? 0n
-      const nextReserveXlm = isBuy
-        ? currentXlmReserve + amountIn
-        : currentXlmReserve > received
-          ? currentXlmReserve - received
-          : 0n
-      const postGrad = graduationProgress(nextReserveXlm)
       void notifySwapAlert({
         tokenId: token.id,
         symbol: tokenSymbol,
@@ -285,7 +393,13 @@ export function SwapCard({
       onSwapped?.()
       await Promise.all([
         queryClient.invalidateQueries({
+          queryKey: ['launch-curve', token.id],
+        }),
+        queryClient.invalidateQueries({
           queryKey: ['soroswap-pool', token.id],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ['token-info', token.id],
         }),
         queryClient.invalidateQueries({
           queryKey: ['lp-position', token.id],
@@ -370,17 +484,27 @@ export function SwapCard({
         </button>
       </div>
 
-      {pool.data?.exists ? (
+      {isBondingCurve && curve.data && curveReserves ? (
+        <p className="mt-3 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center gap-1.5 text-sky-300 font-semibold">
+            ⚡ Virtual Bonding Curve
+          </span>
+          <span className="font-mono text-slate-300">
+            {formatAmount(curve.data.curve_xlm_net, 7)} / {GRADUATION_TARGET_XLM} XLM ·{' '}
+            {formatAmount(curveReserves.remainingCurveTokens, token.decimals)} {tokenSymbol} left
+          </span>
+        </p>
+      ) : effectivePool?.exists ? (
         <p className="mt-3 text-xs text-slate-400 flex items-center justify-between">
           <span>Pool Reserves:</span>
           <span className="font-mono text-slate-300">
-            {formatAmount(pool.data.reserveToken, token.decimals)} {tokenSymbol} ·{' '}
-            {formatAmount(pool.data.reserveXlm, 7)} XLM
+            {formatAmount(effectivePool.reserveToken, token.decimals)} {tokenSymbol} ·{' '}
+            {formatAmount(effectivePool.reserveXlm, 7)} XLM
           </span>
         </p>
-      ) : pool.isPending ? (
+      ) : pool.isPending || curve.isPending ? (
         <p className="mt-3 text-xs text-slate-400 animate-pulse">
-          Checking Soroswap pool reserves…
+          Checking bonding curve &amp; Soroswap pool reserves…
         </p>
       ) : (
         <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-center">
@@ -531,7 +655,7 @@ export function SwapCard({
           </div>
         </div>
 
-        {amountIn > 0n && pool.data?.exists ? (
+        {amountIn > 0n && effectivePool?.exists ? (
           <div className="grid gap-1.5 text-sm text-slate-300">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p>
@@ -571,7 +695,7 @@ export function SwapCard({
 
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-800/60 pt-1.5 text-[11px] text-slate-400">
                   <span>
-                    Pool share:{' '}
+                    {isBondingCurve ? 'Curve share:' : 'Pool share:'}{' '}
                     <strong className="font-mono text-slate-200">
                       {poolSharePct.toFixed(2)}%
                     </strong>
@@ -581,20 +705,28 @@ export function SwapCard({
                       </span>
                     ) : null}
                   </span>
-                  <span className="font-mono text-slate-500">
-                    {SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP fee · 0% protocol fee
+                  <span className="font-mono text-slate-400">
+                    {isBondingCurve
+                      ? `${(Number(curveFeeBps) / 100).toFixed(2)}% fee (0.50% Treasury + ${(Number(curveFeeBps - 50n) / 100).toFixed(2)}% Vault)`
+                      : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP fee · 0% protocol fee`}
                   </span>
                 </div>
+
+                {isBondingCurve && curveBuyQuote?.will_graduate ? (
+                  <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-[11px] font-semibold text-emerald-200">
+                    🎓 Graduation Buy: Deposits 1,000 XLM + 3M tokens into Soroswap LP (100% burned) and burns 1,485,000 tokens via token.burn()!
+                  </div>
+                ) : null}
 
                 {isBuy && poolSharePct > 5 ? (
                   <div className="mt-1 rounded-lg border border-amber-500/40 bg-amber-950/25 px-2.5 py-2 text-[11px] text-amber-200 space-y-1.5">
                     <p className="font-medium">
-                      🛡️ Anti-Whale Guard: Buying {poolSharePct.toFixed(1)}% of pool creates heavy slippage &amp; whale concentration.
+                      🛡️ Anti-Whale Guard: Buying {poolSharePct.toFixed(1)}% of {isBondingCurve ? 'curve' : 'pool'} {isBondingCurve ? 'triggers progressive floor fees' : 'creates heavy slippage & whale concentration'}.
                     </p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {[2, 5].map((safePct) => {
                         const safeXlmStroops = costToBuyPoolShareStroops(
-                          pool.data?.reserveXlm ?? 0n,
+                          effectivePool?.reserveXlm ?? 0n,
                           safePct,
                         )
                         if (safeXlmStroops <= 0n) return null
@@ -641,7 +773,7 @@ export function SwapCard({
                 </button>
               ) : null}
             </div>
-          ) : !pool.data?.exists ? null : (
+          ) : !effectivePool?.exists ? null : (
             <button
               type="submit"
               disabled={busy || amountIn <= 0n}
@@ -661,7 +793,9 @@ export function SwapCard({
           <div className="mt-2.5 flex items-center justify-between text-[11px] font-mono text-slate-400">
             <span>Slippage: {slippage}%</span>
             <span className="text-emerald-400 font-semibold">
-              {SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% AstroGate Fee
+              {isBondingCurve
+                ? '0.50% Treasury + 0.30% Vault Floor (+Anti-Whale Bonus)'
+                : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% AstroGate Fee`}
             </span>
           </div>
         </div>

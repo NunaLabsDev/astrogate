@@ -2,10 +2,10 @@
 
 AstroGate is a decentralized, zero-backend Fair Launchpad and automated market maker (AMM) built natively on Stellar/Soroban. It introduces fair, anti-rug memecoin launch mechanics to the Stellar ecosystem:
 
-- **Zero Protocol Deploy Fee**: Deploy a fair launch for only your XLM seed liquidity + standard Stellar network gas (~0.05 XLM).
-- **0.5% Creator · 99.5% Pool Allocation**: 50,000 tokens immediate to creator; 9,950,000 tokens seeded directly into the Soroswap AMM pair (`launch_fair`, min 2 XLM seed).
-- **Mandatory Anti-Rug LP Burn & On-Chain Registry**: 100% of initial LP tokens are irrevocably transferred on launch to Stellar's canonical dead address (`GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`) and recorded in the Launchpad v3 registry (`get_launches`, `get_launch`).
-- **Permanent Mint Freezing & On-Chain Burn-to-Chat**: Contract ownership is renounced immediately on launch (`renounce_ownership`), token supply is sealed via OpenZeppelin `Capped`, and traders can burn tokens on-chain to post live shouts (`burn_shout`, `get_shouts`).
+- **Zero Protocol Deploy Fee**: Deploy a Fair-Flywheel launch for your initial curve buy (`>= 2 XLM`) + standard Stellar network gas (~0.05 XLM).
+- **Fair-Flywheel v4 Allocation (`40 / 30 / 29.7 / 0.3`)**: `4,000,000` (`40%`) Virtual Bonding Curve (`3,000 vXLM → 1,000 XLM` goal) · `3,000,000` (`30%`) Soroswap DEX Reserve (`0.00%` graduation cliff) · `2,970,000` (`29.7%`) Milestone Proof-of-Burn Vault · `30,000` (`0.3%`) 15-day post-graduation creator vesting (5 tranches × 6,000 every 3 days).
+- **Anti-Whale Progressive Vault + Dual Proof-of-Burn & Registry**: Curve buys `> 2%` of virtual XLM add up to `+5.00%` straight into `real_xlm_vault`; at graduation (`1,000 XLM`), `100%` Soroswap LP is burned to `GAAAA...WHF`, Stage 1 burns `1,485,000` tokens via `token.burn()`, and Stage 2 permissionlessly burns `1,485,000` at `>= 2,500 XLM` DEX depth (`get_launches`, `get_curve`).
+- **Permanent Mint Freezing & 3-Tier Burn-to-Chat + King Shout**: Contract ownership is renounced immediately on launch (`renounce_ownership`), token supply is sealed via OpenZeppelin `Capped`, and traders burn tokens (`>= 25` Chat, `250` Hype, `>= 1,000` pinned King Shout) directly via `burn_shout`.
 - **Real-Time Live Pricing & 0ms Quotes**: Multi-source XLM oracle waterfall combined with instant deterministic `997/1000` constant-product AMM math and RPC failover across testnet nodes. Zero mock data.
 - **Zero-Backend Architecture**: Identity = non-custodial wallet (`@creit.tech/stellar-wallets-kit`) or 1-click Testnet Demo keypair. Data = Stellar Horizon + Soroban RPC.
 
@@ -35,8 +35,8 @@ flowchart TD
 | **Horizon Endpoint** | `https://horizon-testnet.stellar.org` |
 | **Flagship Token ($ASTRO)** | `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` |
 | **Token WASM Bytecode Hash** | `a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7` |
-| **Atomic Launchpad Contract (v3)** | `CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ` |
-| **Launchpad WASM Bytecode Hash (v3)** | `9b9476bb26be0474b3f5a7bddaee903aa4232a6d2f6690303788bb7db3326037` |
+| **Fair-Flywheel Launchpad Contract (v4)** | `CA343KTSUBOUABOVP7AHYMRKHJ3LD4OI3HTYXMCIS3USR3HK2L6LTRHV` |
+| **Launchpad WASM Bytecode Hash (v4)** | `30d39cf397f3f9037564a97252104331a8f7e6001db3b8405608bf2d81a95007` |
 | **Soroswap Factory** | `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY` |
 | **Soroswap Router** | `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD` |
 | **XLM SAC (Stellar Asset Contract)** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
@@ -49,12 +49,12 @@ flowchart TD
 
 1. **Fair Launch Form (`/create`)**:
    - Minimalist launchpad (`launch_fair`): Name, Ticker, Seed XLM, live SVG preview, and optional collapsed off-chain links encoded in on-chain `meta` (`≤ 512` bytes).
-   - Fixed 10M supply (7 decimals, aligned with 1 XLM = 10^7 stroops; min 2 XLM LP): seeds 9.95M tokens (99.5%) + seed XLM directly into Soroswap, sends 50K (0.5%) to creator, burns 100% LP to `GAAAA...WHF`, and renounces mint authority atomically in one transaction.
-2. **Instant AMM Trading, Burn-to-Chat & Audit (`/token/:id`)**:
-   - Buy/sell against Soroswap pools with instant local `997/1000` quotes (0ms lag) and dynamic price-impact / slippage guards.
-   - Real on-chain Burn-to-Chat (`burn_shout` + `get_shouts`), live ledger activity feed, and dedicated **Audit & Contract** tab with 90-day TTL refresh (`extendTokenTtl`).
+   - Fixed 10M supply (7 decimals, aligned with 1 XLM = 10^7 stroops; min 2 XLM initial curve buy): locks `40%` on the `3,000 vXLM → 1,000 XLM` Virtual Bonding Curve, `30%` Soroswap DEX Reserve, `29.7%` Proof-of-Burn Vault (`1.485M` on graduation + `1.485M` at `2,500 XLM`), and `0.3%` 15-day post-graduation creator vesting, while renouncing mint authority atomically.
+2. **Instant Curve & AMM Trading, King Shout & Audit (`/token/:id`)**:
+   - Seamless deterministic quotes against either the Fair-Flywheel Bonding Curve (pre-graduation) or Soroswap DEX pools (post-graduation) with dynamic anti-whale / slippage guards and permissionless `trigger_milestone_burn` / `claim_creator_vesting`.
+   - 3-tier Burn-to-Chat (`burn_shout`, `get_king_shout`), live ledger activity feed, and **Audit & Contract** tab with 90-day TTL refresh (`extendTokenTtl`).
 3. **Live Pump-Style Market Feed (`/`, `/market`)**:
-   - Discovers tokens directly from the Launchpad v3 on-chain registry (`get_launches`) merged with Soroswap factory events (no external DB needed).
+   - Discovers tokens directly from the Launchpad v4 on-chain registry (`get_launches`, `get_curve`) merged with Soroswap factory events (no external DB needed).
    - Features King of the Hill spotlight, Fair Launchpad verified filter (`✓ Fair`), instant search, and watchlist.
 4. **Local Portfolio & Data Export (`/portfolio`)**:
    - View created tokens, user holdings, and local transaction activity.

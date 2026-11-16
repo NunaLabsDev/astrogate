@@ -1,18 +1,17 @@
-//! Unit tests for the AstroGate Atomic Launchpad Contract.
+//! Comprehensive unit & adversarial tests for AstroGate Fair-Flywheel Launchpad v4.
 
 extern crate std;
 
 use soroban_sdk::{
     contract, contractimpl,
-    testutils::{Address as _, Events},
+    testutils::{Address as _, Ledger},
     token, Address, BytesN, Env, String,
 };
 
 use crate::contract::{FairLaunchParams, LaunchParams, Launchpad, LaunchpadClient, LaunchpadError};
-
-// Cliente real del token (el wasm de dev-deps también se usa en el
-// launch success) para verificar invariantes de fair launch.
 use astro_token::TokenClient as AstroTokenClient;
+
+const STROOPS: i128 = 10_000_000;
 
 // -------------------------------------------------------------------------
 // Mock Soroswap Factory & Pair
@@ -23,8 +22,21 @@ pub struct MockSoroswapPair;
 
 #[contractimpl]
 impl MockSoroswapPair {
-    pub fn __constructor(e: &Env, reserves: (i128, i128)) {
-        // Reservas iniciales simuladas; deposit las deja como estaban.
+    pub fn __constructor(e: &Env, token0: Address, token1: Address, reserves: (i128, i128)) {
+        e.storage().instance().set(&0u32, &reserves);
+        e.storage().instance().set(&2u32, &token0);
+        e.storage().instance().set(&3u32, &token1);
+    }
+
+    pub fn token_0(e: &Env) -> Address {
+        e.storage().instance().get(&2u32).unwrap()
+    }
+
+    pub fn token_1(e: &Env) -> Address {
+        e.storage().instance().get(&3u32).unwrap()
+    }
+
+    pub fn set_reserves(e: &Env, reserves: (i128, i128)) {
         e.storage().instance().set(&0u32, &reserves);
     }
 
@@ -32,10 +44,10 @@ impl MockSoroswapPair {
         e.storage().instance().get(&0u32).unwrap_or((0, 0))
     }
 
-    /// Guarda el destinatario del LP para verificar la quema en tests.
+    /// Saves LP recipient to verify permanent burn to `burn_address`.
     pub fn deposit(e: &Env, to: Address) -> i128 {
         e.storage().instance().set(&1u32, &to);
-        495_000_000 // mock LP tokens minted
+        495_000_000
     }
 
     pub fn lp_recipient(e: &Env) -> Address {
@@ -66,715 +78,589 @@ impl MockSoroswapFactory {
     }
 }
 
-// -------------------------------------------------------------------------
-// Mock XLM SAC Token
-// -------------------------------------------------------------------------
-
-#[contract]
-pub struct MockToken;
-
-#[contractimpl]
-impl MockToken {
-    pub fn transfer(_e: &Env, _from: Address, _to: Address, _amount: i128) {
-        // Mock transfer succeeds
-    }
-}
-
-/// Pre-built token contract WASM for integration testing.
-/// PREREQUISITE: If running tests in a clean repository, run:
-///   `cd contracts/token && stellar contract build`
-/// before executing `cargo test -p astro-launchpad-contract`.
 const TOKEN_WASM: &[u8] = include_bytes!("../../../target/wasm32v1-none/release/astro_token.wasm");
 
-// -------------------------------------------------------------------------
-// Tests
-// -------------------------------------------------------------------------
-
-#[test]
-fn test_launchpad_initialization() {
+fn create_env() -> Env {
     let e = Env::default();
-    let factory = Address::generate(&e);
-    let xlm_sac = Address::generate(&e);
-    let burn_addr = Address::generate(&e);
-    let wasm_hash = BytesN::from_array(&e, &[7u8; 32]);
+    e.mock_all_auths();
+    e
+}
 
-    let launchpad_addr = e.register(
+struct EnvSetup {
+    launchpad: Address,
+    xlm_sac: Address,
+    factory: Address,
+    pair: Address,
+    burn_addr: Address,
+    treasury: Address,
+}
+
+fn setup_launchpad(e: &Env, pair_exists: bool, initial_reserves: (i128, i128)) -> EnvSetup {
+    let xlm_admin = Address::generate(e);
+    let xlm_sac_contract = e.register_stellar_asset_contract_v2(xlm_admin);
+    let xlm_sac = xlm_sac_contract.address();
+
+    let dummy_tok = Address::generate(e);
+    let pair = e.register(
+        MockSoroswapPair,
+        (xlm_sac.clone(), dummy_tok, initial_reserves),
+    );
+    let factory = e.register(MockSoroswapFactory, (pair.clone(), pair_exists));
+    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    let burn_addr = Address::generate(e);
+    let treasury = Address::generate(e);
+
+    let launchpad = e.register(
         Launchpad,
         (
             factory.clone(),
             xlm_sac.clone(),
-            wasm_hash.clone(),
+            wasm_hash,
             burn_addr.clone(),
+            treasury.clone(),
         ),
     );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
 
-    assert_eq!(client.get_factory(), Some(factory));
-    assert_eq!(client.get_xlm_sac(), Some(xlm_sac));
-    assert_eq!(client.get_burn_address(), Some(burn_addr));
-    assert_eq!(client.get_token_wasm_hash(), Some(wasm_hash));
+    EnvSetup {
+        launchpad,
+        xlm_sac,
+        factory,
+        pair,
+        burn_addr,
+        treasury,
+    }
 }
 
 #[test]
-fn test_invalid_amounts_fail() {
-    let e = Env::default();
-    let factory = Address::generate(&e);
-    let xlm_sac = Address::generate(&e);
-    let burn_addr = Address::generate(&e);
-    let wasm_hash = BytesN::from_array(&e, &[7u8; 32]);
+fn test_launchpad_initialization() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
 
-    let launchpad_addr = e.register(Launchpad, (factory, xlm_sac, wasm_hash, burn_addr));
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
-    e.mock_all_auths();
-
-    // 0 XLM should fail
-    let res_zero_xlm = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 0, // invalid xlm amount
-        salt: BytesN::from_array(&e, &[1u8; 32]),
-    });
-    assert_eq!(res_zero_xlm, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // Just below MIN_XLM_LP_STROOPS (20_000_000 - 1 = 19_999_999 stroops = 1.9999999 XLM) should fail
-    let res_sub_min_xlm = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 19_999_999, // < MIN_XLM_LP_STROOPS
-        salt: BytesN::from_array(&e, &[1u8; 32]),
-    });
-    assert_eq!(res_sub_min_xlm, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // Less than 99.5% token LP allocation should fail
-    let res_low_lp = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 990_000_000, // only 99.0%, fails fair launch 99.5% invariant
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[2u8; 32]),
-    });
-    assert_eq!(res_low_lp, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // Exceeding MAX_INITIAL_SUPPLY (10^19 + 1) should fail
-    let res_max_supply = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 10_000_000_000_000_000_001_i128,
-        token_lp_amount: 9_950_000_000_000_000_000_i128,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[3u8; 32]),
-    });
-    assert_eq!(res_max_supply, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // initial_supply <= 1_000 should fail
-    let res_min_supply = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000,
-        token_lp_amount: 995,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[4u8; 32]),
-    });
-    assert_eq!(res_min_supply, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // token_lp_amount > initial_supply should fail
-    let res_excess_lp = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 1_000_000_001,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[5u8; 32]),
-    });
-    assert_eq!(res_excess_lp, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // token_lp_amount <= 0 should fail
-    let res_zero_lp = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 0,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[6u8; 32]),
-    });
-    assert_eq!(res_zero_lp, Err(Ok(LaunchpadError::InvalidAmount)));
-
-    // decimals > 18 should fail with InvalidMetadata
-    let res_invalid_dec = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 19,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[7u8; 32]),
-    });
-    assert_eq!(res_invalid_dec, Err(Ok(LaunchpadError::InvalidMetadata)));
-
-    // Empty name should fail with InvalidMetadata
-    let res_empty_name = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, ""),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[8u8; 32]),
-    });
-    assert_eq!(res_empty_name, Err(Ok(LaunchpadError::InvalidMetadata)));
-
-    // Empty symbol should fail with InvalidMetadata
-    let res_empty_symbol = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, ""),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[9u8; 32]),
-    });
-    assert_eq!(res_empty_symbol, Err(Ok(LaunchpadError::InvalidMetadata)));
-
-    // Name > 32 bytes should fail with InvalidMetadata
-    let res_long_name = client.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "123456789012345678901234567890123"),
-        symbol: String::from_str(&e, "TST"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[10u8; 32]),
-    });
-    assert_eq!(res_long_name, Err(Ok(LaunchpadError::InvalidMetadata)));
-
-    // Symbol > 32 bytes should fail with InvalidMetadata
-    let res_long_symbol = client.try_launch_token(&LaunchParams {
-        creator,
-        name: String::from_str(&e, "Test"),
-        symbol: String::from_str(&e, "123456789012345678901234567890123"),
-        decimals: 7,
-        initial_supply: 1_000_000_000,
-        token_lp_amount: 995_000_000,
-        xlm_lp_amount: 20_000_000,
-        salt: BytesN::from_array(&e, &[11u8; 32]),
-    });
-    assert_eq!(res_long_symbol, Err(Ok(LaunchpadError::InvalidMetadata)));
-}
-
-#[test]
-fn test_pre_seeded_pair_rejected() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    // Par ya sembrado por OTRO proyecto: token_0 sin liquidez lateral.
-    let pair_addr = e.register(MockSoroswapPair, ((2_000_000_i128, 5_000_000_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr.clone(), true));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
-    let res = client.try_launch_token(&LaunchParams {
-        creator,
-        name: String::from_str(&e, "Astro Token"),
-        symbol: String::from_str(&e, "ASTRO"),
-        decimals: 7,
-        initial_supply: 10_000_000_000_000_000_i128,
-        token_lp_amount: 9_950_000_000_000_000_i128,
-        xlm_lp_amount: 100_000_000_i128,
-        salt: BytesN::from_array(&e, &[9u8; 32]),
-    });
-
-    // Se aborta sin añadir liquidez encima de un par ajeno (resultante del
-    // guard: revert total, no queda token alguno a medias).
-    assert_eq!(res, Err(Ok(LaunchpadError::PairAlreadySeeded)));
-}
-
-#[test]
-fn test_atomic_launch_success() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr.clone(), false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (
-            factory_addr.clone(),
-            xlm_sac_addr.clone(),
-            wasm_hash.clone(),
-            burn_addr.clone(),
-        ),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
-    let initial_supply = 10_000_000_000_000_000_i128; // 1B con 7 decimales
-    let token_lp = 9_950_000_000_000_000_i128; // 99.5%
-    let xlm_lp = 100_000_000_i128; // 10 XLM
-
-    let result = client.launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Astro Token"),
-        symbol: String::from_str(&e, "ASTRO"),
-        decimals: 7,
-        initial_supply,
-        token_lp_amount: token_lp,
-        xlm_lp_amount: xlm_lp,
-        salt: BytesN::from_array(&e, &[42u8; 32]),
-    });
-
-    // Verify event was emitted by launch_token (must be queried immediately after the call)
-    let events = e.events().all();
-    assert!(!events.events().is_empty());
-
-    // Verify result returns deployed token & pair
-    assert_eq!(result.lp_minted, 495_000_000);
-    assert_eq!(result.pair, pair_addr);
-
-    // Verify creator received 0.5% (50,000,000) — 5M tokens, 7 decimales
-    let deployed_token_client = token::Client::new(&e, &result.token);
-    assert_eq!(
-        deployed_token_client.balance(&creator),
-        50_000_000_000_000_i128
-    );
-
-    // Pair del token ya creado: LP SIEMPRE minted to the burn address,
-    // never to the creator.
-    assert_eq!(
-        MockSoroswapPairClient::new(&e, &result.pair).lp_recipient(),
-        burn_addr
-    );
-
-    // Fair-launch invariants del token REAL deployment (wasm de astro-token):
-    // ownership renunciado y pool con el token liquido.
-    let astro_client = AstroTokenClient::new(&e, &result.token);
-    assert_eq!(astro_client.get_owner(), None);
-    assert_eq!(astro_client.total_supply(), initial_supply);
-
-    let remaining = deployed_token_client.balance(&result.pair);
-    assert_eq!(remaining, token_lp);
-}
-
-#[test]
-fn test_pre_seeded_pair_asymmetric_reserves() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-    let creator = Address::generate(&e);
-
-    // Case 1: reserve_a > 0, reserve_b == 0
-    let pair_addr_1 = e.register(MockSoroswapPair, ((1_000_000_i128, 0_i128),));
-    let factory_addr_1 = e.register(MockSoroswapFactory, (pair_addr_1, true));
-    let launchpad_1 = e.register(
-        Launchpad,
-        (
-            factory_addr_1,
-            xlm_sac_addr.clone(),
-            wasm_hash.clone(),
-            burn_addr.clone(),
-        ),
-    );
-    let client_1 = LaunchpadClient::new(&e, &launchpad_1);
-
-    let res_1 = client_1.try_launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Astro Token"),
-        symbol: String::from_str(&e, "ASTRO"),
-        decimals: 7,
-        initial_supply: 10_000_000_000_000_000_i128,
-        token_lp_amount: 9_950_000_000_000_000_i128,
-        xlm_lp_amount: 100_000_000_i128,
-        salt: BytesN::from_array(&e, &[12u8; 32]),
-    });
-    assert_eq!(res_1, Err(Ok(LaunchpadError::PairAlreadySeeded)));
-
-    // Case 2: reserve_a == 0, reserve_b > 0
-    let pair_addr_2 = e.register(MockSoroswapPair, ((0_i128, 5_000_000_i128),));
-    let factory_addr_2 = e.register(MockSoroswapFactory, (pair_addr_2, true));
-    let launchpad_2 = e.register(
-        Launchpad,
-        (factory_addr_2, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client_2 = LaunchpadClient::new(&e, &launchpad_2);
-
-    let res_2 = client_2.try_launch_token(&LaunchParams {
-        creator,
-        name: String::from_str(&e, "Astro Token"),
-        symbol: String::from_str(&e, "ASTRO"),
-        decimals: 7,
-        initial_supply: 10_000_000_000_000_000_i128,
-        token_lp_amount: 9_950_000_000_000_000_i128,
-        xlm_lp_amount: 100_000_000_i128,
-        salt: BytesN::from_array(&e, &[13u8; 32]),
-    });
-    assert_eq!(res_2, Err(Ok(LaunchpadError::PairAlreadySeeded)));
-}
-
-#[test]
-fn test_empty_existing_pair_reused_successfully() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    // Existing pair registered in factory with (0, 0) reserves
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr.clone(), true)); // pair_exists = true
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr.clone()),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
-    let res = client.launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Astro Token"),
-        symbol: String::from_str(&e, "ASTRO"),
-        decimals: 7,
-        initial_supply: 1_000_000_000_000_000_i128,
-        token_lp_amount: 995_000_000_000_000_i128,
-        xlm_lp_amount: 50_000_000_i128,
-        salt: BytesN::from_array(&e, &[14u8; 32]),
-    });
-
-    assert_eq!(res.pair, pair_addr);
-    assert_eq!(
-        MockSoroswapPairClient::new(&e, &res.pair).lp_recipient(),
-        burn_addr
-    );
-}
-
-#[test]
-fn test_full_100_percent_lp_launch() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr.clone(), false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
-    let supply = 1_000_000_000_000_000_i128;
-    // 100% supply to LP, 0 creator share
-    let result = client.launch_token(&LaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Full LP"),
-        symbol: String::from_str(&e, "FLP"),
-        decimals: 7,
-        initial_supply: supply,
-        token_lp_amount: supply,
-        xlm_lp_amount: 20_000_000_i128,
-        salt: BytesN::from_array(&e, &[15u8; 32]),
-    });
-
-    let deployed_token_client = token::Client::new(&e, &result.token);
-    // Creator gets 0 tokens
-    assert_eq!(deployed_token_client.balance(&creator), 0);
-    // Pair receives 100% of tokens
-    assert_eq!(deployed_token_client.balance(&result.pair), supply);
-}
-
-#[test]
-fn test_launch_fair_and_registry() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr.clone(), false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr.clone()),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-    let creator = Address::generate(&e);
-
+    assert_eq!(client.get_factory(), Some(s.factory));
+    assert_eq!(client.get_xlm_sac(), Some(s.xlm_sac));
+    assert_eq!(client.get_burn_address(), Some(s.burn_addr));
+    assert_eq!(client.get_treasury(), Some(s.treasury));
+    assert!(client.get_token_wasm_hash().is_some());
     assert_eq!(client.get_launch_count(), 0);
-    assert!(client.get_launches(&0, &10).is_empty());
-
-    let meta_one = String::from_str(&e, r#"{"d":"First fair coin","x":"@firstcoin"}"#);
-    let res_one = client.launch_fair(&FairLaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Moon Cat"),
-        symbol: String::from_str(&e, "MCAT"),
-        xlm_lp_amount: 50_000_000_i128,
-        meta: meta_one.clone(),
-        salt: BytesN::from_array(&e, &[21u8; 32]),
-    });
-
-    let tok_one = AstroTokenClient::new(&e, &res_one.token);
-    assert_eq!(tok_one.decimals(), 7);
-    assert_eq!(tok_one.total_supply(), 100_000_000_000_000_i128);
-    assert_eq!(tok_one.balance(&creator), 500_000_000_000_i128);
-    assert_eq!(tok_one.balance(&res_one.pair), 99_500_000_000_000_i128);
-    assert_eq!(tok_one.get_owner(), None);
-    assert_eq!(
-        MockSoroswapPairClient::new(&e, &res_one.pair).lp_recipient(),
-        burn_addr
-    );
-
-    let res_two = client.launch_fair(&FairLaunchParams {
-        creator: creator.clone(),
-        name: String::from_str(&e, "Solar Pup"),
-        symbol: String::from_str(&e, "SPUP"),
-        xlm_lp_amount: 100_000_000_i128,
-        meta: String::from_str(&e, ""),
-        salt: BytesN::from_array(&e, &[22u8; 32]),
-    });
-
-    assert_eq!(client.get_launch_count(), 2);
-
-    // `get_launches` returns newest-first records
-    let page = client.get_launches(&0, &10);
-    assert_eq!(page.len(), 2);
-    let newest = page.get(0).unwrap();
-    let oldest = page.get(1).unwrap();
-    assert_eq!(newest.index, 1);
-    assert_eq!(newest.token, res_two.token);
-    assert_eq!(newest.symbol, String::from_str(&e, "SPUP"));
-    assert_eq!(oldest.index, 0);
-    assert_eq!(oldest.token, res_one.token);
-    assert_eq!(oldest.meta, meta_one);
-
-    // Offset pagination works cleanly
-    let page_two = client.get_launches(&1, &10);
-    assert_eq!(page_two.len(), 1);
-    assert_eq!(page_two.get(0).unwrap().token, res_one.token);
-
-    // Direct lookup by token address
-    let fetched = client.get_launch(&res_one.token).unwrap();
-    assert_eq!(fetched.creator, creator);
-    assert_eq!(fetched.lp_minted, res_one.lp_minted);
-    assert!(client.get_launch(&Address::generate(&e)).is_none());
-
-    // Permissionless TTL refresh endpoints succeed
-    client.extend_ttl();
-    client.extend_launch_ttl(&res_one.token);
 }
 
 #[test]
-fn test_launch_fair_validation_errors() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
+fn test_invalid_amounts_and_metadata_fail() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
     let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(500 * STROOPS));
 
-    // Oversized off-chain meta (>512 bytes) -> InvalidMetadata
-    let huge_meta = std::string::String::from_utf8(std::vec![b'a'; 513]).unwrap();
-    let err_meta = client
-        .try_launch_fair(&FairLaunchParams {
+    // Legacy launch_token validations
+    assert_eq!(
+        client.try_launch_token(&LaunchParams {
             creator: creator.clone(),
-            name: String::from_str(&e, "Meta Fail"),
-            symbol: String::from_str(&e, "META"),
-            xlm_lp_amount: 50_000_000_i128,
-            meta: String::from_str(&e, &huge_meta),
-            salt: BytesN::from_array(&e, &[23u8; 32]),
-        })
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_meta, LaunchpadError::InvalidMetadata);
+            name: String::from_str(&e, "Test"),
+            symbol: String::from_str(&e, "TST"),
+            decimals: 7,
+            initial_supply: 1_000_000_000,
+            token_lp_amount: 995_000_000,
+            xlm_lp_amount: 19_999_999,
+            salt: BytesN::from_array(&e, &[1u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
 
-    // Below minimum XLM LP (<1 XLM) -> InvalidAmount
-    let err_amt = client
-        .try_launch_fair(&FairLaunchParams {
-            creator,
+    // Fair launch below 2 XLM minimum -> InvalidAmount
+    assert_eq!(
+        client.try_launch_fair(&FairLaunchParams {
+            creator: creator.clone(),
             name: String::from_str(&e, "Low XLM"),
             symbol: String::from_str(&e, "LOWX"),
-            xlm_lp_amount: 19_999_999_i128,
+            xlm_lp_amount: 19_999_999,
             meta: String::from_str(&e, ""),
-            salt: BytesN::from_array(&e, &[24u8; 32]),
-        })
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_amt, LaunchpadError::InvalidAmount);
+            salt: BytesN::from_array(&e, &[2u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+
+    // Empty name -> InvalidMetadata
+    assert_eq!(
+        client.try_launch_fair(&FairLaunchParams {
+            creator: creator.clone(),
+            name: String::from_str(&e, ""),
+            symbol: String::from_str(&e, "EMPT"),
+            xlm_lp_amount: 20_000_000,
+            meta: String::from_str(&e, ""),
+            salt: BytesN::from_array(&e, &[3u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::InvalidMetadata))
+    );
+
+    // Oversized meta > 512 bytes -> InvalidMetadata
+    let huge_meta = std::string::String::from_utf8(std::vec![b'a'; 513]).unwrap();
+    assert_eq!(
+        client.try_launch_fair(&FairLaunchParams {
+            creator,
+            name: String::from_str(&e, "Huge Meta"),
+            symbol: String::from_str(&e, "HUGE"),
+            xlm_lp_amount: 20_000_000,
+            meta: String::from_str(&e, &huge_meta),
+            salt: BytesN::from_array(&e, &[4u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::InvalidMetadata))
+    );
 }
 
 #[test]
-fn test_burn_shout_burns_tokens_and_caps_history() {
-    let e = Env::default();
-    e.mock_all_auths();
+fn test_fair_flywheel_curve_proportionality_and_anti_whale_fees() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let xlm_tok = token::Client::new(&e, &s.xlm_sac);
 
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
     let creator = Address::generate(&e);
+    let buyer_small = Address::generate(&e);
+    let buyer_10x = Address::generate(&e);
+    xlm_sac.mint(&creator, &(100 * STROOPS));
+    xlm_sac.mint(&buyer_small, &(100 * STROOPS));
+    xlm_sac.mint(&buyer_10x, &(500 * STROOPS));
+
+    // Launch with creator minimum 2 XLM initial curve buy
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Flywheel Coin"),
+        symbol: String::from_str(&e, "FLYW"),
+        xlm_lp_amount: 2 * STROOPS,
+        meta: String::from_str(&e, r#"{"d":"Fair 2026 curve"}"#),
+        salt: BytesN::from_array(&e, &[10u8; 32]),
+    });
+
+    assert!(res.pair.is_none());
+    let tok = AstroTokenClient::new(&e, &res.token);
+    assert_eq!(tok.decimals(), 7);
+    assert_eq!(tok.total_supply(), 10_000_000 * STROOPS);
+    assert_eq!(tok.get_owner(), None);
+
+    // Creator holds ONLY the ~2 XLM worth of curve tokens (not the 0.3% locked vesting!)
+    let creator_bal = tok.balance(&creator);
+    assert!(creator_bal > 10_000 * STROOPS && creator_bal < 11_000 * STROOPS);
+
+    let curve_0 = client.get_curve(&res.token).unwrap();
+    assert!(!curve_0.graduated);
+    assert_eq!(curve_0.burn_vault_remaining, 2_970_000 * STROOPS);
+    assert_eq!(curve_0.creator_vesting_total, 30_000 * STROOPS);
+    assert_eq!(curve_0.creator_claimed, 0);
+
+    // Buyer 1 puts 10 XLM (standard 0.80% fee: 50 bps treasury + 30 bps floor bonus)
+    let q_small = client.quote_buy(&res.token, &(10 * STROOPS));
+    assert_eq!(q_small.total_fee_bps, 80);
+    let b1 = client.buy_curve(
+        &buyer_small,
+        &res.token,
+        &(10 * STROOPS),
+        &q_small.tokens_out,
+    );
+    assert_eq!(b1.tokens, q_small.tokens_out);
+    assert_eq!(tok.balance(&buyer_small), b1.tokens);
+
+    // Buyer 2 puts 100 XLM (10x Buyer 1): triggers progressive anti-whale surcharge (> 2% of vXLM)
+    let q_10x = client.quote_buy(&res.token, &(100 * STROOPS));
+    assert!(q_10x.total_fee_bps > 80); // Progressive anti-whale fee active
+    assert_eq!(q_10x.treasury_fee, (100 * STROOPS * 50) / 10_000); // Treasury stays fixed at 0.50%
+    assert!(q_10x.floor_bonus > (100 * STROOPS * 30) / 10_000); // Extra surcharge went to pool floor!
+
+    let b2 = client.buy_curve(&buyer_10x, &res.token, &(100 * STROOPS), &q_10x.tokens_out);
+
+    // Whale 100 XLM only acquires ~5.1% of 10M total supply (anti-hoarding by math!),
+    // and ratio b2 / b1 is ~9.4x (no unfair 1st-buyer 7M vs 2M gap!)
+    assert!(b2.tokens < 525_000 * STROOPS);
+    assert!(b2.tokens > b1.tokens * 9);
+
+    // Vault solvency check: real contract XLM matches curve.real_xlm_vault exact!
+    let curve_after = client.get_curve(&res.token).unwrap();
+    assert!(curve_after.real_xlm_vault > curve_after.curve_xlm_net);
+    assert_eq!(xlm_tok.balance(&s.launchpad), curve_after.real_xlm_vault);
+    assert!(xlm_tok.balance(&s.treasury) > 0);
+}
+
+#[test]
+fn test_buy_sell_roundtrip_conservation_and_slippage() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let xlm_tok = token::Client::new(&e, &s.xlm_sac);
+
+    let creator = Address::generate(&e);
+    let trader = Address::generate(&e);
+    xlm_sac.mint(&creator, &(20 * STROOPS));
+    xlm_sac.mint(&trader, &(200 * STROOPS));
 
     let res = client.launch_fair(&FairLaunchParams {
         creator: creator.clone(),
-        name: String::from_str(&e, "Chat Coin"),
-        symbol: String::from_str(&e, "CHAT"),
-        xlm_lp_amount: 50_000_000_i128,
+        name: String::from_str(&e, "RoundTrip"),
+        symbol: String::from_str(&e, "RNDP"),
+        xlm_lp_amount: 2 * STROOPS,
         meta: String::from_str(&e, ""),
-        salt: BytesN::from_array(&e, &[25u8; 32]),
+        salt: BytesN::from_array(&e, &[11u8; 32]),
     });
 
-    // Validation failures
-    let err_empty = client
-        .try_burn_shout(&creator, &res.token, &100_i128, &String::from_str(&e, ""))
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_empty, LaunchpadError::InvalidMetadata);
-
-    let err_zero = client
-        .try_burn_shout(&creator, &res.token, &0_i128, &String::from_str(&e, "gm"))
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_zero, LaunchpadError::InvalidAmount);
-
-    let long_msg = std::string::String::from_utf8(std::vec![b'x'; 161]).unwrap();
-    let err_long = client
-        .try_burn_shout(
-            &creator,
+    // Trader buys 150 XLM
+    let q_buy = client.quote_buy(&res.token, &(150 * STROOPS));
+    // Impossible slippage minimum -> reverts cleanly with SlippageExceeded (#5)
+    assert_eq!(
+        client.try_buy_curve(
+            &trader,
             &res.token,
-            &100_i128,
-            &String::from_str(&e, &long_msg),
-        )
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_long, LaunchpadError::InvalidMetadata);
+            &(150 * STROOPS),
+            &(q_buy.tokens_out + 1),
+        ),
+        Err(Ok(LaunchpadError::SlippageExceeded))
+    );
 
-    // Post 18 shouts (burning 1_000_000 stroops each) -> capped to latest 15
+    let buy_res = client.buy_curve(&trader, &res.token, &(150 * STROOPS), &q_buy.tokens_out);
+    let xlm_before_sell = xlm_tok.balance(&trader);
+
+    // Impossible sell slippage -> reverts cleanly
+    let q_sell = client.quote_sell(&res.token, &buy_res.tokens);
+    assert_eq!(
+        client.try_sell_curve(
+            &trader,
+            &res.token,
+            &buy_res.tokens,
+            &(q_sell.net_xlm_out + 1)
+        ),
+        Err(Ok(LaunchpadError::SlippageExceeded))
+    );
+
+    // Overdraft sell (> tokens_sold) -> reverts cleanly
+    let curve_now = client.get_curve(&res.token).unwrap();
+    assert_eq!(
+        client.try_sell_curve(&trader, &res.token, &(curve_now.tokens_sold + 1), &0),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+
+    // Trader sells 100% of their tokens back to curve; Creator also sells 100% -> vault remains >= 0!
+    let sell_trader = client.sell_curve(&trader, &res.token, &buy_res.tokens, &q_sell.net_xlm_out);
+    assert_eq!(sell_trader.xlm, q_sell.net_xlm_out);
+    assert_eq!(xlm_tok.balance(&trader), xlm_before_sell + sell_trader.xlm);
+
     let tok = AstroTokenClient::new(&e, &res.token);
-    let starting_balance = tok.balance(&creator);
-    let starting_supply = tok.total_supply();
+    let creator_tokens = tok.balance(&creator);
+    let sell_creator = client.sell_curve(&creator, &res.token, &creator_tokens, &1);
+    assert!(sell_creator.xlm > 0);
 
-    for i in 1..=18_i128 {
-        let msg = std::format!("shout #{i}");
-        client.burn_shout(
-            &creator,
-            &res.token,
-            &1_000_000_i128,
-            &String::from_str(&e, &msg),
-        );
-        // `e.events().all()` only returns events from the most recent invocation
-        assert!(!e.events().all().events().is_empty());
-    }
-
-    assert_eq!(tok.balance(&creator), starting_balance - 18_000_000_i128);
-    assert_eq!(tok.total_supply(), starting_supply - 18_000_000_i128);
-
-    let shouts = client.get_shouts(&res.token);
-    assert_eq!(shouts.len(), 15);
-    assert_eq!(
-        shouts.get(0).unwrap().message,
-        String::from_str(&e, "shout #4")
-    );
-    assert_eq!(
-        shouts.get(14).unwrap().message,
-        String::from_str(&e, "shout #18")
-    );
-    assert_eq!(shouts.get(14).unwrap().amount, 1_000_000_i128);
+    let curve_empty = client.get_curve(&res.token).unwrap();
+    assert_eq!(curve_empty.tokens_sold, 0);
+    assert_eq!(curve_empty.curve_xlm_net, 0);
+    // Floor bonuses accumulated inside real_xlm_vault stay > 0 even at 0 tokens_sold!
+    assert!(curve_empty.real_xlm_vault > 0);
+    assert_eq!(xlm_tok.balance(&s.launchpad), curve_empty.real_xlm_vault);
 }
 
 #[test]
-fn test_adversarial_salt_frontrunning_and_duplicate_salt() {
-    let e = Env::default();
-    e.mock_all_auths();
+fn test_graduation_milestone_burns_and_creator_vesting_15d() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let xlm_tok = token::Client::new(&e, &s.xlm_sac);
 
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
+    let creator = Address::generate(&e);
+    let whale = Address::generate(&e);
+    let closer = Address::generate(&e);
+    let stranger = Address::generate(&e);
 
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
+    xlm_sac.mint(&creator, &(50 * STROOPS));
+    xlm_sac.mint(&whale, &(1_000 * STROOPS));
+    xlm_sac.mint(&closer, &(500 * STROOPS));
+
+    let launch = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Grad Token"),
+        symbol: String::from_str(&e, "GRAD"),
+        xlm_lp_amount: 10 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[30u8; 32]),
+    });
+
+    // Cannot claim vesting or trigger milestone 2 before graduation
+    assert_eq!(
+        client.try_claim_creator_vesting(&creator, &launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
     );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
+    assert_eq!(
+        client.try_trigger_milestone_burn(&launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // Whale buys 800 XLM (sub-goal)
+    client.buy_curve(&whale, &launch.token, &(800 * STROOPS), &1);
+
+    // Closer sends 400 XLM max_in -> contract only charges exact XLM remaining to reach 1,000 net XLM!
+    let closer_bal_before = xlm_tok.balance(&closer);
+    let grad_quote = client.quote_buy(&launch.token, &(400 * STROOPS));
+    assert!(grad_quote.will_graduate);
+    assert!(grad_quote.total_xlm_charged < 400 * STROOPS);
+
+    let grad_trade = client.buy_curve(
+        &closer,
+        &launch.token,
+        &(400 * STROOPS),
+        &grad_quote.tokens_out,
+    );
+    assert!(grad_trade.graduated);
+    assert_eq!(grad_trade.pair, Some(s.pair.clone()));
+    assert_eq!(
+        xlm_tok.balance(&closer),
+        closer_bal_before - grad_quote.total_xlm_charged
+    );
+
+    let curve_grad = client.get_curve(&launch.token).unwrap();
+    assert!(curve_grad.graduated);
+    assert_eq!(curve_grad.tokens_sold, 4_000_000 * STROOPS);
+    assert_eq!(curve_grad.curve_xlm_net, 1_000 * STROOPS);
+    assert_eq!(curve_grad.real_xlm_vault, 0);
+    assert_eq!(curve_grad.burn_milestone_stage, 1);
+    assert_eq!(curve_grad.burn_vault_remaining, 1_485_000 * STROOPS);
+
+    // Soroswap pair received 3,000,000 tokens + >1,000 XLM (including floor bonuses!), LP burned!
+    let tok = AstroTokenClient::new(&e, &launch.token);
+    assert_eq!(tok.balance(&s.pair), 3_000_000 * STROOPS);
+    assert!(xlm_tok.balance(&s.pair) > 1_000 * STROOPS);
+    assert_eq!(
+        MockSoroswapPairClient::new(&e, &s.pair).lp_recipient(),
+        s.burn_addr
+    );
+
+    // Milestone 1 burned 1,485,000 tokens directly via token.burn(), cutting supply to 8,515,000!
+    assert_eq!(tok.total_supply(), 8_515_000 * STROOPS);
+
+    // Curve trading disabled after graduation
+    assert_eq!(
+        client.try_buy_curve(&whale, &launch.token, &(10 * STROOPS), &0),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+    assert_eq!(
+        client.try_sell_curve(&whale, &launch.token, &(10 * STROOPS), &0),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // Milestone 2 rejected while Soroswap XLM reserve < 2,500 XLM
+    assert_eq!(
+        client.try_trigger_milestone_burn(&launch.token),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+
+    // Simulate organic trading growing Soroswap XLM reserve to 2,500 XLM -> Milestone 2 burns remaining 1.485M!
+    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(2_500 * STROOPS, 1_200_000 * STROOPS));
+    let burned2 = client.trigger_milestone_burn(&launch.token);
+    assert_eq!(burned2, 1_485_000 * STROOPS);
+    assert_eq!(tok.total_supply(), 7_030_000 * STROOPS);
+
+    // Cannot trigger Milestone 2 twice
+    assert_eq!(
+        client.try_trigger_milestone_burn(&launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // Creator 15-day vesting: Day 0 -> MilestoneNotReached; non-creator -> InvalidCurveState
+    assert_eq!(
+        client.try_claim_creator_vesting(&stranger, &launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+    assert_eq!(
+        client.try_claim_creator_vesting(&creator, &launch.token),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+
+    let grad_ts = e.ledger().timestamp();
+    // Day 3 -> 1st tranche = 6,000 tokens
+    e.ledger().set_timestamp(grad_ts + 3 * 86_400);
+    let c1 = client.claim_creator_vesting(&creator, &launch.token);
+    assert_eq!(c1, 6_000 * STROOPS);
+    assert_eq!(
+        client.try_claim_creator_vesting(&creator, &launch.token),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+
+    // Day 15+ -> remaining 24,000 tokens unlocked (total 30,000 = 0.3%)
+    e.ledger().set_timestamp(grad_ts + 20 * 86_400);
+    let c_rest = client.claim_creator_vesting(&creator, &launch.token);
+    assert_eq!(c_rest, 24_000 * STROOPS);
+    assert_eq!(
+        client.get_curve(&launch.token).unwrap().creator_claimed,
+        30_000 * STROOPS
+    );
+    // Launchpad contract now holds ZERO tokens for this graduated & fully claimed token!
+    assert_eq!(tok.balance(&s.launchpad), 0);
+}
+
+#[test]
+fn test_burn_shout_3_tiers_and_king_shout() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+
+    let creator = Address::generate(&e);
+    let user_a = Address::generate(&e);
+    let user_b = Address::generate(&e);
+    xlm_sac.mint(&creator, &(50 * STROOPS));
+    xlm_sac.mint(&user_a, &(200 * STROOPS));
+    xlm_sac.mint(&user_b, &(200 * STROOPS));
+
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Shout Coin"),
+        symbol: String::from_str(&e, "SHOUT"),
+        xlm_lp_amount: 5 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[41u8; 32]),
+    });
+
+    client.buy_curve(&user_a, &res.token, &(50 * STROOPS), &1);
+    client.buy_curve(&user_b, &res.token, &(50 * STROOPS), &1);
+
+    // Below 25 tokens minimum -> InvalidAmount
+    assert_eq!(
+        client.try_burn_shout(
+            &user_a,
+            &res.token,
+            &(24 * STROOPS),
+            &String::from_str(&e, "too cheap"),
+        ),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+
+    // Normal shout (25 tokens): succeeds without crowning KingShout
+    client.burn_shout(
+        &user_a,
+        &res.token,
+        &(25 * STROOPS),
+        &String::from_str(&e, "hello curve"),
+    );
+    assert!(client.get_king_shout(&res.token).is_none());
+
+    // 1,000 tokens crowns KingShout!
+    client.burn_shout(
+        &user_a,
+        &res.token,
+        &(1_000 * STROOPS),
+        &String::from_str(&e, "First King"),
+    );
+    assert_eq!(
+        client.get_king_shout(&res.token).unwrap().message,
+        String::from_str(&e, "First King")
+    );
+
+    // Equal 1,000 tokens does NOT dethrone current King
+    client.burn_shout(
+        &user_b,
+        &res.token,
+        &(1_000 * STROOPS),
+        &String::from_str(&e, "Tie fails"),
+    );
+    assert_eq!(client.get_king_shout(&res.token).unwrap().sender, user_a);
+
+    // Strictly higher burn (1,500 tokens) dethrones King!
+    client.burn_shout(
+        &user_b,
+        &res.token,
+        &(1_500 * STROOPS),
+        &String::from_str(&e, "New King"),
+    );
+    let king = client.get_king_shout(&res.token).unwrap();
+    assert_eq!(king.sender, user_b);
+    assert_eq!(king.amount, 1_500 * STROOPS);
+
+    // History caps cleanly at 15 shouts
+    for _ in 0..15 {
+        client.burn_shout(
+            &user_a,
+            &res.token,
+            &(25 * STROOPS),
+            &String::from_str(&e, "spam"),
+        );
+    }
+    assert_eq!(client.get_shouts(&res.token).len(), 15);
+    let tok = AstroTokenClient::new(&e, &res.token);
+    assert!(tok.total_supply() < 10_000_000 * STROOPS);
+}
+
+#[test]
+fn test_pre_seeded_pair_rejected_and_legacy_direct_launch() {
+    let e = create_env();
+    // Existing pair with non-zero reserves -> PairAlreadySeeded on legacy launch_token
+    let s_seeded = setup_launchpad(&e, true, (100, 100));
+    let client_seeded = LaunchpadClient::new(&e, &s_seeded.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s_seeded.xlm_sac);
+    let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(500 * STROOPS));
+
+    assert_eq!(
+        client_seeded.try_launch_token(&LaunchParams {
+            creator: creator.clone(),
+            name: String::from_str(&e, "PreSeeded"),
+            symbol: String::from_str(&e, "SEED"),
+            decimals: 7,
+            initial_supply: 1_000_000_000,
+            token_lp_amount: 995_000_000,
+            xlm_lp_amount: 20_000_000,
+            salt: BytesN::from_array(&e, &[51u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::PairAlreadySeeded))
+    );
+
+    // Empty pair -> legacy launch_token succeeds atomically
+    let s_empty = setup_launchpad(&e, true, (0, 0));
+    let client_empty = LaunchpadClient::new(&e, &s_empty.launchpad);
+    let xlm_empty = token::StellarAssetClient::new(&e, &s_empty.xlm_sac);
+    xlm_empty.mint(&creator, &(500 * STROOPS));
+
+    let legacy = client_empty.launch_token(&LaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Direct LP"),
+        symbol: String::from_str(&e, "DIR"),
+        decimals: 7,
+        initial_supply: 100_000_000_000_000,
+        token_lp_amount: 99_500_000_000_000,
+        xlm_lp_amount: 50_000_000,
+        salt: BytesN::from_array(&e, &[52u8; 32]),
+    });
+    assert_eq!(legacy.pair, Some(s_empty.pair.clone()));
+    assert_eq!(
+        MockSoroswapPairClient::new(&e, &s_empty.pair).lp_recipient(),
+        s_empty.burn_addr
+    );
+}
+
+#[test]
+fn test_adversarial_salt_frontrunning_and_pagination() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
 
     let attacker = Address::generate(&e);
     let creator = Address::generate(&e);
+    xlm_sac.mint(&attacker, &(50 * STROOPS));
+    xlm_sac.mint(&creator, &(50 * STROOPS));
     let shared_salt = BytesN::from_array(&e, &[99u8; 32]);
 
-    // Attacker squats `shared_salt` first; creator still deploys a distinct contract
-    // because `derived_salt = sha256(creator || salt)`.
     let res_attacker = client.launch_fair(&FairLaunchParams {
-        creator: attacker,
+        creator: attacker.clone(),
         name: String::from_str(&e, "Squat"),
         symbol: String::from_str(&e, "SQT"),
-        xlm_lp_amount: 20_000_000_i128,
+        xlm_lp_amount: 2 * STROOPS,
         meta: String::from_str(&e, ""),
         salt: shared_salt.clone(),
     });
-
     let res_creator = client.launch_fair(&FairLaunchParams {
         creator: creator.clone(),
-        name: String::from_str(&e, "Real Coin"),
+        name: String::from_str(&e, "Real"),
         symbol: String::from_str(&e, "REAL"),
-        xlm_lp_amount: 20_000_000_i128,
+        xlm_lp_amount: 2 * STROOPS,
         meta: String::from_str(&e, ""),
         salt: shared_salt,
     });
@@ -785,60 +671,113 @@ fn test_adversarial_salt_frontrunning_and_duplicate_salt() {
         client.get_launch(&res_creator.token).unwrap().creator,
         creator
     );
+
+    // Zero-balance attacker attempting burn_shout fails without polluting shouts
+    assert!(client
+        .try_burn_shout(
+            &attacker,
+            &res_creator.token,
+            &(25 * STROOPS),
+            &String::from_str(&e, "free"),
+        )
+        .is_err());
+    assert!(client.get_shouts(&res_creator.token).is_empty());
+
+    // Extreme pagination bounds safe
+    assert!(client.get_launches(&u32::MAX, &u32::MAX).is_empty());
+    assert!(client.get_launches(&0, &0).is_empty());
+    assert_eq!(client.get_launches(&0, &u32::MAX).len(), 2);
+    client.extend_launch_ttl(&res_creator.token);
 }
 
 #[test]
-fn test_adversarial_unauthorized_and_invalid_shouts_and_pagination() {
-    let e = Env::default();
-    e.mock_all_auths();
-
-    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
-    let pair_addr = e.register(MockSoroswapPair, ((0_i128, 0_i128),));
-    let factory_addr = e.register(MockSoroswapFactory, (pair_addr, false));
-    let xlm_sac_addr = e.register(MockToken, ());
-    let burn_addr = Address::generate(&e);
-
-    let launchpad_addr = e.register(
-        Launchpad,
-        (factory_addr, xlm_sac_addr, wasm_hash, burn_addr),
-    );
-    let client = LaunchpadClient::new(&e, &launchpad_addr);
-
+fn test_adversarial_direct_graduating_launch_and_invalid_quotes() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
     let creator = Address::generate(&e);
-    let attacker = Address::generate(&e);
-    let launched = client.launch_fair(&FairLaunchParams {
+    xlm_sac.mint(&creator, &(1_500 * STROOPS));
+
+    // Zero / negative quote inputs rejected
+    assert_eq!(
+        client.try_quote_buy(&Address::generate(&e), &0),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+    assert_eq!(
+        client.try_quote_sell(&Address::generate(&e), &-5),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+
+    // Creator puts 1,100 XLM at launch -> hits 1,000 net XLM goal and graduates in 1 tx!
+    let res = client.launch_fair(&FairLaunchParams {
         creator: creator.clone(),
-        name: String::from_str(&e, "Guard"),
-        symbol: String::from_str(&e, "GRD"),
-        xlm_lp_amount: 20_000_000_i128,
+        name: String::from_str(&e, "Instant Grad"),
+        symbol: String::from_str(&e, "IGRD"),
+        xlm_lp_amount: 1_100 * STROOPS,
         meta: String::from_str(&e, ""),
-        salt: BytesN::from_array(&e, &[77u8; 32]),
+        salt: BytesN::from_array(&e, &[111u8; 32]),
     });
 
-    // Negative shout amount -> InvalidAmount
-    let err_neg = client
-        .try_burn_shout(
-            &creator,
-            &launched.token,
-            &-100_i128,
-            &String::from_str(&e, "neg"),
-        )
-        .unwrap_err()
-        .unwrap();
-    assert_eq!(err_neg, LaunchpadError::InvalidAmount);
+    assert_eq!(res.pair, Some(s.pair));
+    let curve = client.get_curve(&res.token).unwrap();
+    assert!(curve.graduated);
+    assert_eq!(curve.tokens_sold, 4_000_000 * STROOPS);
+    assert_eq!(curve.curve_xlm_net, 1_000 * STROOPS);
+    assert_eq!(curve.burn_milestone_stage, 1);
 
-    // Zero-balance attacker attempting burn_shout fails in SEP-41 burn and writes 0 shouts
-    let err_broke = client.try_burn_shout(
-        &attacker,
-        &launched.token,
-        &100_i128,
-        &String::from_str(&e, "free shout"),
+    // Quotes on already-graduated curve rejected cleanly
+    assert_eq!(
+        client.try_quote_buy(&res.token, &(10 * STROOPS)),
+        Err(Ok(LaunchpadError::InvalidCurveState))
     );
-    assert!(err_broke.is_err());
-    assert!(client.get_shouts(&launched.token).is_empty());
+    assert_eq!(
+        client.try_quote_sell(&res.token, &(10 * STROOPS)),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+}
 
-    // Extreme pagination bounds never panic or underflow
-    assert!(client.get_launches(&u32::MAX, &u32::MAX).is_empty());
-    assert!(client.get_launches(&0, &0).is_empty());
-    assert_eq!(client.get_launches(&0, &u32::MAX).len(), 1);
+#[test]
+fn test_adversarial_auth_required_without_mock() {
+    let e = Env::default();
+    let xlm_admin = Address::generate(&e);
+    let xlm_sac = e.register_stellar_asset_contract_v2(xlm_admin).address();
+    let dummy_tok = Address::generate(&e);
+    let pair = e.register(
+        MockSoroswapPair,
+        (xlm_sac.clone(), dummy_tok, (0_i128, 0_i128)),
+    );
+    let factory = e.register(MockSoroswapFactory, (pair, false));
+    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    let launchpad = e.register(
+        Launchpad,
+        (
+            factory,
+            xlm_sac,
+            wasm_hash,
+            Address::generate(&e),
+            Address::generate(&e),
+        ),
+    );
+    let client = LaunchpadClient::new(&e, &launchpad);
+    let attacker = Address::generate(&e);
+
+    // Without auth, buy_curve, sell_curve, claim_creator_vesting, burn_shout all fail auth
+    assert!(client
+        .try_buy_curve(&attacker, &Address::generate(&e), &20_000_000, &0)
+        .is_err());
+    assert!(client
+        .try_sell_curve(&attacker, &Address::generate(&e), &20_000_000, &0)
+        .is_err());
+    assert!(client
+        .try_claim_creator_vesting(&attacker, &Address::generate(&e))
+        .is_err());
+    assert!(client
+        .try_burn_shout(
+            &attacker,
+            &Address::generate(&e),
+            &(25 * STROOPS),
+            &String::from_str(&e, "hi")
+        )
+        .is_err());
 }

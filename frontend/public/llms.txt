@@ -1,7 +1,7 @@
 # AstroGate Protocol (llms.txt)
 > The Decentralized Fair-Launch & AMM Platform on Stellar/Soroban.
 
-AstroGate is a Web3 token launchpad and automated market maker (AMM) operating directly on Stellar Soroban. It provides 100% on-chain, verifiable token fair-launches (0 protocol deploy fee, creator seed XLM, 0.5% creator allocation, 99.5% Soroswap AMM pool, mandatory LP burn to dead address, and ownership renunciation).
+AstroGate is a Web3 token launchpad and automated market maker (AMM) operating directly on Stellar Soroban. It provides 100% on-chain, verifiable Fair-Flywheel token launches (0 protocol deploy fee, 40% Virtual Bonding Curve `3,000 vXLM -> 1,000 XLM` with progressive anti-whale floor fee, 30% Soroswap DEX Reserve with 0% graduation cliff & mandatory LP burn, 29.7% Milestone Proof-of-Burn Vault, 0.3% 15-day post-grad creator vesting, 3-tier Burn-to-Chat + King Shout, and immediate ownership renunciation).
 
 ## Core Network & Contracts (Testnet)
 - Network: Stellar Testnet (`Test SDF Network ; September 2015`)
@@ -16,8 +16,8 @@ AstroGate is a Web3 token launchpad and automated market maker (AMM) operating d
 - LP Burn Address: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
 - Developer Treasury (Testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE
 - Token WASM Hash: a47dc064f7a072476fbbd612be98ce13d691b178b81a40ebdf4b2ec78f65c9f7
-- Launchpad Contract (v3): CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ
-- Launchpad WASM Hash (v3): 9b9476bb26be0474b3f5a7bddaee903aa4232a6d2f6690303788bb7db3326037
+- Launchpad Contract (v4): CA343KTSUBOUABOVP7AHYMRKHJ3LD4OI3HTYXMCIS3USR3HK2L6LTRHV
+- Launchpad WASM Hash (v4): 30d39cf397f3f9037564a97252104331a8f7e6001db3b8405608bf2d81a95007
 
 ## AI Agent Integration & SDK
 Developers and autonomous AI agents can interact with the protocol programmatically using the `@astrogate/sdk` modules located at `src/sdk/index.ts`:

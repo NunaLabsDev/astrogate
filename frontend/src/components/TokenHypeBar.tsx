@@ -1,17 +1,23 @@
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenShouts } from '../hooks/useTokenShouts'
+import { useKingShout } from '../hooks/useKingShout'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { validateXlmReserve } from '../lib/xlm'
 import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
 import { burnAndShout } from '../lib/token'
+import { HYPE_SHOUT_BURN, KING_SHOUT_BURN, MIN_SHOUT_BURN } from '../lib/tokenomics'
 import { toast } from '../lib/toast'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 
-const BURN_PRESETS = ['1', '10', '100'] as const
+const BURN_PRESETS = [
+  { amount: String(MIN_SHOUT_BURN), tier: '💬 Chat' },
+  { amount: String(HYPE_SHOUT_BURN), tier: '🔥 Hype' },
+  { amount: String(KING_SHOUT_BURN), tier: '👑 King' },
+] as const
 
 /**
  * Pure on-chain Burn-to-Chat thread backed by Launchpad `burn_shout` + `get_shouts`.
@@ -30,15 +36,17 @@ export function TokenHypeBar({
   const { publicKey, getSigner, connect } = useWallet()
   const queryClient = useQueryClient()
   const shouts = useTokenShouts(tokenId)
+  const kingShout = useKingShout(tokenId)
   const balance = useTokenBalance(publicKey, tokenId)
   const xlmBalance = useXlmBalance(publicKey)
 
   const [message, setMessage] = useState('')
-  const [burnAmountInput, setBurnAmountInput] = useState('1')
+  const [burnAmountInput, setBurnAmountInput] = useState(String(MIN_SHOUT_BURN))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const burnAmountBase = parseAmount(burnAmountInput, decimals)
+  const minShoutBase = BigInt(MIN_SHOUT_BURN) * 10n ** BigInt(Math.max(0, Math.trunc(decimals)))
   const utf8Bytes = new TextEncoder().encode(message.trim()).length
 
   async function onSubmit(e: React.FormEvent) {
@@ -63,8 +71,8 @@ export function TokenHypeBar({
       setError('Message exceeds 160 bytes UTF-8.')
       return
     }
-    if (burnAmountBase <= 0n) {
-      setError('Burn amount must be greater than zero.')
+    if (burnAmountBase < minShoutBase) {
+      setError(`Minimum Burn-to-Chat amount is ${MIN_SHOUT_BURN} $${symbol}.`)
       return
     }
     if (balance.data !== undefined && burnAmountBase > balance.data) {
@@ -103,6 +111,7 @@ export function TokenHypeBar({
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['token-shouts', tokenId] }),
+        queryClient.invalidateQueries({ queryKey: ['king-shout', tokenId] }),
         queryClient.invalidateQueries({ queryKey: ['token-events', tokenId] }),
         queryClient.invalidateQueries({ queryKey: ['token-balance', tokenId] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', tokenId] }),
@@ -123,9 +132,9 @@ export function TokenHypeBar({
     <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
         <div>
-          <p className="text-xs font-semibold text-white">🔥 On-Chain Burn-to-Chat</p>
+          <p className="text-xs font-semibold text-white">🔥 3-Tier Burn-to-Chat &amp; 👑 King Shout</p>
           <p className="text-[11px] text-slate-400">
-            Messages permanently burn ${symbol} and live inside Soroban contract state.
+            Burns shrink circulating supply via <code className="text-amber-300">token.burn()</code>. ≥ {KING_SHOUT_BURN.toLocaleString('en-US')} ${symbol} takes the pinned King Throne.
           </p>
         </div>
         <span className="rounded-full border border-slate-800 bg-slate-950 px-2.5 py-0.5 font-mono text-[10px] text-slate-400">
@@ -133,23 +142,39 @@ export function TokenHypeBar({
         </span>
       </div>
 
+      {kingShout.data ? (
+        <div className="rounded-xl border border-amber-400/50 bg-gradient-to-r from-amber-500/15 via-amber-950/30 to-slate-950 px-3 py-2.5 text-xs">
+          <div className="flex items-center justify-between gap-2 text-[11px]">
+            <span className="font-bold text-amber-300">
+              👑 KING SHOUT · {shortAddress(kingShout.data.sender)}
+            </span>
+            <span className="font-mono font-bold text-amber-200">
+              🔥 {formatAmount(kingShout.data.amount, decimals)} ${symbol} burned
+            </span>
+          </div>
+          <p className="mt-1 font-medium text-amber-50 break-words">
+            {kingShout.data.message}
+          </p>
+        </div>
+      ) : null}
+
       <form onSubmit={onSubmit} className="space-y-2.5">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-slate-400">Burn:</span>
             {BURN_PRESETS.map((preset) => (
               <button
-                key={preset}
+                key={preset.amount}
                 type="button"
                 disabled={busy}
-                onClick={() => setBurnAmountInput(preset)}
+                onClick={() => setBurnAmountInput(preset.amount)}
                 className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition ${
-                  burnAmountInput === preset
+                  burnAmountInput === preset.amount
                     ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 font-bold'
                     : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {preset} ${symbol}
+                {preset.tier} · {preset.amount}
               </button>
             ))}
           </div>
@@ -169,8 +194,8 @@ export function TokenHypeBar({
             disabled={busy}
             placeholder={
               publicKey
-                ? `Burn ${burnAmountInput || '1'} $${symbol} to post permanently…`
-                : `Connect wallet to burn $${symbol} & shout…`
+                ? `Burn ${burnAmountInput || String(MIN_SHOUT_BURN)} $${symbol} to post permanently…`
+                : `Connect wallet to burn ≥ ${MIN_SHOUT_BURN} $${symbol} & shout…`
             }
             className="min-w-0 flex-1 rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-500"
           />

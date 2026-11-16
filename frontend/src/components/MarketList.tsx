@@ -3,7 +3,10 @@ import { useSearchParams } from 'react-router'
 import { useTokenList } from '../hooks/useTokenList'
 import { formatAmount, shortAddress } from '../lib/format'
 import { isValidContractAddress } from '../lib/address'
-import { graduationProgress } from '../lib/tokenomics'
+import {
+  GRADUATION_TARGET_XLM,
+  graduationProgressForListing,
+} from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 import { formatTokenPrice, formatUsdPrice, tokenPriceInXlmNumber } from '../lib/soroswap'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
@@ -56,7 +59,11 @@ function MarketCard({
   selected: boolean
   onSelect: (token: LaunchpadToken) => void
 }) {
-  const grad = graduationProgress(token.pool.reserveXlm)
+  const grad = graduationProgressForListing(token)
+  const displayLiquidity =
+    token.curve && !token.curve.graduated
+      ? token.curve.curve_xlm_net
+      : token.pool.reserveXlm
   const isFav = useWatchlist((s) => s.favorites.includes(token.id))
   const toggleFav = useWatchlist((s) => s.toggle)
   const meta = useTokenMetadata(token.id)
@@ -204,10 +211,10 @@ function MarketCard({
           </div>
           <div className="text-right">
             <p className="text-[10px] font-medium tracking-wider text-slate-400 uppercase">
-              Pool Depth
+              {token.curve && !token.curve.graduated ? 'Curve Vault' : 'Pool Depth'}
             </p>
             <p className="mt-0.5 font-mono text-xs font-semibold text-emerald-300">
-              {token.pool.reserveXlm === 0n ? 'Empty' : `${formatAmount(token.pool.reserveXlm, 7)} XLM`}
+              {displayLiquidity === 0n ? 'Empty' : `${formatAmount(displayLiquidity, 7)} XLM`}
             </p>
           </div>
         </div>
@@ -371,7 +378,7 @@ export function MarketList({
   const heatingTokens = useMemo(
     () =>
       (list.data ?? []).filter(
-        (token) => graduationProgress(token.pool.reserveXlm).stage === 'heating',
+        (token) => graduationProgressForListing(token).stage === 'heating',
       ),
     [list.data],
   )
@@ -416,7 +423,7 @@ export function MarketList({
               <div className="flex items-center gap-2 text-amber-200 font-semibold">
                 <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
                 <span>
-                  🔥 {heatingTokens.length} {heatingTokens.length === 1 ? 'token is' : 'tokens are'} graduating soon (&ge;50% to 2,000 XLM)
+                  🔥 {heatingTokens.length} {heatingTokens.length === 1 ? 'token is' : 'tokens are'} graduating soon (&ge;50% to {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
                 </span>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
@@ -429,7 +436,7 @@ export function MarketList({
                     }
                     className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 font-mono font-bold text-amber-200 hover:bg-amber-500/25 transition"
                   >
-                    ${t.symbol} {Math.round(graduationProgress(t.pool.reserveXlm).percent)}% →
+                    ${t.symbol} {Math.round(graduationProgressForListing(t).percent)}% →
                   </button>
                 ))}
               </div>

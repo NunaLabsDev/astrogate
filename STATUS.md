@@ -1,5 +1,23 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 16 2026, sesión 31 — Launchpad v4 "Fair-Flywheel 40 / 30 / 29.7 / 0.3" & Deploy Completo)
+Implementación completa end-to-end del modelo económico **Fair-Flywheel v4** (`40%` Curva Virtual `3,000 vXLM -> 1,000 XLM` / `30%` Soroswap DEX / `29.7%` Milestone Proof-of-Burn Vault / `0.3%` Vesting 15d post-graduación) en Soroban, SDK, UI, suite adversarial multi-cuenta y despliegue en vivo. *AI-generated; revisión humana pendiente.*
+- **Contrato Launchpad v4 desplegado en Testnet**:
+  - **Contract ID**: `CA343KTSUBOUABOVP7AHYMRKHJ3LD4OI3HTYXMCIS3USR3HK2L6LTRHV` (WASM hash `30d39cf397f3f9037564a97252104331a8f7e6001db3b8405608bf2d81a95007`, `39313 bytes`, treasury `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE`).
+  - **4 Mecánicas activas on-chain (`contracts/launchpad/src/contract.rs`)**:
+    1. **Virtual Bonding Curve (`3,000 vXLM → 1,000 XLM`) + Recargo Anti-Ballena Progresivo (`buy_curve`, `sell_curve`, `quote_buy`, `quote_sell`)**: elimina el acaparamiento inicial manteniendo `0.00%` salto de precio al graduar (`M = 1/3`); trades `<= 2%` pagan `0.80%` (`0.50%` Treasury + `0.30%` floor), órdenes `> 2%` suman recargo progresivo (hasta `+5.00%`) 100% hacia `real_xlm_vault`.
+    2. **Graduación atómica a Soroswap + Milestone Proof-of-Burn Vault (`29.7%` = `2,970,000`)**: al alcanzar `1,000 XLM` netos, deposita `3,000,000` tokens + `>= 1,000 XLM` reales en Soroswap, quema `100%` LP en `GAAAA...WHF` y ejecuta `token.burn(1_485_000)` en Stage 1; los `1,485,000` restantes se queman permissionlessly (`trigger_milestone_burn`) cuando el par alcanza `>= 2,500 XLM`.
+    3. **Vesting Post-Graduación 15 días del Creador (`0.3%` = `30,000`)**: bloqueados hasta graduación; liberados vía `claim_creator_vesting` en `5` tramos de `20%` (`6,000` tokens) cada `3` días.
+    4. **Burn-to-Chat 3 Niveles + King Shout (`burn_shout`, `get_king_shout`)**: mínimo `25` tokens (`💬 Chat`), `250` (`🔥 Hype`), `>= 1,000` (`👑 King Shout` fijado arriba hasta ser superado), reduciendo `total_supply()` vía `token.burn()`.
+- **Frontend, SDK y Scripts Testnet actualizados**:
+  - Paridad exacta `1:1` con Rust en `frontend/src/lib/tokenomics.ts` (`localCurveQuoteBuy` / `localCurveQuoteSell` / `graduationProgressForListing`), bindings TS regenerados, routing transparente Curva ↔ Soroswap en `SwapCard.tsx`, tarjetas Milestone Burn + Creator Vesting en `TokenPage.tsx`, King Shout + presets `25 / 250 / 1000` en `TokenHypeBar.tsx`, discovery de curvas no graduadas en `discovery.ts` y SDK (`sdk/index.ts`).
+- **Despliegue web público sincronizado (v4)**:
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`https://dae30309.astrogate.pages.dev`) + **Cloudflare Workers**: `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `a3326396-d8e7-4940-bf12-1b66fa717a28`), ambos con `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest`.
+- **Verificación completa en verde**:
+  - Rust: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` (`33/33`: `10` launchpad + `23` astro-token).
+  - Frontend: `cd frontend && npm run check` (`tsc -b`, `vite build`, `oxlint` `0` warnings/errors en `125` archivos, `vitest` `25` suites / `187` tests OK, `smoke:render`, `verify:pwa`, `check:csp`) y `npm-audit-ratchet.mjs` (30 dentro del baseline, `0` critical).
+  - Testnet en vivo: `verify:discovery`, `verify:token-events`, `verify:launchpad`, `verify:soroswap`, `verify:frontend` (`CANLEYLYVK3DTMS5OSYAA6DRPXEXT2SNMZ6TUAR3ZQHRRHNH63CDKJ3W`), `verify:demo` (`CCWYYRK4ZYEBBVLH5JRD2KKZKBCQMUSSKFODK56Q5UVNGU2Y6M5VCMLG`), `verify:adversarial` (`CCKHMGJ6OZUTK5JGZLRYKWZX67WY76KDYAUETYRWQCLMWGSZZ4ZX7CF6`, con **graduación en vivo a 1,000 XLM** en par `CDAWPDMTUFZHJG6VF7HC5C7ABYYSECYWSO2XNOHDTGXO5QKB7GXP7YSK`, King Shout dethrone `1,000 -> 1,500`, `312 bps` recargo anti-ballena y swaps post-graduación) y `keepalive:ttl` (`0` fallos).
+
 ## Handoff rápido (Nov 16 2026, sesión 30 — Endurecimiento Producción Testnet, Seguridad de Fondos, Limpieza & Deploy Web Público)
 Sincronización final de seguridad, protección de fondos/reservas, aislamiento mainnet/testnet, limpieza general y despliegue web público en Vercel + Cloudflare Workers para uso directo por usuarios reales en Testnet. *AI-generated; revisión humana pendiente.*
 - **Despliegue web público sincronizado (v3 · 10M · min 2 XLM)**:

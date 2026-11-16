@@ -7,9 +7,10 @@ import {
 } from '../lib/snapshots'
 import {
   GRADUATION_TARGET_XLM,
-  graduationProgress,
+  graduationProgressForListing,
   sanitizeXlmUsdPrice,
 } from '../lib/tokenomics'
+import type { CurveState } from '../lib/token'
 import {
   classifyTokenEvent,
   type TokenEvent,
@@ -50,6 +51,7 @@ export function ReserveChart({
   symbol,
   events = EMPTY_EVENTS,
   pool,
+  curve,
   totalSupply,
   xlmUsd = DEFAULT_XLM_USD_PRICE,
 }: {
@@ -59,6 +61,7 @@ export function ReserveChart({
   symbol?: string
   events?: TokenEvent[]
   pool?: PoolState
+  curve?: CurveState | null
   totalSupply?: bigint
   xlmUsd?: number
 }) {
@@ -125,7 +128,10 @@ export function ReserveChart({
     [trades, pairId],
   )
 
-  const grad = graduationProgress(pool?.reserveXlm ?? 0n)
+  const grad = graduationProgressForListing({
+    pool: pool ?? { exists: false, pairId: '', reserveToken: 0n, reserveXlm: 0n },
+    curve,
+  })
 
   const values = useMemo(
     () =>

@@ -16,6 +16,9 @@ export interface StoredTokenRecord {
   creator?: string
   meta?: string
   isAntiRugVerified?: boolean
+  curveGraduated?: boolean
+  curveXlmNet?: string
+  curveTokensSold?: string
   updatedAt: number
 }
 

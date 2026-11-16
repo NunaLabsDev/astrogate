@@ -18,7 +18,13 @@ import {
   unwrapResult,
   type PoolState,
 } from './soroswap'
-import { launchpadClient, tokenClient } from './token'
+import {
+  fetchCurveState,
+  launchpadClient,
+  tokenClient,
+  type CurveState,
+} from './token'
+import { curveVirtualReserves } from './tokenomics'
 import {
   ASTRO_TOKEN_ID,
   EVENT_WINDOW_LEDGERS,
@@ -56,7 +62,7 @@ export type DiscoveredPair = {
   ledger: number
 }
 
-/** Token listo para pintar: metadata + estado del par. */
+/** Token listo para pintar: metadata + estado del par o curva virtual. */
 export type TokenListing = {
   id: string
   name: string
@@ -69,6 +75,8 @@ export type TokenListing = {
   verifiedLaunchpad?: boolean
   creator?: string
   onChainMeta?: string
+  /** Live Fair-Flywheel v4 bonding curve & burn-vault state when launched via v4. */
+  curve?: CurveState | null
 }
 
 /** Convierte un evento crudo en par token/XLM; `null` si no lo es. */
@@ -374,6 +382,24 @@ export function recordToListing(record: StoredTokenRecord): TokenListing {
       return 0n
     }
   }
+  const curve: CurveState | null | undefined =
+    record.curveGraduated !== undefined
+      ? {
+          token: record.id,
+          creator: record.creator ?? '',
+          graduated: Boolean(record.curveGraduated),
+          graduated_at: 0n,
+          pair: record.pairId || null,
+          lp_minted: 0n,
+          curve_xlm_net: toBase(record.curveXlmNet ?? '0'),
+          real_xlm_vault: toBase(record.curveXlmNet ?? '0'),
+          tokens_sold: toBase(record.curveTokensSold ?? '0'),
+          burn_vault_remaining: 0n,
+          burn_milestone_stage: record.curveGraduated ? 1 : 0,
+          creator_vesting_total: 0n,
+          creator_claimed: 0n,
+        }
+      : undefined
   return {
     id: record.id,
     name: record.name,
@@ -383,6 +409,7 @@ export function recordToListing(record: StoredTokenRecord): TokenListing {
     verifiedLaunchpad: record.isAntiRugVerified,
     creator: record.creator,
     onChainMeta: record.meta,
+    curve,
     pool: {
       exists: true,
       pairId: record.pairId,
@@ -406,6 +433,13 @@ export function listingToRecord(listing: TokenListing): StoredTokenRecord {
     creator: listing.creator,
     meta: listing.onChainMeta,
     isAntiRugVerified: listing.verifiedLaunchpad,
+    ...(listing.curve
+      ? {
+          curveGraduated: listing.curve.graduated,
+          curveXlmNet: listing.curve.curve_xlm_net.toString(),
+          curveTokensSold: listing.curve.tokens_sold.toString(),
+        }
+      : {}),
     updatedAt: Date.now(),
   }
 }
@@ -416,7 +450,7 @@ export function listingToRecord(listing: TokenListing): StoredTokenRecord {
  */
 export async function fetchLaunchpadRecord(tokenId: string): Promise<{
   creator: string
-  pair: string
+  pair: string | null
   name: string
   symbol: string
   decimals: number
@@ -437,7 +471,9 @@ export async function fetchLaunchpadRecord(tokenId: string): Promise<{
     })
     if (!record) return null
 
-    cachePairId(record.token, record.pair)
+    if (record.pair) {
+      cachePairId(record.token, record.pair)
+    }
     setCachedTokenMetadata(record.token, {
       name: record.name,
       symbol: record.symbol,
@@ -495,7 +531,6 @@ export async function fetchLaunchpadRegistryListings(
 
     const listings = await mapLimit(records, 3, async (rec) => {
       try {
-        cachePairId(rec.token, rec.pair)
         setCachedTokenMetadata(rec.token, {
           name: rec.name,
           symbol: rec.symbol,
@@ -504,7 +539,35 @@ export async function fetchLaunchpadRegistryListings(
         const enriched = decodeOnChainMeta(rec.token, rec.meta)
         if (enriched) saveLocalTokenMetadata(enriched)
 
-        const pool = await fetchPoolStateByPair(rec.pair)
+        const curve = await fetchCurveState(rec.token)
+        const resolvedPair = rec.pair ?? curve?.pair ?? null
+
+        if (resolvedPair) {
+          cachePairId(rec.token, resolvedPair)
+          const pool = await fetchPoolStateByPair(resolvedPair)
+          return {
+            id: rec.token,
+            name: rec.name,
+            symbol: rec.symbol,
+            decimals: rec.decimals,
+            ledger: rec.ledger,
+            verifiedLaunchpad: true,
+            creator: rec.creator,
+            onChainMeta: rec.meta,
+            curve,
+            pool: {
+              exists: pool?.exists ?? true,
+              pairId: resolvedPair,
+              reserveToken: pool?.reserveToken ?? rec.token_lp_amount,
+              reserveXlm: pool?.reserveXlm ?? rec.xlm_lp_amount,
+            },
+          } as TokenListing
+        }
+
+        const virtualReserves = curveVirtualReserves(
+          curve?.curve_xlm_net ?? rec.xlm_lp_amount,
+          curve?.tokens_sold ?? 0n,
+        )
         return {
           id: rec.token,
           name: rec.name,
@@ -514,11 +577,12 @@ export async function fetchLaunchpadRegistryListings(
           verifiedLaunchpad: true,
           creator: rec.creator,
           onChainMeta: rec.meta,
+          curve,
           pool: {
-            exists: pool?.exists ?? true,
-            pairId: rec.pair,
-            reserveToken: pool?.reserveToken ?? rec.token_lp_amount,
-            reserveXlm: pool?.reserveXlm ?? rec.xlm_lp_amount,
+            exists: true,
+            pairId: '',
+            reserveToken: virtualReserves.virtualTokens,
+            reserveXlm: virtualReserves.virtualXlm,
           },
         } as TokenListing
       } catch {
