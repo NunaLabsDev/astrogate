@@ -1,6 +1,48 @@
 import { describe, expect, it } from 'vitest'
-import { filterAndSortTokens } from './market'
+import {
+  filterAndSortTokens,
+  partitionMarketTokens,
+  pickGraduatingCandidates,
+} from './market'
 import type { TokenListing } from './discovery'
+
+function curveListing(
+  id: string,
+  symbol: string,
+  ledger: number,
+  curveXlmNet: bigint,
+  graduated = false,
+): TokenListing {
+  return {
+    id,
+    name: `Curve ${symbol}`,
+    symbol,
+    decimals: 7,
+    ledger,
+    verifiedLaunchpad: true,
+    pool: {
+      exists: graduated,
+      pairId: graduated ? `PAIR-${id}` : '',
+      reserveToken: 100_000_000n,
+      reserveXlm: graduated ? curveXlmNet : 0n,
+    },
+    curve: {
+      burn_milestone_stage: graduated ? 1 : 0,
+      burn_vault_remaining: 0n,
+      creator: 'GCREATOR',
+      creator_claimed: 0n,
+      creator_vesting_total: 30_000n * 10_000_000n,
+      curve_xlm_net: curveXlmNet,
+      graduated,
+      graduated_at: graduated ? BigInt(ledger) : 0n,
+      lp_minted: graduated ? 100n : 0n,
+      pair: graduated ? `PAIR-${id}` : null,
+      real_xlm_vault: curveXlmNet,
+      token: id,
+      tokens_sold: 0n,
+    },
+  }
+}
 
 function listing(
   id: string,
@@ -88,5 +130,45 @@ describe('filterAndSortTokens', () => {
 
   it('devuelve vacío si no hay coincidencias', () => {
     expect(filterAndSortTokens(TOKENS, 'nope', 'recent')).toEqual([])
+  })
+})
+
+describe('partitionMarketTokens & pickGraduatingCandidates', () => {
+  const externalDex = listing('CT_PERI', 'PERIPPXU', 50, 42_022n * 10_000_000n)
+  const astroDex = listing('CT_ASTRO', 'ASTRO', 1, 443n * 10_000_000n)
+  const curveTop = curveListing('CT_TOP', 'NEAR', 60, 820n * 10_000_000n, false)
+  const curveMid = curveListing('CT_MID', 'MID', 61, 350n * 10_000_000n, false)
+  const curveNew = curveListing('CT_NEW', 'FRESH', 65, 10n * 10_000_000n, false)
+  const curveZero = curveListing('CT_ZERO', 'ZERO', 66, 0n, false)
+  const curveDone = curveListing('CT_DONE', 'MOONED', 55, 1_050n * 10_000_000n, true)
+
+  const mixed = [
+    externalDex,
+    astroDex,
+    curveMid,
+    curveDone,
+    curveZero,
+    curveNew,
+    curveTop,
+  ]
+
+  it('separates active bonding curves from graduated launches and external Soroswap DEX pairs', () => {
+    const { liveCurves, graduatedDex } = partitionMarketTokens(mixed)
+    expect(liveCurves.map((t) => t.symbol)).toEqual([
+      'MID',
+      'ZERO',
+      'FRESH',
+      'NEAR',
+    ])
+    expect(graduatedDex.map((t) => t.symbol)).toEqual([
+      'PERIPPXU',
+      'ASTRO',
+      'MOONED',
+    ])
+  })
+
+  it('selects only funded active curves ordered closest to graduation for the 4s carousel', () => {
+    const candidates = pickGraduatingCandidates(mixed)
+    expect(candidates.map((t) => t.symbol)).toEqual(['NEAR', 'MID', 'FRESH'])
   })
 })

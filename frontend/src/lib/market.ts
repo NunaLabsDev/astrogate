@@ -1,7 +1,7 @@
 import { GRADUATION_TARGET_XLM, STROOPS_PER_UNIT } from './tokenomics'
 import type { TokenListing } from './discovery'
 
-function effectiveLiquidityStroops(t: TokenListing): bigint {
+export function effectiveLiquidityStroops(t: TokenListing): bigint {
   if (t.curve && !t.curve.graduated) {
     return t.curve.curve_xlm_net
   }
@@ -11,6 +11,51 @@ function effectiveLiquidityStroops(t: TokenListing): bigint {
 function isGraduatedToken(t: TokenListing): boolean {
   if (t.curve) return t.curve.graduated
   return t.pool.reserveXlm >= BigInt(GRADUATION_TARGET_XLM) * STROOPS_PER_UNIT
+}
+
+/**
+ * Returns true if the token belongs in the Graduated & Soroswap DEX section
+ * (graduated fair launches + external/legacy Soroswap DEX pairs), false if it
+ * is still on an active pre-graduation bonding curve.
+ */
+export function isGraduatedOrDexToken(t: TokenListing): boolean {
+  if (t.curve) return t.curve.graduated
+  if (t.verifiedLaunchpad) return isGraduatedToken(t)
+  return true
+}
+
+/** Splits a token list into active Bonding Curves vs Graduated & Soroswap DEX pairs. */
+export function partitionMarketTokens(tokens: TokenListing[]): {
+  liveCurves: TokenListing[]
+  graduatedDex: TokenListing[]
+} {
+  const liveCurves: TokenListing[] = []
+  const graduatedDex: TokenListing[] = []
+  for (const token of tokens) {
+    if (isGraduatedOrDexToken(token)) {
+      graduatedDex.push(token)
+    } else {
+      liveCurves.push(token)
+    }
+  }
+  return { liveCurves, graduatedDex }
+}
+
+/**
+ * Selects active pre-graduation Bonding Curve tokens ordered closest to the
+ * graduation target first (for the 4-second Graduating Soon carousel).
+ */
+export function pickGraduatingCandidates(tokens: TokenListing[]): TokenListing[] {
+  return tokens
+    .filter((t) => !isGraduatedOrDexToken(t) && effectiveLiquidityStroops(t) > 0n)
+    .sort((a, b) => {
+      const liqCmp = compareBigInt(
+        effectiveLiquidityStroops(a),
+        effectiveLiquidityStroops(b),
+      )
+      if (liqCmp !== 0) return liqCmp
+      return b.ledger - a.ledger
+    })
 }
 
 export type MarketSortKey =
@@ -24,8 +69,8 @@ export const MARKET_SORT_OPTIONS: Array<{
   value: MarketSortKey
   label: string
 }> = [
-  { value: 'recent', label: '⚡ New Launches' },
   { value: 'graduation', label: '🎓 Graduating Soon' },
+  { value: 'recent', label: '⚡ New Launches' },
   { value: 'liquidity', label: 'Highest Liquidity' },
   { value: 'price', label: 'Highest Price' },
   { value: 'symbol', label: 'Symbol A–Z' },

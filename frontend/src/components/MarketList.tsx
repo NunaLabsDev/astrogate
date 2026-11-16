@@ -1,12 +1,9 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useTokenList } from '../hooks/useTokenList'
 import { formatAmount, shortAddress } from '../lib/format'
 import { isValidContractAddress } from '../lib/address'
-import {
-  GRADUATION_TARGET_XLM,
-  graduationProgressForListing,
-} from '../lib/tokenomics'
+import { graduationProgressForListing } from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 import { formatTokenPrice, formatUsdPrice, tokenPriceInXlmNumber } from '../lib/soroswap'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
@@ -14,6 +11,7 @@ import { useWatchlist } from '../store/watchlist'
 import {
   filterAndSortTokens,
   MARKET_SORT_OPTIONS,
+  partitionMarketTokens,
   type MarketSortKey,
 } from '../lib/market'
 import { TokenArt } from './TokenArt'
@@ -43,7 +41,7 @@ function Price({ token }: { token: TokenListing }) {
       <span className="font-mono text-sm text-emerald-400">
         {formatTokenPrice(price)} XLM
       </span>
-      <span className="font-mono text-[10px] text-slate-400">
+      <span className="font-mono text-xs text-slate-400">
         ≈ ${formatUsdPrice(priceUsd)}
       </span>
     </div>
@@ -255,14 +253,28 @@ export function MarketList({
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [localQuery, setLocalQuery] = useState('')
-  const [localSort, setLocalSort] = useState<MarketSortKey>('recent')
+  const [localSort, setLocalSort] = useState<MarketSortKey>('graduation')
   const [localFavsOnly, setLocalFavsOnly] = useState(false)
   const [localVerifiedOnly, setLocalVerifiedOnly] = useState(false)
+  const [localSection, setLocalSection] = useState<'curves' | 'graduated'>('curves')
 
   const query = showFilters ? (searchParams.get('q') ?? localQuery) : ''
-  const sort = showFilters ? ((searchParams.get('sort') as MarketSortKey) || localSort) : 'recent'
-  const favsOnly = showFilters ? (searchParams.has('favs') ? searchParams.get('favs') === '1' : localFavsOnly) : false
-  const verifiedOnly = showFilters ? (searchParams.has('fair') ? searchParams.get('fair') === '1' : localVerifiedOnly) : false
+  const sort = showFilters
+    ? ((searchParams.get('sort') as MarketSortKey) || localSort)
+    : 'graduation'
+  const favsOnly = showFilters
+    ? (searchParams.has('favs') ? searchParams.get('favs') === '1' : localFavsOnly)
+    : false
+  const verifiedOnly = showFilters
+    ? (searchParams.has('fair') ? searchParams.get('fair') === '1' : localVerifiedOnly)
+    : false
+  const section: 'curves' | 'graduated' = showFilters
+    ? searchParams.get('tab') === 'graduated'
+      ? 'graduated'
+      : searchParams.get('tab') === 'curves'
+        ? 'curves'
+        : localSection
+    : localSection
 
   const setQuery = useCallback(
     (newQ: string) => {
@@ -289,7 +301,7 @@ export function MarketList({
         setSearchParams(
           (prev) => {
             const next = new URLSearchParams(prev)
-            if (newSort !== 'recent') next.set('sort', newSort)
+            if (newSort !== 'graduation') next.set('sort', newSort)
             else next.delete('sort')
             return next
           },
@@ -336,17 +348,15 @@ export function MarketList({
     [showFilters, setSearchParams],
   )
 
-  const applyQuickSort = useCallback(
-    (nextSort: MarketSortKey) => {
-      setLocalSort(nextSort)
-      setLocalFavsOnly(false)
+  const setSection = useCallback(
+    (nextSection: 'curves' | 'graduated') => {
+      setLocalSection(nextSection)
       if (showFilters) {
         setSearchParams(
           (prev) => {
             const next = new URLSearchParams(prev)
-            if (nextSort !== 'recent') next.set('sort', nextSort)
-            else next.delete('sort')
-            next.delete('favs')
+            if (nextSection === 'graduated') next.set('tab', 'graduated')
+            else next.delete('tab')
             return next
           },
           { replace: true },
@@ -377,15 +387,7 @@ export function MarketList({
   const favorites = useWatchlist((s) => s.favorites)
   const isFavorite = useCallback((id: string) => favorites.includes(id), [favorites])
 
-  const heatingTokens = useMemo(
-    () =>
-      (list.data ?? []).filter(
-        (token) => graduationProgressForListing(token).stage === 'heating',
-      ),
-    [list.data],
-  )
-
-  const tokens = useMemo(() => {
+  const filteredBase = useMemo(() => {
     let result = filterAndSortTokens(list.data ?? [], query, sort)
     if (favsOnly) {
       result = result.filter((t) => isFavorite(t.id))
@@ -393,19 +395,33 @@ export function MarketList({
     if (verifiedOnly) {
       result = result.filter((t) => Boolean(t.verifiedLaunchpad))
     }
-    return typeof limit === 'number' ? result.slice(0, limit) : result
-  }, [list.data, query, sort, limit, favsOnly, verifiedOnly, isFavorite])
+    return result
+  }, [list.data, query, sort, favsOnly, verifiedOnly, isFavorite])
+
+  const { liveCurves, graduatedDex } = useMemo(
+    () => partitionMarketTokens(filteredBase),
+    [filteredBase],
+  )
+
+  const activeList = section === 'graduated' ? graduatedDex : liveCurves
+  const tokens = useMemo(
+    () => (typeof limit === 'number' ? activeList.slice(0, limit) : activeList),
+    [activeList, limit],
+  )
+  const otherSectionCount =
+    section === 'graduated' ? liveCurves.length : graduatedDex.length
+
   const trimmedQuery = query.trim()
   const isDirectContract = isValidContractAddress(trimmedQuery)
-  const exactMatchInList = tokens.some((t) => t.id === trimmedQuery)
+  const exactMatchInList = filteredBase.some((t) => t.id === trimmedQuery)
 
   return (
-    <section className="liquid-glass rounded-3xl p-5 sm:p-8 space-y-6">
+    <section className="liquid-glass rounded-3xl p-5 sm:p-8 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Live Market</h2>
           <p className="mt-1 text-sm text-slate-400">
-            On-chain fair launches & Soroswap Token/XLM pairs.
+            Active bonding curves graduating to Soroswap DEX.
           </p>
         </div>
         <button
@@ -419,34 +435,49 @@ export function MarketList({
       </div>
 
       {list.data && list.data.length > 0 ? (
-        <div className="mt-4 space-y-3">
-          {heatingTokens.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-500/40 bg-amber-950/25 px-4 py-2.5 text-xs">
-              <div className="flex items-center gap-2 text-amber-200 font-semibold">
-                <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
-                <span>
-                  🔥 {heatingTokens.length} {heatingTokens.length === 1 ? 'token is' : 'tokens are'} graduating soon (&ge;50% to {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM)
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {heatingTokens.slice(0, 3).map((t) => (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() =>
-                      onSelect({ id: t.id, decimals: t.decimals, symbol: t.symbol })
-                    }
-                    className="rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 font-mono font-bold text-amber-200 hover:bg-amber-500/25 transition"
-                  >
-                    ${t.symbol} {Math.round(graduationProgressForListing(t).percent)}% →
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-          <KingOfTheHill tokens={list.data} onSelect={onSelect} />
-        </div>
+        <KingOfTheHill tokens={list.data} onSelect={onSelect} />
       ) : null}
+
+      <div className="flex flex-col gap-2">
+        <div
+          role="tablist"
+          aria-label="Market sections"
+          className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-800 bg-slate-950/75 p-1.5"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'curves'}
+            onClick={() => setSection('curves')}
+            className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
+              section === 'curves'
+                ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 border border-transparent'
+            }`}
+          >
+            🔥 Live Curves ({liveCurves.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'graduated'}
+            onClick={() => setSection('graduated')}
+            className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
+              section === 'graduated'
+                ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 border border-transparent'
+            }`}
+          >
+            🎓 Graduated & DEX ({graduatedDex.length})
+          </button>
+        </div>
+
+        {section === 'graduated' ? (
+          <p className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-3.5 py-2 text-xs text-emerald-200/90">
+            Graduated tokens & Soroswap DEX pairs — inspect liquidity depth, price momentum, and buy or sell live.
+          </p>
+        ) : null}
+      </div>
 
       {showFilters ? (
         <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -517,48 +548,13 @@ export function MarketList({
               </select>
             </label>
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 sm:col-span-2">
-            <button
-              type="button"
-              onClick={() => applyQuickSort('graduation')}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                sort === 'graduation' && !favsOnly
-                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                  : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              🎓 Graduating Soon{heatingTokens.length > 0 ? ` (${heatingTokens.length})` : ''}
-            </button>
-            <button
-              type="button"
-              onClick={() => applyQuickSort('recent')}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                sort === 'recent' && !favsOnly
-                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                  : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              ⚡ New Launches
-            </button>
-            <button
-              type="button"
-              onClick={() => applyQuickSort('liquidity')}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
-                sort === 'liquidity' && !favsOnly
-                  ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40'
-                  : 'bg-slate-900/60 text-slate-400 hover:text-slate-200 border border-slate-800'
-              }`}
-            >
-              💧 Highest Liquidity
-            </button>
-          </div>
         </div>
       ) : null}
 
       {list.data ? (
-        <p aria-live="polite" className="mt-2 text-xs text-slate-500">
-          {tokens.length} of {list.data.length} pairs
+        <p aria-live="polite" className="text-xs text-slate-400">
+          Showing {tokens.length}{' '}
+          {section === 'graduated' ? 'graduated / DEX pairs' : 'live curves'}
           {query ? ` for “${query.trim()}”` : ''}
         </p>
       ) : null}
@@ -630,17 +626,47 @@ export function MarketList({
       ) : null}
 
       {list.data && list.data.length > 0 && tokens.length === 0 ? (
-        <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/50 px-3 py-4 text-sm text-slate-400">
-          No tokens match the current search or filters.
-          {(query || favsOnly || verifiedOnly) ? (
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="ml-2 text-emerald-400 underline underline-offset-2"
-            >
-              Clear filters
-            </button>
-          ) : null}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-300">
+          <div className="space-y-1">
+            <p>
+              {query || favsOnly || verifiedOnly
+                ? `No ${section === 'graduated' ? 'graduated or DEX pairs' : 'live bonding curves'} match your filters.`
+                : section === 'curves'
+                  ? 'No active bonding curve launches right now.'
+                  : 'No graduated or DEX pairs discovered yet.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {otherSectionCount > 0 ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setSection(section === 'graduated' ? 'curves' : 'graduated')
+                }
+                className="min-h-[40px] rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30"
+              >
+                View {otherSectionCount} in{' '}
+                {section === 'graduated' ? '🔥 Live Curves' : '🎓 Graduated & DEX'} →
+              </button>
+            ) : null}
+            {section === 'curves' && !query && !favsOnly && !verifiedOnly ? (
+              <Link
+                to="/create"
+                className="min-h-[40px] inline-flex items-center rounded-xl bg-amber-400 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-amber-300"
+              >
+                🚀 Launch Coin →
+              </Link>
+            ) : null}
+            {(query || favsOnly || verifiedOnly) ? (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="min-h-[40px] rounded-xl border border-slate-700 px-3 py-2 text-xs font-medium text-emerald-400 hover:border-emerald-500"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
