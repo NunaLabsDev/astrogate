@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Idempotent configuration helper for @AstroGateSorobanBot.
- * Updates Bot Name, Description, Short Description, Localized Commands,
- * Chat Menu Button, and Webhook registration without printing secrets.
+ * Enforces strict English copy (Rule 9), wipes stale legacy scopes/languages,
+ * sets scoped slash commands, configures Menu Button, and registers Webhook.
  */
 import fs from 'node:fs'
 import os from 'node:os'
@@ -59,71 +59,96 @@ async function tgCall(method, payload) {
   return json.result
 }
 
+const DEFAULT_AND_PRIVATE_COMMANDS = [
+  { command: 'start', description: 'Open AstroGate hub & Mini App' },
+  { command: 'market', description: 'Live Fair-Flywheel v4.2 curves & DEX' },
+  { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
+  { command: 'king', description: 'King of the Hill & King Shout throne' },
+  { command: 'quests', description: 'Season-1 NFT quests & rank (GA...)' },
+  { command: 'rewards', description: 'Bounties, sprints & wallet check' },
+  { command: 'launch', description: 'Launch a Fair-Flywheel token (7 XLM)' },
+  { command: 'wallet', description: 'Self-custody vault & Friendbot faucet' },
+  { command: 'token', description: 'Inspect Soroban token contract (CA...)' },
+  { command: 'shouts', description: 'Live Burn-to-Chat messages (CA...)' },
+  { command: 'v42', description: 'Fair-Flywheel v4.2 tokenomics' },
+  { command: 'help', description: 'Commands, inline share & safety' },
+]
+
+const GROUP_COMMANDS = [
+  { command: 'market', description: 'Live Fair-Flywheel v4.2 curves & DEX' },
+  { command: 'king', description: 'King of the Hill & King Shout throne' },
+  { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
+  { command: 'quests', description: 'Check Sorobits NFT quests (GA...)' },
+  { command: 'token', description: 'Inspect Soroban token contract (CA...)' },
+  { command: 'shouts', description: 'Live Burn-to-Chat messages (CA...)' },
+  { command: 'rewards', description: 'Bounties, sprints & claim info' },
+  { command: 'v42', description: 'Fair-Flywheel v4.2 tokenomics' },
+  { command: 'help', description: 'Commands & safety rules' },
+]
+
+// 1. Wipe stale commands and legacy non-English localizations across scopes
+const SCOPES_TO_CLEAR = [
+  { type: 'default' },
+  { type: 'all_private_chats' },
+  { type: 'all_group_chats' },
+  { type: 'all_chat_administrators' },
+]
+
+for (const scope of SCOPES_TO_CLEAR) {
+  for (const lang of [undefined, 'en', 'es']) {
+    const payload = { scope }
+    if (lang) payload.language_code = lang
+    await tgCall('deleteMyCommands', payload)
+  }
+}
+
+await tgCall('setMyDescription', { language_code: 'es', description: '' })
+await tgCall('setMyShortDescription', { language_code: 'es', short_description: '' })
+
+// 2. Apply unified English identity & descriptions (built by NunaLabs)
 await tgCall('setMyName', {
-  name: 'AstroGate 🌊🚀',
+  name: 'AstroGate · NunaLabs',
 })
 
 await tgCall('setMyShortDescription', {
   short_description:
-    'AstroGate — Fair-launch memecoins & Soroswap AMM on Stellar Soroban. Self-custody TMA wallet · 100% LP burned.',
+    'AstroGate — Fair Launchpad, Soroswap AMM & Sorobits 100% On-Chain NFTs on Stellar Soroban · Built by NunaLabs.',
 })
 
 await tgCall('setMyDescription', {
   description: [
-    '🌊🚀 AstroGate — Fair Launchpad on Stellar Soroban',
+    'AstroGate — Fair Launchpad & Sorobits NFTs on Stellar Soroban (Testnet)',
     '',
-    '• 1-Tap Launch (7 XLM) · 10M fixed supply · 100% LP burned',
+    '• 1-Tap Launch (7 XLM) · 10M fixed supply · 100% LP burned on Soroswap',
     '• Fair-Flywheel v4.2 · 0.80% flat buys · Auto Buyback & Burn',
-    '• 42% Curve / 28% DEX / 29.5% Burn Vault / 0.5% 15d Vesting',
-    '• Self-Custody Wallet synced with Telegram CloudStorage',
+    '• Sorobits (SBIT) · 100% on-chain 32x32 genomic SVG NFTs (SEP-50)',
+    '• Self-Custody Vault synced inside Telegram CloudStorage',
     '',
-    '👇 Tap START to trade live curves or open the Mini App.',
+    'Tap START below to open the Mini App or run commands directly.',
+    'Built by NunaLabs',
   ].join('\n'),
 })
 
-await tgCall('setMyDescription', {
-  language_code: 'es',
-  description: [
-    '🌊🚀 AstroGate — Launchpad Justo en Stellar Soroban',
-    '',
-    '• Lanzamiento 1-Tap (7 XLM) · 10M fijos · 100% LP quemada',
-    '• Fair-Flywheel v4.2 · 0.80% compra plana · Buyback & Burn',
-    '• 42% Curva / 28% DEX / 29.5% Quema / 0.5% Vesting 15d',
-    '• Bóveda Self-Custody sincronizada en Telegram CloudStorage',
-    '',
-    '👇 Toca INICIAR para tradear curvas o abrir la Mini App.',
-  ].join('\n'),
+// 3. Apply crisp English slash commands for default, DMs, and groups
+await tgCall('setMyCommands', {
+  scope: { type: 'default' },
+  commands: DEFAULT_AND_PRIVATE_COMMANDS,
 })
 
 await tgCall('setMyCommands', {
-  commands: [
-    { command: 'start', description: '🏠 Home & Launchpad Menu' },
-    { command: 'market', description: '🔥 Live Curves & Graduated Pairs' },
-    { command: 'launch', description: '🚀 Launch Fair Token (7 XLM)' },
-    { command: 'wallet', description: '👛 Self-Custody Wallet & Faucet' },
-    { command: 'token', description: '🔍 Inspect Token (CA... Contract ID)' },
-    { command: 'v42', description: '⚙️ Fair-Flywheel v4.2 Tokenomics' },
-    { command: 'help', description: '❓ Commands, Security & Links' },
-  ],
+  scope: { type: 'all_private_chats' },
+  commands: DEFAULT_AND_PRIVATE_COMMANDS,
 })
 
 await tgCall('setMyCommands', {
-  language_code: 'es',
-  commands: [
-    { command: 'start', description: '🏠 Menú Principal y Accesos' },
-    { command: 'market', description: '🔥 Curvas en Vivo y Pares DEX' },
-    { command: 'launch', description: '🚀 Lanzar Token Justo (7 XLM)' },
-    { command: 'wallet', description: '👛 Bóveda Self-Custody y Faucet' },
-    { command: 'token', description: '🔍 Inspeccionar Token (CA...)' },
-    { command: 'v42', description: '⚙️ Reglas Fair-Flywheel v4.2' },
-    { command: 'help', description: '❓ Comandos, Seguridad y Ayuda' },
-  ],
+  scope: { type: 'all_group_chats' },
+  commands: GROUP_COMMANDS,
 })
 
 await tgCall('setChatMenuButton', {
   menu_button: {
     type: 'web_app',
-    text: '🌊 AstroGate',
+    text: 'AstroGate App',
     web_app: { url: MINI_APP_URL },
   },
 })
@@ -132,7 +157,7 @@ if (WEBHOOK_SECRET) {
   await tgCall('setWebhook', {
     url: WEBHOOK_URL,
     secret_token: WEBHOOK_SECRET,
-    allowed_updates: ['message', 'callback_query'],
+    allowed_updates: ['message', 'callback_query', 'inline_query'],
     drop_pending_updates: true,
   })
 } else {
