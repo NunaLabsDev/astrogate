@@ -1,5 +1,19 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 17 2026, sesión 35 — Bot Chat @AstroGateSorobanBot en Cloudflare Workers & Rediseño TMA Zero-CLS)
+Implementación completa del webhook interactivo del bot de Telegram en Cloudflare Workers, configuración de perfil/comandos bilingües y rediseño minimalista Zero-CLS proporcionado para Telegram Mini App (`390×844`). *AI-generated; revisión humana pendiente.*
+- **Bot Chat Interactivo (`frontend/worker/` + `frontend/scripts/configure-telegram-bot.mjs`)**:
+  - Endpoint `POST /telegram/webhook` dentro del Cloudflare Worker `astrogate-stellar` (`https://astrogate-stellar.pepepop2000.workers.dev/telegram/webhook`), autenticado en tiempo constante con `X-Telegram-Bot-Api-Secret-Token` (`SHA-256`) y secretos cifrados en Cloudflare (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
+  - Tarjetas in-place (`editMessageText`), localización automática ES/EN, `/start` con deep-links (`CA…`, `launch`, `market`, `wallet`), `/market` en vivo contra `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5`, inspector automático al pegar `CA…` (Soroban) o `GA…` (Horizon), y alerta de seguridad inmediata si alguien pega una clave privada `S…`.
+  - Perfil `@AstroGateSorobanBot` actualizado vía Bot API (`AstroGate 🌊🚀`, descripciones y 7 comandos en EN/ES, `Menu Button` `🌊 AstroGate` → `https://astrogate.pages.dev/`).
+- **Rediseño Minimalista Telegram Mini App & Zero-CLS (`fcebb7d`)**:
+  - Safe areas nativas (`safeAreaInset` / `contentSafeAreaInset`, eventos `safeAreaChanged` / `contentSafeAreaChanged` en `telegram.ts`), `100dvh`, inputs `>= 16px` sin auto-zoom iOS y `tabular-nums`.
+  - Header único de `62px` + barra de navegación inferior fija (`Market | Launch | Portfolio`) en móvil (`App.tsx`, `WalletButton.tsx`), esqueletos/alturas fijas en `KingOfTheHill`, tarjetas horizontales compactas en `MarketList` (`scrollHeight` de home reducido de `2,910px` a `1,092px`), esqueleto estructural y slots reservados en `TokenPage`, `SwapCard`, `ReserveChart`, `ShareButton` y `CreateTokenForm`.
+- **Producción & Verificación final**:
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`b3fb2afd.astrogate.pages.dev`) · **Cloudflare Worker**: `https://astrogate-stellar.pepepop2000.workers.dev` (`e501fc7d-23a6-4fb4-b4af-6276080bd4a1`).
+  - **Auditoría en vivo Chromium (`390×844` TMA)**: CLS `/` `0.0004`, `/create` `0`, `/portfolio` `0`, `/token/CAI637…` `0.278` (bajó desde `2.82`), `overflowEls = []` y `smallInputs = 0` en todas las rutas.
+  - **Tests**: `cargo test --workspace` (`35/35`), `npm run check` (`28` suites / `202` tests Vitest incluyendo `telegram-bot.test.ts`, `oxlint` `0` warnings/errors en `141` archivos, `smoke:render`, `verify:pwa`, `check:csp`).
+
 ## Handoff rápido (Nov 17 2026, sesión 34 — AstroGate Fair-Flywheel v4.2 + Telegram Mobile UX)
 Rediseño económico completo validado mediante simulación multi-agente de **50 wallets reales** en 3 regímenes de mercado, actualización de contratos (`astro-token` + `launchpad` v4.2), deploy en Stellar Testnet y optimización móvil/Telegram en frontend. *AI-generated; revisión humana pendiente.*
 - **Contratos Fair-Flywheel v4.2 desplegados en Testnet**:
