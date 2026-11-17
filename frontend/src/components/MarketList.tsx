@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useTokenList } from '../hooks/useTokenList'
-import { formatAmount, shortAddress } from '../lib/format'
+import { shortAddress } from '../lib/format'
 import { isValidContractAddress } from '../lib/address'
 import { graduationProgressForListing } from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
@@ -34,14 +34,14 @@ function Price({ token }: { token: TokenListing }) {
   // Número en coma flotante: preserva fracciones exactas de stroop en pares
   // con precios cercanos al mínimo de 7 decimales en Soroswap.
   const price = tokenPriceInXlmNumber(token.pool, token.decimals)
-  if (price <= 0) return <span className="text-slate-500">—</span>
+  if (price <= 0) return <span className="text-slate-500 font-mono text-xs tabular-nums">—</span>
   const priceUsd = price * xlmUsd
   return (
-    <div className="flex flex-col items-end">
-      <span className="font-mono text-sm text-emerald-400">
+    <div className="flex flex-col items-end tabular-nums">
+      <span className="font-mono text-xs sm:text-sm font-semibold text-emerald-400 whitespace-nowrap">
         {formatTokenPrice(price)} XLM
       </span>
-      <span className="font-mono text-xs text-slate-400">
+      <span className="font-mono text-xs text-slate-400 whitespace-nowrap">
         ≈ ${formatUsdPrice(priceUsd)}
       </span>
     </div>
@@ -62,6 +62,7 @@ function MarketCard({
     token.curve && !token.curve.graduated
       ? token.curve.curve_xlm_net
       : token.pool.reserveXlm
+  const liquidityXlm = Number(displayLiquidity) / 1e7
   const isFav = useWatchlist((s) => s.favorites.includes(token.id))
   const toggleFav = useWatchlist((s) => s.toggle)
   const meta = useTokenMetadata(token.id)
@@ -92,7 +93,7 @@ function MarketCard({
           })
         }
       }}
-      className={`liquid-glass-card group relative flex cursor-pointer flex-col overflow-hidden rounded-3xl ${
+      className={`liquid-glass-card group relative flex cursor-pointer flex-row sm:flex-col overflow-hidden rounded-2xl sm:rounded-3xl ${
         selected
           ? 'ring-2 ring-sky-400 border-sky-400/50'
           : isHeating
@@ -100,8 +101,8 @@ function MarketCard({
             : ''
       }`}
     >
-      {/* Token Emblem Showcase Frame */}
-      <div className="relative aspect-square w-full overflow-hidden bg-slate-950">
+      {/* Mobile Compact 64x64 Emblem | Desktop Wide Top Banner */}
+      <div className="relative h-16 w-16 m-3 rounded-xl sm:m-0 sm:rounded-none sm:h-36 sm:w-full shrink-0 overflow-hidden bg-slate-950">
         <TokenArt
           id={token.id}
           symbol={token.symbol}
@@ -109,33 +110,29 @@ function MarketCard({
           className="h-full w-full transition-transform duration-500 ease-out group-hover:scale-105"
         />
 
-        {/* Holographic Sheen */}
         <div className="holo-sheen absolute inset-0" />
+        <div className="hidden sm:block pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-transparent" />
 
-        {/* Subtle Bottom Vignette for Floating Glass Controls */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-transparent" />
-
-        {/* Top-Left: Ticker & Verified Fair Marker */}
-        <div className="absolute top-3 left-3 flex flex-wrap items-center gap-1.5">
-          <span className="liquid-glass-pill rounded-full px-3 py-1 text-xs font-bold tracking-wider text-sky-300 font-mono">
+        {/* Desktop overlay pills */}
+        <div className="hidden sm:flex absolute top-2.5 left-2.5 flex-wrap items-center gap-1.5">
+          <span className="liquid-glass-pill rounded-full px-2.5 py-0.5 text-xs font-bold tracking-wider text-sky-300 font-mono">
             ${token.symbol}
           </span>
           {token.verifiedLaunchpad ? (
             <span
               title="Verified Fair Launch"
-              className="liquid-glass-pill rounded-full border-emerald-400/50 bg-emerald-950/75 px-2.5 py-1 text-xs font-semibold text-emerald-300"
+              className="liquid-glass-pill rounded-full border-emerald-400/50 bg-emerald-950/75 px-2 py-0.5 text-xs font-semibold text-emerald-300"
             >
               ✓ Fair
             </span>
           ) : ageLabel ? (
-            <span className="liquid-glass-pill rounded-full px-2.5 py-1 font-mono text-xs text-slate-300">
+            <span className="liquid-glass-pill rounded-full px-2 py-0.5 font-mono text-xs text-slate-300">
               {ageLabel}
             </span>
           ) : null}
         </div>
 
-        {/* Top-Right: Collector Favorite Toggle */}
-        <div className="absolute top-3 right-3">
+        <div className="hidden sm:block absolute top-2.5 right-2.5">
           <button
             type="button"
             onClick={(e) => {
@@ -154,88 +151,97 @@ function MarketCard({
           </button>
         </div>
 
-        {/* Bottom-Left of Art Frame: Graduation Status Pill */}
-        <div className="absolute bottom-3 left-3 flex items-center gap-1.5">
+        <div className="hidden sm:flex absolute bottom-2.5 left-2.5 items-center gap-1.5">
           {selected ? (
-            <span className="liquid-glass-pill rounded-full border-sky-400/50 bg-sky-950/80 px-3 py-1 text-xs font-bold tracking-wider text-sky-300 uppercase">
+            <span className="liquid-glass-pill rounded-full border-sky-400/50 bg-sky-950/80 px-2.5 py-0.5 text-xs font-bold tracking-wider text-sky-300 uppercase">
               ✦ in swap
             </span>
           ) : !token.verifiedLaunchpad ? (
-            <span className="liquid-glass-pill rounded-full border-slate-500/40 bg-slate-950/75 px-3 py-1 text-xs font-medium text-slate-300">
+            <span className="liquid-glass-pill rounded-full border-slate-500/40 bg-slate-950/75 px-2.5 py-0.5 text-xs font-medium text-slate-300">
               Soroswap DEX
             </span>
           ) : isGraduated ? (
-            <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-3 py-1 text-xs font-bold text-emerald-300">
+            <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-2.5 py-0.5 text-xs font-bold text-emerald-300">
               ✦ Graduated
             </span>
           ) : isHeating ? (
-            <span className="liquid-glass-pill inline-flex items-center gap-1.5 rounded-full border-amber-400/60 bg-amber-950/75 px-3 py-1 text-xs font-bold text-amber-300">
-              <span className="h-2 w-2 rounded-full bg-amber-400 animate-pulse" />
+            <span className="liquid-glass-pill inline-flex items-center gap-1 rounded-full border-amber-400/60 bg-amber-950/75 px-2.5 py-0.5 text-xs font-bold text-amber-300 tabular-nums">
               🔥 {grad.percent.toFixed(0)}%
             </span>
           ) : (
-            <span className="liquid-glass-pill rounded-full px-3 py-1 text-xs font-medium text-sky-300">
+            <span className="liquid-glass-pill rounded-full px-2.5 py-0.5 text-xs font-medium text-sky-300 tabular-nums">
               ⚡ Curve {grad.percent.toFixed(0)}%
             </span>
           )}
         </div>
       </div>
 
-      {/* Token Details & Price Pedestal */}
-      <div className="flex flex-1 flex-col justify-between gap-3.5 p-4 sm:p-5">
-        <div>
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="truncate text-base sm:text-lg font-bold text-white group-hover:text-sky-300">
-              {token.name}
-            </h3>
-            <span className="shrink-0 rounded-md bg-white/[0.06] px-2 py-0.5 font-mono text-xs font-semibold text-slate-200">
-              ${token.symbol}
-            </span>
-          </div>
-          {meta.data?.description ? (
-            <p className="mt-1 line-clamp-1 text-xs sm:text-sm text-slate-400">
-              {meta.data.description}
-            </p>
-          ) : null}
-        </div>
-
-        {/* Spot Price & Pool Reserve Split */}
-        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/[0.07] bg-slate-950/45 p-3">
-          <div>
-            <p className="text-xs font-medium text-slate-400">
-              Price
-            </p>
-            <div className="mt-0.5">
-              <Price token={token} />
+      {/* Content Body: ultra-clean minimalist horizontal row on mobile, card pedestal on desktop */}
+      <div className="flex flex-1 min-w-0 flex-col justify-between gap-2 py-2.5 pr-3 sm:p-4">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-mono text-xs sm:text-sm font-bold text-sky-300 shrink-0">
+                ${token.symbol}
+              </span>
+              <h3 className="truncate text-sm sm:text-base font-bold text-white group-hover:text-sky-300">
+                {token.name}
+              </h3>
+              {token.verifiedLaunchpad ? (
+                <span className="sm:hidden shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300">
+                  Fair
+                </span>
+              ) : null}
             </div>
+            <p className="mt-0.5 truncate text-xs text-slate-400">
+              {meta.data?.description
+                ? meta.data.description
+                : token.curve && !token.curve.graduated
+                  ? `Vault ${liquidityXlm.toFixed(1)} XLM · ${grad.percent.toFixed(0)}%`
+                  : `Liquidity ${liquidityXlm > 0 ? `${liquidityXlm.toFixed(1)} XLM` : 'Empty'}`}
+            </p>
           </div>
-          <div className="text-right">
-            <p className="text-xs font-medium text-slate-400">
-              {token.curve && !token.curve.graduated ? 'Curve Vault' : 'Liquidity'}
-            </p>
-            <p className="mt-0.5 font-mono text-xs sm:text-sm font-semibold text-emerald-300">
-              {displayLiquidity === 0n ? 'Empty' : `${formatAmount(displayLiquidity, 7)} XLM`}
-            </p>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Price token={token} />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleFav(token.id)
+              }}
+              aria-label={
+                isFav ? `Remove ${token.symbol} from favorites` : `Add ${token.symbol} to favorites`
+              }
+              aria-pressed={isFav}
+              className={`sm:hidden flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-xs ${
+                isFav ? 'text-amber-300 border-amber-400/40' : 'text-slate-400'
+              }`}
+            >
+              {isFav ? '★' : '☆'}
+            </button>
           </div>
         </div>
 
-        {/* Graduation Progress Hairline Bar */}
-        <div className="space-y-1">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-900/90">
+        {/* Bottom row: progress hairline + TVL/Arrow */}
+        <div className="flex items-center gap-2.5">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-900/90">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 isGraduated
                   ? 'bg-gradient-to-r from-emerald-400 to-teal-300'
                   : 'bg-gradient-to-r from-sky-500 via-indigo-400 to-emerald-400'
               }`}
-              style={{ width: `${Math.max(3, Math.min(100, grad.percent))}%` }}
+              style={{ width: `${Math.max(4, Math.min(100, grad.percent))}%` }}
             />
           </div>
+          <span className="shrink-0 font-mono text-xs tabular-nums text-emerald-300">
+            {displayLiquidity === 0n ? '0 XLM' : `${liquidityXlm.toFixed(1)} XLM`}
+          </span>
         </div>
 
-        {/* Open Terminal Indicator */}
-        <div className="liquid-glass-pill flex items-center justify-center gap-1.5 rounded-xl py-2 text-center text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition">
-          <span>Trade & Chart</span>
+        <div className="hidden sm:flex liquid-glass-pill items-center justify-center gap-1.5 rounded-xl py-1.5 text-center text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition">
+          <span>Trade &amp; Chart</span>
           <span aria-hidden="true">→</span>
         </div>
       </div>
@@ -416,26 +422,30 @@ export function MarketList({
   const exactMatchInList = filteredBase.some((t) => t.id === trimmedQuery)
 
   return (
-    <section className="liquid-glass rounded-3xl p-5 sm:p-8 space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Live Market</h2>
-          <p className="mt-1 text-sm text-slate-400">
-            Active bonding curves graduating to Soroswap DEX.
+    <section className="liquid-glass rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 space-y-3.5 sm:space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="text-base sm:text-lg font-semibold truncate">Live Market</h2>
+          <p className="text-xs text-slate-400 truncate">
+            Active bonding curves graduating to Soroswap DEX
           </p>
         </div>
         <button
           type="button"
           onClick={() => void list.refetch()}
           disabled={list.isFetching}
-          className="min-h-[44px] rounded-lg border border-slate-800 px-3 py-2 text-xs text-slate-300 hover:border-slate-600 disabled:opacity-50"
+          className="min-h-[36px] shrink-0 rounded-xl border border-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-600 disabled:opacity-50"
         >
-          {list.isFetching ? 'Refreshing…' : 'Refresh'}
+          {list.isFetching ? 'Syncing…' : 'Refresh'}
         </button>
       </div>
 
-      {list.data && list.data.length > 0 ? (
-        <KingOfTheHill tokens={list.data} onSelect={onSelect} />
+      {list.isPending || (list.data && list.data.length > 0) ? (
+        <KingOfTheHill
+          tokens={list.data ?? []}
+          pending={list.isPending}
+          onSelect={onSelect}
+        />
       ) : null}
 
       <div className="flex flex-col gap-2">
@@ -531,14 +541,15 @@ export function MarketList({
               {favsOnly ? '★ Favorites Only' : '☆ All'}
             </button>
 
-            <label className="flex items-center gap-2 text-xs text-slate-400">
-              <span>Sort by</span>
+            <label className="flex items-center gap-1.5 text-xs text-slate-400">
+              <span className="sr-only sm:not-sr-only">Sort by</span>
               <select
                 value={sort}
                 onChange={(event) =>
                   setSort(event.target.value as MarketSortKey)
                 }
-                className="min-h-[44px] rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500"
+                aria-label="Sort tokens"
+                className="min-h-[44px] rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-2 text-base sm:text-sm text-slate-200 outline-none focus:border-emerald-500"
               >
                 {MARKET_SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -551,40 +562,37 @@ export function MarketList({
         </div>
       ) : null}
 
-      {list.data ? (
-        <p aria-live="polite" className="text-xs text-slate-400">
-          Showing {tokens.length}{' '}
-          {section === 'graduated' ? 'graduated / DEX pairs' : 'live curves'}
-          {query ? ` for “${query.trim()}”` : ''}
-        </p>
-      ) : null}
+      <p aria-live="polite" className="min-h-[16px] text-xs text-slate-400 tabular-nums">
+        {list.data ? (
+          <>
+            Showing {tokens.length}{' '}
+            {section === 'graduated' ? 'graduated / DEX pairs' : 'live curves'}
+            {query ? ` for “${query.trim()}”` : ''}
+          </>
+        ) : (
+          'Syncing on-chain market…'
+        )}
+      </p>
 
       {list.isPending ? (
-        <div className="mt-4 space-y-3">
-          <p className="text-sm text-slate-400">
-            Discovering pairs on-chain…
-          </p>
-          <ul
-            aria-hidden="true"
-            className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
-          >
-            {Array.from({ length: limit ?? 4 }).map((_, idx) => (
-              <li
-                key={idx}
-                className="flex flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/40"
-              >
-                <div className="aspect-square w-full animate-pulse bg-slate-800/60" />
-                <div className="space-y-2 p-3">
-                  <div className="h-4 w-16 animate-pulse rounded bg-slate-800" />
-                  <div className="h-3 w-24 animate-pulse rounded bg-slate-800/70" />
-                  <div className="pt-2">
-                    <div className="h-3 w-full animate-pulse rounded bg-slate-800/50" />
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <ul
+          aria-hidden="true"
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4"
+        >
+          {Array.from({ length: limit ?? 4 }).map((_, idx) => (
+            <li
+              key={idx}
+              className="flex flex-row sm:flex-col overflow-hidden rounded-2xl sm:rounded-3xl border border-slate-800/80 bg-slate-900/40"
+            >
+              <div className="h-16 w-16 m-3 rounded-xl sm:m-0 sm:rounded-none sm:h-36 sm:w-full shrink-0 animate-pulse bg-slate-800/60" />
+              <div className="flex-1 space-y-2 py-3 pr-3 sm:p-4">
+                <div className="h-4 w-28 animate-pulse rounded bg-slate-800" />
+                <div className="h-3 w-40 animate-pulse rounded bg-slate-800/70" />
+                <div className="h-2 w-full animate-pulse rounded bg-slate-800/50" />
+              </div>
+            </li>
+          ))}
+        </ul>
       ) : null}
 
       {isDirectContract && !exactMatchInList ? (
@@ -671,7 +679,7 @@ export function MarketList({
       ) : null}
 
       {tokens.length > 0 ? (
-        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+        <ul className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {tokens.map((token) => (
             <MarketCard
               key={token.id}

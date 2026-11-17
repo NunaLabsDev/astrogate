@@ -358,18 +358,48 @@ export function TokenPage() {
 
   if (info.isPending) {
     return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-6 animate-pulse">
-          <p className="text-sm text-slate-400">
-            Reading token {shortAddress(id)} on testnet…
-          </p>
-          <div className="mt-4 flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-slate-800" />
-            <div className="space-y-2">
-              <div className="h-6 w-48 rounded bg-slate-800" />
-              <div className="h-3 w-64 rounded bg-slate-800/70" />
+      <div className="space-y-4 animate-pulse">
+        <p className="sr-only">Reading token {shortAddress(id)} on testnet…</p>
+        {/* Matched Hero Skeleton (exact internal structure for 0 CLS) */}
+        <div className="liquid-glass rounded-2xl p-3.5 sm:p-5 border border-sky-500/20 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-12 w-12 shrink-0 rounded-xl bg-slate-800" />
+              <div className="space-y-1.5">
+                <div className="h-7 w-36 rounded bg-slate-800" />
+                <div className="h-4 w-28 rounded bg-slate-800/70" />
+              </div>
+            </div>
+            <div className="space-y-1.5 text-right">
+              <div className="h-6 w-24 rounded bg-slate-800 ml-auto" />
+              <div className="h-4 w-16 rounded bg-slate-800/70 ml-auto" />
             </div>
           </div>
+          <div className="min-h-[60px] sm:min-h-[28px] w-full rounded-lg bg-slate-800/50" />
+          <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+            <div className="h-4 w-full rounded bg-slate-800/60" />
+            <div className="h-1.5 w-full rounded-full bg-slate-800/60" />
+          </div>
+        </div>
+
+        {/* Matched 2x2 Telemetry Skeleton */}
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[86px] sm:h-[96px] rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4"
+            >
+              <div className="h-3 w-16 rounded bg-slate-800" />
+              <div className="mt-2 h-5 w-24 rounded bg-slate-800/80" />
+              <div className="mt-1.5 h-3 w-14 rounded bg-slate-800/50" />
+            </div>
+          ))}
+        </div>
+
+        {/* Matched Main Arena Skeleton */}
+        <div className="grid gap-4 lg:grid-cols-12 items-start">
+          <div className="h-[468px] rounded-2xl border border-slate-800 bg-slate-900/40 lg:col-span-5 order-first lg:order-last" />
+          <div className="h-[340px] rounded-2xl border border-slate-800 bg-slate-900/40 lg:col-span-7" />
         </div>
       </div>
     )
@@ -467,220 +497,208 @@ export function TokenPage() {
       : `/token/${id}`
 
   return (
-    <div className="space-y-6">
-      {/* 1. Sleek Minimalist Header */}
-      <div className="liquid-glass rounded-2xl p-4 sm:p-5 border border-sky-500/20 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
-          {/* Token Visual Avatar */}
-          <div className="relative h-14 w-14 shrink-0 rounded-2xl overflow-hidden bg-slate-950 border border-sky-500/30 shadow-md">
-            <TokenArt
-              id={id}
-              symbol={token.symbol}
-              logoUrl={meta.data?.logoUrl}
-              className="h-full w-full"
-            />
+    <div className="space-y-4 sm:space-y-5">
+      {/* 1. Minimalist TMA-Proportioned Hero Header (Zero CLS) */}
+      <div className="liquid-glass rounded-2xl p-3.5 sm:p-5 border border-sky-500/20 shadow-xl space-y-3">
+        {/* Top Row: Avatar + Name/Symbol + Spot Price */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="relative h-12 w-12 shrink-0 rounded-xl overflow-hidden bg-slate-950 border border-sky-500/30 shadow-md">
+              <TokenArt
+                id={id}
+                symbol={token.symbol}
+                logoUrl={meta.data?.logoUrl}
+                className="h-full w-full"
+              />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h1 className="truncate text-lg sm:text-2xl font-black text-white tracking-tight">
+                  {info.data.name}
+                </h1>
+                <span className="shrink-0 rounded-md bg-sky-500/20 border border-sky-500/30 px-1.5 py-0.5 font-mono text-xs font-bold text-sky-300">
+                  ${token.symbol}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400 truncate">
+                {meta.data?.description || (isBondingCurve ? 'Fair-Flywheel Bonding Curve' : 'Stellar Soroban SEP-41')}
+              </p>
+            </div>
           </div>
 
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                {info.data.name}
-              </h1>
-              <span className="rounded-lg bg-sky-500/20 border border-sky-500/30 px-2 py-0.5 font-mono text-xs font-bold text-sky-300">
-                ${token.symbol}
-              </span>
-              <SecurityBadge status={security} />
-              {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
-                <span
-                  className="rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[10px] font-semibold text-sky-300 flex items-center gap-1"
-                  title="Mint renounced & reserves locked in Launchpad v4 Virtual Bonding Curve"
-                >
-                  ⚡ Fair Curve Vault
-                </span>
-              ) : null}
-              <HolderRiskBadge
-                risk={holderAnalysis.riskLevel}
-                label={holderAnalysis.riskLabel}
-                topSinglePct={holderAnalysis.topSingleWalletPercent}
-              />
-              {isOwner ? (
-                <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
-                  Creator
-                </span>
-              ) : null}
-            </div>
-
-            {/* Contract & Socials Bar */}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-              <button
-                type="button"
-                onClick={() => void copy(id)}
-                className="font-mono text-slate-300 hover:text-white transition flex items-center gap-1 bg-slate-900/60 px-2 py-0.5 rounded-lg border border-slate-800"
-                title="Copy full contract address"
-              >
-                <span>{shortAddress(id)}</span>
-                <span>{copied ? '✓' : '📋'}</span>
-              </button>
-
-              <button
-                type="button"
-                aria-pressed={isFav}
-                onClick={() => toggleFav(id)}
-                className={`rounded-lg border px-2 py-0.5 text-xs transition ${
-                  isFav
-                    ? 'border-amber-400/60 bg-amber-500/15 text-amber-300 font-semibold'
-                    : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-amber-200'
-                }`}
-                title={isFav ? 'Remove from watchlist' : 'Add to watchlist'}
-              >
-                {isFav ? '★ Watchlisted' : '☆ Watch'}
-              </button>
-
-              <ShareButton
-                text={`Check out $${token.symbol ?? 'TOKEN'} on AstroGate:`}
-                url={shareUrl}
-                label="Share"
-              />
-
-              {safeTelegram ? (
-                <a
-                  href={safeTelegram}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-sky-400 hover:text-sky-300 hover:underline"
-                >
-                  Telegram ↗
-                </a>
-              ) : null}
-              {safeTwitter ? (
-                <a
-                  href={safeTwitter}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-slate-300 hover:text-white hover:underline"
-                >
-                  Twitter ↗
-                </a>
-              ) : null}
-              {safeWebsite ? (
-                <a
-                  href={safeWebsite}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-cyan-300 hover:text-cyan-200 hover:underline"
-                >
-                  Website ↗
-                </a>
-              ) : null}
-              <a
-                href={explorerContractUrl(id)}
-                target="_blank"
-                rel="noreferrer"
-                className="text-slate-400 hover:text-slate-200 hover:underline"
-              >
-                Explorer ↗
-              </a>
-            </div>
-            {meta.data?.description ? (
-              <p className="mt-2 max-w-xl text-xs text-slate-300 leading-relaxed">
-                {meta.data.description}
-              </p>
-            ) : null}
+          <div className="shrink-0 text-right font-mono tabular-nums">
+            <p className="text-base sm:text-xl font-black text-white whitespace-nowrap">
+              {priceNumber > 0 ? `${formatTokenPrice(priceNumber)} XLM` : '—'}
+            </p>
+            <p className="min-h-[16px] text-xs text-slate-400 whitespace-nowrap">
+              {priceUsd > 0 ? `≈ $${formatUsdPrice(priceUsd)}` : 'Pending price'}
+            </p>
           </div>
         </div>
 
-        {/* Spot Price & Graduation Progress Bar */}
-        <div className="flex flex-col sm:items-end gap-1.5 font-mono pt-2 md:pt-0 border-t md:border-t-0 border-slate-800">
-          <div className="flex items-baseline gap-2">
-            <span className="text-lg sm:text-xl font-black text-white">
-              {priceNumber > 0 ? `${formatTokenPrice(priceNumber)} XLM` : '—'}
-            </span>
-            {priceUsd > 0 ? (
-              <span className="text-xs text-slate-400">
-                ≈ ${formatUsdPrice(priceUsd)}
-              </span>
-            ) : null}
-          </div>
+        {/* Middle Row: Static action pills first (so async badges never shift Copy/Watch/Share) */}
+        <div className="min-h-[60px] sm:min-h-[28px] flex flex-wrap items-center gap-1.5 text-xs">
+          <button
+            type="button"
+            onClick={() => void copy(id)}
+            className="h-7 shrink-0 font-mono text-slate-300 hover:text-white transition inline-flex items-center gap-1 bg-slate-900/60 px-2 py-0.5 rounded-lg border border-slate-800 text-xs whitespace-nowrap"
+            title="Copy full contract address"
+          >
+            <span>{shortAddress(id)}</span>
+            <span>{copied ? '✓' : '📋'}</span>
+          </button>
 
-          <div className="w-full sm:w-56 space-y-1.5">
-            <div className="flex justify-between text-xs text-slate-400">
-              <span>Graduation</span>
-              <span className="font-bold text-amber-300">
-                {graduationPercent}% / {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
-              </span>
-            </div>
-            <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-              <div
-                className="h-full bg-gradient-to-r from-sky-400 via-indigo-400 to-amber-400 rounded-full"
-                style={{ width: `${graduationPercent}%` }}
-              />
-            </div>
+          <button
+            type="button"
+            aria-pressed={isFav}
+            onClick={() => toggleFav(id)}
+            className={`h-7 shrink-0 rounded-lg border px-2 py-0.5 text-xs whitespace-nowrap transition ${
+              isFav
+                ? 'border-amber-400/60 bg-amber-500/15 text-amber-300 font-semibold'
+                : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-amber-200'
+            }`}
+            title={isFav ? 'Remove from watchlist' : 'Add to watchlist'}
+          >
+            {isFav ? '★ Saved' : '☆ Watch'}
+          </button>
+
+          <ShareButton
+            text={`Check out $${token.symbol ?? 'TOKEN'} on AstroGate:`}
+            url={shareUrl}
+            label="Share"
+            compact
+          />
+
+          <a
+            href={explorerContractUrl(id)}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-slate-400 hover:text-slate-200 hover:underline px-1 whitespace-nowrap"
+          >
+            Explorer ↗
+          </a>
+
+          <span className="shrink-0">
+            <SecurityBadge status={security} />
+          </span>
+          {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
+            <span
+              className="shrink-0 rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[11px] font-semibold text-sky-300 flex items-center gap-1 whitespace-nowrap"
+              title="Mint renounced & reserves locked in Launchpad v4.2 Virtual Bonding Curve"
+            >
+              ⚡ Fair Curve
+            </span>
+          ) : null}
+          <span className="shrink-0 whitespace-nowrap">
+            <HolderRiskBadge
+              risk={holderAnalysis.riskLevel}
+              label={holderAnalysis.riskLabel}
+              topSinglePct={holderAnalysis.topSingleWalletPercent}
+            />
+          </span>
+          {isOwner ? (
+            <span className="shrink-0 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300 whitespace-nowrap">
+              Creator
+            </span>
+          ) : null}
+
+          {safeTelegram ? (
+            <a
+              href={safeTelegram}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-sky-400 hover:text-sky-300 hover:underline px-1 whitespace-nowrap"
+            >
+              TG ↗
+            </a>
+          ) : null}
+          {safeTwitter ? (
+            <a
+              href={safeTwitter}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-slate-300 hover:text-white hover:underline px-1 whitespace-nowrap"
+            >
+              X ↗
+            </a>
+          ) : null}
+          {safeWebsite ? (
+            <a
+              href={safeWebsite}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-cyan-300 hover:text-cyan-200 hover:underline px-1 whitespace-nowrap"
+            >
+              Web ↗
+            </a>
+          ) : null}
+        </div>
+
+        {/* Bottom Row: Fixed-height Graduation Bar (absorbs status without mounting extra banner cards) */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums">
+            <span className="truncate font-sans font-medium text-slate-300">
+              {grad.graduated
+                ? '🎓 Graduated on Soroswap DEX'
+                : grad.stage === 'heating'
+                  ? `🔥 Heating up (${Math.max(0, GRADUATION_TARGET_XLM - grad.currentXlm).toFixed(1)} XLM left)`
+                  : '⚡ Race to Soroswap DEX'}
+            </span>
+            <span
+              className={`shrink-0 font-bold ${
+                grad.graduated ? 'text-emerald-300' : 'text-amber-300'
+              }`}
+            >
+              {graduationPercent}% · {grad.currentXlm.toFixed(0)}/{GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
+            </span>
+          </div>
+          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                grad.graduated
+                  ? 'bg-gradient-to-r from-emerald-400 to-teal-300'
+                  : 'bg-gradient-to-r from-sky-400 via-indigo-400 to-amber-400'
+              }`}
+              style={{ width: `${Math.max(2, graduationPercent)}%` }}
+            />
           </div>
         </div>
       </div>
 
-      {/* Graduation Alert Banner */}
-      {grad.stage === 'heating' || grad.graduated ? (
-        <div
-          className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-2.5 text-xs font-medium ${
-            grad.graduated
-              ? 'border-emerald-500/40 bg-emerald-950/30 text-emerald-200'
-              : 'border-amber-500/50 bg-amber-950/30 text-amber-200'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className={`h-2 w-2 rounded-full ${
-                grad.graduated
-                  ? 'bg-emerald-400'
-                  : 'bg-amber-400 animate-pulse'
-              }`}
-            />
-            <span>
-              {grad.graduated
-                ? `🎓 Graduated on Soroswap DEX! ${liquidityXlmNum.toFixed(1)} XLM pool depth unlocked.`
-                : `🔥 Almost Graduated! ${graduationPercent}% of ${GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM target (${Math.max(0, GRADUATION_TARGET_XLM - grad.currentXlm).toFixed(1)} XLM remaining).`}
-            </span>
-          </div>
-          <span className="font-mono text-[11px] font-bold">
-            {grad.currentXlm.toFixed(1)} / {GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
-          </span>
-        </div>
-      ) : null}
-
-      {/* Market Telemetry Strip */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 font-mono">
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+      {/* Market Telemetry Strip (strict tabular-nums + uniform compact tiles) */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4 font-mono tabular-nums">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
           <p className="text-xs font-medium text-slate-400 font-sans">
             Market Cap
           </p>
-          <p className="mt-1 text-lg font-bold text-white">
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-white">
             {marketCapUsd > 0 ? `$${formatUsdPrice(marketCapUsd)}` : '—'}
           </p>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 truncate text-xs text-slate-400">
             {marketCapXlm > 0 ? `${marketCapXlm.toFixed(1)} XLM` : 'No pool'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
           <p className="text-xs font-medium text-slate-400 font-sans">
             {isBondingCurve ? 'Curve Vault' : 'Liquidity'}
           </p>
-          <p className="mt-1 text-lg font-bold text-emerald-300">
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-emerald-300">
             {effectivePool?.exists
               ? `${formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM`
               : '0 XLM'}
           </p>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 truncate text-xs text-slate-400">
             {liquidityUsd > 0 ? `≈ $${formatUsdPrice(liquidityUsd)}` : 'Empty'}
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
           <p className="text-xs font-medium text-slate-400 font-sans">
             {isBondingCurve ? 'Remaining Supply' : 'Pool Reserve'}
           </p>
-          <p className="mt-1 text-lg font-bold text-sky-300">
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-sky-300">
             {isBondingCurve && curve.data
               ? `${formatGroupedAmount(
                   curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
@@ -691,7 +709,7 @@ export function TokenPage() {
                 ? `${formatGroupedAmount(reserveToken, token.decimals)}`
                 : '0'}
           </p>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 truncate text-xs text-slate-400">
             {isBondingCurve && curve.data
               ? `${formatAmount(curve.data.tokens_sold, token.decimals)} sold`
               : pool.data?.exists
@@ -700,18 +718,18 @@ export function TokenPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
           <p className="text-xs font-medium text-slate-400 font-sans">
             Your Balance
           </p>
-          <p className="mt-1 text-lg font-bold text-white truncate">
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-white">
             {!publicKey
               ? '—'
               : userBalance.isPending
                 ? '…'
                 : `${formatGroupedAmount(userBalBase, token.decimals)}`}
           </p>
-          <p className="mt-0.5 text-xs text-slate-400">
+          <p className="mt-0.5 truncate text-xs text-slate-400">
             {!publicKey
               ? 'Wallet needed'
               : userBalValueXlm > 0n

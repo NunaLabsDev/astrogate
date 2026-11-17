@@ -6,9 +6,10 @@ type Props = {
   text: string
   url: string
   label?: string
+  compact?: boolean
 }
 
-export function ShareButton({ text, url, label = 'Share 🎉' }: Props) {
+export function ShareButton({ text, url, label = 'Share 🎉', compact = false }: Props) {
   const { copied, copy } = useCopy()
 
   async function onShare() {
@@ -34,7 +35,11 @@ export function ShareButton({ text, url, label = 'Share 🎉' }: Props) {
     <button
       type="button"
       onClick={() => void onShare()}
-      className="min-h-[44px] rounded-lg border border-emerald-800 bg-emerald-900/30 px-3 py-2 text-xs font-medium text-emerald-300 hover:border-emerald-600"
+      className={
+        compact
+          ? 'h-7 shrink-0 rounded-lg border border-emerald-800 bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-300 hover:border-emerald-600'
+          : 'min-h-[44px] rounded-lg border border-emerald-800 bg-emerald-900/30 px-3 py-2 text-xs font-medium text-emerald-300 hover:border-emerald-600'
+      }
     >
       {copied ? 'Link copied ✓' : label}
     </button>

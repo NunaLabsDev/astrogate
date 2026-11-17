@@ -449,9 +449,9 @@ export function CreateTokenForm({
 
   return (
     <section className="liquid-glass rounded-3xl p-5 sm:p-8 w-full max-w-full overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div className="h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-white/[0.06] pb-3.5">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-slate-900">
             <TokenArt
               id={symbol || name || 'ASTRO'}
               symbol={symbol || 'COIN'}
@@ -460,13 +460,13 @@ export function CreateTokenForm({
             />
           </div>
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-white truncate">Create &amp; Launch</h2>
-            <p className="mt-0.5 text-xs sm:text-sm text-slate-400">
-              10M fixed supply · Instant bonding curve
+            <h2 className="text-lg sm:text-xl font-bold text-white whitespace-nowrap">Create &amp; Launch</h2>
+            <p className="text-xs text-slate-400 truncate">
+              10M fixed supply · Fair-Flywheel v4.2
             </p>
           </div>
         </div>
-        <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-3 py-1 text-xs font-semibold text-emerald-300 shrink-0">
+        <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 text-xs font-semibold text-emerald-300 shrink-0 tabular-nums">
           ⚡ {LAUNCH_CREATION_FEE_XLM} XLM Fee
         </span>
       </div>
@@ -724,7 +724,7 @@ export function CreateTokenForm({
                 disabled={busy}
                 placeholder="Custom"
                 aria-label="Custom initial liquidity in XLM"
-                className="w-full bg-transparent text-xs font-mono text-white outline-none"
+                className="w-full bg-transparent text-base sm:text-xs font-mono tabular-nums text-white outline-none"
               />
               <span className="ml-1 text-xs font-mono text-slate-400">XLM</span>
             </label>

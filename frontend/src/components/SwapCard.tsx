@@ -491,26 +491,26 @@ export function SwapCard({
       </div>
 
       {isBondingCurve && curve.data && curveReserves ? (
-        <p className="mt-3 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2">
-          <span className="inline-flex items-center gap-1.5 text-sky-300 font-semibold">
-            ⚡ Virtual Bonding Curve
+        <p className="mt-3 h-5 text-xs text-slate-400 flex items-center justify-between gap-2 tabular-nums whitespace-nowrap">
+          <span className="inline-flex shrink-0 items-center gap-1 text-sky-300 font-semibold">
+            ⚡ Bonding Curve
           </span>
-          <span className="font-mono text-slate-300">
-            {formatAmount(curve.data.curve_xlm_net, 7)} / {GRADUATION_TARGET_XLM} XLM ·{' '}
-            {formatAmount(curveReserves.remainingCurveTokens, token.decimals)} {tokenSymbol} left
+          <span className="font-mono text-slate-300 truncate">
+            {(Number(curve.data.curve_xlm_net) / 1e7).toFixed(1)}/{GRADUATION_TARGET_XLM} XLM ·{' '}
+            {(Number(curveReserves.remainingCurveTokens) / 10 ** token.decimals).toLocaleString('en-US', { maximumFractionDigits: 0 })} {tokenSymbol}
           </span>
         </p>
       ) : effectivePool?.exists ? (
-        <p className="mt-3 text-xs text-slate-400 flex items-center justify-between">
-          <span>Pool Reserves:</span>
-          <span className="font-mono text-slate-300">
-            {formatAmount(effectivePool.reserveToken, token.decimals)} {tokenSymbol} ·{' '}
-            {formatAmount(effectivePool.reserveXlm, 7)} XLM
+        <p className="mt-3 h-5 text-xs text-slate-400 flex items-center justify-between gap-2 tabular-nums whitespace-nowrap">
+          <span className="shrink-0">Reserves</span>
+          <span className="font-mono text-slate-300 truncate">
+            {(Number(effectivePool.reserveToken) / 10 ** token.decimals).toLocaleString('en-US', { maximumFractionDigits: 2 })} {tokenSymbol} ·{' '}
+            {(Number(effectivePool.reserveXlm) / 1e7).toFixed(1)} XLM
           </span>
         </p>
       ) : pool.isPending || curve.isPending ? (
-        <p className="mt-3 text-xs text-slate-400 animate-pulse">
-          Checking bonding curve &amp; Soroswap pool reserves…
+        <p className="mt-3 h-5 text-xs text-slate-400 animate-pulse truncate">
+          Syncing curve &amp; Soroswap reserves…
         </p>
       ) : (
         <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-center">
@@ -661,7 +661,7 @@ export function SwapCard({
                     value={slippage}
                     disabled={busy}
                     onChange={(e) => handleSlippageInput(e.target.value)}
-                    className="w-10 bg-transparent text-right font-mono text-xs text-slate-200 outline-none"
+                    className="w-12 bg-transparent text-right font-mono text-base sm:text-xs text-slate-200 outline-none"
                   />
                   <span className="ml-0.5 font-mono text-xs text-slate-500">%</span>
                 </label>
@@ -675,8 +675,8 @@ export function SwapCard({
           ) : null}
         </div>
 
-        {amountIn > 0n && effectivePool?.exists ? (
-          <div className="grid gap-1.5 text-sm text-slate-300">
+        {amountIn > 0n && (effectivePool?.exists || pool.isPending || curve.isPending) ? (
+          <div className="min-h-[82px] grid gap-1.5 text-sm text-slate-300 tabular-nums">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p>
                 You receive ≈{' '}
@@ -693,38 +693,42 @@ export function SwapCard({
               ) : null}
             </div>
 
-            {quoted !== undefined && quoted > 0n ? (
-              <div className="space-y-1.5 rounded-xl border border-slate-800/80 bg-slate-950/40 px-3 py-2.5 text-xs">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-slate-400">
-                  <span>
-                    Min. received:{' '}
-                    <strong className="font-mono text-slate-200">
-                      {formatAmount(minimum ?? 0n, outputDecimals)} {outputSymbol}
-                    </strong>
-                  </span>
-                  <span>
-                    Fee:{' '}
-                    <strong className="font-mono text-slate-200">
-                      {isBondingCurve
-                        ? `${(Number(curveFeeBps) / 100).toFixed(2)}%`
-                        : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}%`}
-                    </strong>
-                  </span>
-                </div>
-
-                {impact !== null && impact >= 3 ? (
-                  <p className={`text-xs ${impactClass(impact)}`}>
-                    Price move: ~{impact.toFixed(1)}% with this order size.
-                  </p>
-                ) : null}
-
-                {isBondingCurve && curveBuyQuote?.will_graduate ? (
-                  <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200">
-                    🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!
+            <div className="min-h-[38px] space-y-1.5 rounded-xl border border-slate-800/80 bg-slate-950/40 px-3 py-2 text-xs">
+              {quoted !== undefined && quoted > 0n ? (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-slate-400">
+                    <span>
+                      Min. received:{' '}
+                      <strong className="font-mono text-slate-200">
+                        {formatAmount(minimum ?? 0n, outputDecimals)} {outputSymbol}
+                      </strong>
+                    </span>
+                    <span>
+                      Fee:{' '}
+                      <strong className="font-mono text-slate-200">
+                        {isBondingCurve
+                          ? `${(Number(curveFeeBps) / 100).toFixed(2)}%`
+                          : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}%`}
+                      </strong>
+                    </span>
                   </div>
-                ) : null}
-              </div>
-            ) : null}
+
+                  {impact !== null && impact >= 3 ? (
+                    <p className={`text-xs ${impactClass(impact)}`}>
+                      Price move: ~{impact.toFixed(1)}% with this order size.
+                    </p>
+                  ) : null}
+
+                  {isBondingCurve && curveBuyQuote?.will_graduate ? (
+                    <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200">
+                      🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-slate-500 animate-pulse">Calculating live on-chain quote…</p>
+              )}
+            </div>
           </div>
         ) : null}
 

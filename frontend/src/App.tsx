@@ -17,13 +17,14 @@ import {
   initTelegramMiniApp,
   readTelegramStartParam,
   syncTelegramBackButton,
+  triggerTelegramHaptic,
 } from './lib/telegram'
 import { useWallet } from './store/wallet'
 
 const NAV_ITEMS = [
-  { to: '/', label: 'Market' },
-  { to: '/create', label: 'Launch' },
-  { to: '/portfolio', label: 'Portfolio' },
+  { to: '/', label: 'Market', icon: '🔥' },
+  { to: '/create', label: 'Launch', icon: '🚀' },
+  { to: '/portfolio', label: 'Portfolio', icon: '👛' },
 ] as const
 
 function navLinkClass(active: boolean) {
@@ -34,24 +35,45 @@ function navLinkClass(active: boolean) {
   }`
 }
 
-function NavItems() {
+function mobileTabClass(active: boolean) {
+  return `flex flex-1 min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1 text-xs font-semibold transition-colors ${
+    active
+      ? 'bg-sky-500/15 text-sky-300 border border-sky-400/30'
+      : 'text-slate-400 hover:text-slate-200 border border-transparent'
+  }`
+}
+
+function NavItems({ mobile = false }: { mobile?: boolean }) {
   const { pathname } = useLocation()
   return (
     <>
-      {NAV_ITEMS.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.to === '/'}
-          className={({ isActive }) =>
-            navLinkClass(
-              isActive || (item.to === '/' && pathname === '/market'),
-            )
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
+      {NAV_ITEMS.map((item) => {
+        const isMarketRoot = item.to === '/' && pathname === '/market'
+        return (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.to === '/'}
+            onClick={() => triggerTelegramHaptic('light')}
+            className={({ isActive }) =>
+              mobile
+                ? mobileTabClass(isActive || isMarketRoot)
+                : navLinkClass(isActive || isMarketRoot)
+            }
+          >
+            {mobile ? (
+              <>
+                <span aria-hidden="true" className="text-sm leading-none">
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
+              </>
+            ) : (
+              item.label
+            )}
+          </NavLink>
+        )
+      })}
     </>
   )
 }
@@ -98,15 +120,15 @@ export default function App() {
 
       <OfflineBanner />
 
-      <header className="sticky top-2 z-40 mx-auto max-w-5xl px-3 sm:px-4">
-        <div className="liquid-glass-pill rounded-3xl px-4 py-2.5 sm:px-6">
-          <div className="flex items-center justify-between gap-3">
+      <header className="sticky top-0 z-40 mx-auto max-w-5xl px-3 sm:px-4 tg-safe-top">
+        <div className="liquid-glass-pill rounded-2xl px-3 py-2 sm:px-5 sm:py-2.5">
+          <div className="flex items-center justify-between gap-2">
             <Link
               to="/"
               aria-label={`${BRAND.name} — Market`}
-              className="flex min-w-0 items-center gap-2 text-base sm:text-lg font-bold tracking-tight text-white hover:text-sky-300 transition-colors"
+              className="flex min-w-0 shrink items-center gap-1.5 text-sm sm:text-lg font-bold tracking-tight text-white hover:text-sky-300 transition-colors"
             >
-              <span aria-hidden="true" className="text-xl">{BRAND.emoji}</span>
+              <span aria-hidden="true" className="text-lg sm:text-xl leading-none">{BRAND.emoji}</span>
               <span className="truncate">{BRAND.name}</span>
             </Link>
 
@@ -117,25 +139,17 @@ export default function App() {
               <NavItems />
             </nav>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
               <WalletButton />
             </div>
           </div>
-
-          {/* Mobile navigation row */}
-          <nav
-            aria-label="Mobile navigation"
-            className="flex sm:hidden gap-1 overflow-x-auto pt-2 border-t border-white/[0.06] mt-2 no-scrollbar"
-          >
-            <NavItems />
-          </nav>
         </div>
       </header>
 
       <main
         id="main"
         tabIndex={-1}
-        className="mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-4 px-3.5 sm:px-4 py-4 sm:py-8"
+        className="mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-3.5 sm:gap-5 px-3 sm:px-4 pt-3 pb-24 sm:py-6"
       >
         <ScrollToTop />
         <ErrorBoundary fallback={(err, retry) => <PageErrorFallback error={err} onRetry={retry} />}>
@@ -150,11 +164,21 @@ export default function App() {
         </ErrorBoundary>
       </main>
 
-      <footer className="mx-auto w-full max-w-5xl border-t border-slate-800/60 px-4 py-6 text-center text-xs text-slate-500">
+      <footer className="hidden sm:block mx-auto w-full max-w-5xl border-t border-slate-800/60 px-4 py-5 text-center text-xs text-slate-500">
         <p>
           {BRAND.emoji} {BRAND.name} · Fair Memecoin Launchpad on Stellar Soroban
         </p>
       </footer>
+
+      {/* Native-style fixed mobile / Telegram Mini App bottom navigation */}
+      <nav
+        aria-label="Mobile navigation"
+        className="sm:hidden fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl px-3 pt-1.5 tg-safe-bottom"
+      >
+        <div className="mx-auto flex max-w-md items-center gap-1.5">
+          <NavItems mobile />
+        </div>
+      </nav>
 
       <HotWalletModal />
       <PwaInstallPrompt />

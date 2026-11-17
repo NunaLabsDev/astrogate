@@ -30,6 +30,13 @@ export interface TelegramCloudStorage {
   getKeys: (callback: (error: string | null, keys?: string[]) => void) => void
 }
 
+export interface TelegramInsets {
+  top?: number
+  bottom?: number
+  left?: number
+  right?: number
+}
+
 export interface TelegramWebApp {
   initData?: string
   initDataUnsafe?: {
@@ -45,11 +52,15 @@ export interface TelegramWebApp {
   version?: string
   viewportHeight?: number
   viewportStableHeight?: number
+  safeAreaInset?: TelegramInsets
+  contentSafeAreaInset?: TelegramInsets
   isExpanded?: boolean
   isVersionAtLeast?: (version: string) => boolean
   ready?: () => void
   expand?: () => void
   disableVerticalSwipes?: () => void
+  requestSafeArea?: () => void
+  requestContentSafeArea?: () => void
   setHeaderColor?: (color: string) => void
   setBackgroundColor?: (color: string) => void
   openTelegramLink?: (url: string) => void
@@ -233,10 +244,25 @@ export function initTelegramMiniApp(): {
     tg.ready?.()
     tg.expand?.()
     tg.disableVerticalSwipes?.()
+    tg.requestSafeArea?.()
+    tg.requestContentSafeArea?.()
     tg.setHeaderColor?.('#030712')
     tg.setBackgroundColor?.('#030712')
   } catch {
     // Older Telegram clients ignore unsupported styling calls
+  }
+
+  const syncSafeAreas = () => {
+    if (typeof document === 'undefined') return
+    const rootStyle = document.documentElement.style
+    const sat = tg.safeAreaInset?.top
+    const sab = tg.safeAreaInset?.bottom
+    const csat = tg.contentSafeAreaInset?.top
+    const csab = tg.contentSafeAreaInset?.bottom
+    if (typeof sat === 'number') rootStyle.setProperty('--app-sat', `${sat}px`)
+    if (typeof sab === 'number') rootStyle.setProperty('--app-sab', `${sab}px`)
+    if (typeof csat === 'number') rootStyle.setProperty('--app-csat', `${csat}px`)
+    if (typeof csab === 'number') rootStyle.setProperty('--app-csab', `${csab}px`)
   }
 
   const syncViewport = () => {
@@ -249,10 +275,13 @@ export function initTelegramMiniApp(): {
     ) {
       document.documentElement.style.setProperty('--app-vh', `${height * 0.01}px`)
     }
+    syncSafeAreas()
   }
 
   syncViewport()
   tg.onEvent?.('viewportChanged', syncViewport)
+  tg.onEvent?.('safeAreaChanged', syncSafeAreas)
+  tg.onEvent?.('contentSafeAreaChanged', syncSafeAreas)
 
   return {
     info: {
@@ -265,6 +294,8 @@ export function initTelegramMiniApp(): {
     },
     cleanup: () => {
       tg.offEvent?.('viewportChanged', syncViewport)
+      tg.offEvent?.('safeAreaChanged', syncSafeAreas)
+      tg.offEvent?.('contentSafeAreaChanged', syncSafeAreas)
     },
   }
 }

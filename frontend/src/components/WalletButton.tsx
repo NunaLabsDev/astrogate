@@ -88,14 +88,14 @@ export function WalletButton() {
 
   if (publicKey) {
     return (
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5">
         {mode === 'demo' ? (
           <div
             role="group"
             aria-label="Switch test account"
-            className="flex items-center gap-1 rounded-lg border border-emerald-800/70 bg-emerald-950/30 p-0.5"
+            className="flex items-center gap-0.5 rounded-xl border border-emerald-800/70 bg-emerald-950/30 p-0.5"
           >
-            <span className="px-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+            <span className="hidden sm:inline px-1.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
               demo
             </span>
             {demoAccounts.map((acc, idx) => (
@@ -106,7 +106,7 @@ export function WalletButton() {
                 aria-pressed={idx === demoActive}
                 aria-label={`Use test account ${acc.label} (${shortAddress(acc.publicKey)})`}
                 title={`Use account ${acc.label} (${shortAddress(acc.publicKey)})`}
-                className={`min-h-[36px] min-w-[36px] rounded px-2 text-xs font-semibold transition-colors ${
+                className={`min-h-[34px] min-w-[30px] sm:min-w-[34px] rounded-lg px-1.5 sm:px-2 text-xs font-semibold tabular-nums transition-colors ${
                   idx === demoActive
                     ? 'bg-emerald-500 text-slate-950 font-bold'
                     : 'text-emerald-200 hover:bg-emerald-500/20'
@@ -122,7 +122,7 @@ export function WalletButton() {
                 onClick={() => void onAddDemoAccount()}
                 aria-label="Add another test account (+10,000 XLM)"
                 title="Add another test account (+10,000 XLM)"
-                className="min-h-[36px] min-w-[36px] rounded px-2 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
+                className="min-h-[34px] min-w-[28px] rounded-lg px-1.5 text-xs font-bold text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-40"
               >
                 {demoPending ? '…' : '+'}
               </button>
@@ -140,7 +140,7 @@ export function WalletButton() {
           <button
             type="button"
             onClick={() => openWalletModal(hotUnlocked ? 'manage' : 'unlock')}
-            className={`min-h-[36px] inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition ${
+            className={`min-h-[36px] inline-flex items-center gap-1 rounded-xl border px-2 sm:px-2.5 py-1 text-xs font-semibold transition ${
               hotUnlocked
                 ? 'border-sky-500/40 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25'
                 : 'border-amber-500/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
@@ -152,23 +152,23 @@ export function WalletButton() {
             }
           >
             <span>{hotUnlocked ? '⚡' : '🔒'}</span>
-            <span className="max-w-[78px] truncate">
+            <span className="hidden sm:inline max-w-[78px] truncate">
               {activeHot?.label ?? 'Vault'}
             </span>
             {xlmBalance.data !== undefined ? (
-              <span className="font-mono text-emerald-300">
+              <span className="font-mono tabular-nums text-emerald-300 whitespace-nowrap">
                 {xlmBalance.data.toLocaleString('en-US', {
                   maximumFractionDigits: 1,
                 })}{' '}
                 XLM
               </span>
             ) : null}
-            <code className="hidden sm:inline text-slate-300">
+            <code className="hidden md:inline text-slate-300">
               {shortAddress(publicKey)}
             </code>
           </button>
         ) : (
-          <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono sm:inline-flex">
+          <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono tabular-nums sm:inline-flex">
             {xlmBalance.data !== undefined ? (
               <span className="text-emerald-300 font-semibold">
                 {xlmBalance.data.toLocaleString('en-US', {
@@ -192,31 +192,34 @@ export function WalletButton() {
             disabled={fundingWallet}
             onClick={() => void onFundConnectedWallet()}
             title="Request 10,000 free Testnet XLM from Stellar Friendbot"
-            className="min-h-[36px] rounded-lg border border-amber-500/40 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
+            className="min-h-[36px] whitespace-nowrap rounded-xl border border-amber-500/40 bg-amber-500/15 px-2 py-1 text-xs font-bold text-amber-200 hover:bg-amber-500/25 disabled:opacity-50"
           >
-            {fundingWallet ? 'Funding…' : '🚰 +10K XLM'}
+            {fundingWallet ? '…' : '🚰 +10K'}
           </button>
         ) : null}
         <button
           type="button"
           onClick={() => void onDisconnect()}
-          className="min-h-[44px] rounded-lg border border-slate-700 px-3 py-1.5 text-xs hover:bg-slate-800 sm:px-3.5 sm:text-sm"
+          aria-label="Disconnect wallet"
+          title="Disconnect wallet"
+          className="min-h-[36px] whitespace-nowrap rounded-xl border border-slate-700 px-2.5 py-1 text-xs hover:bg-slate-800 sm:px-3"
         >
-          Disconnect
+          <span className="sm:hidden">✕</span>
+          <span className="hidden sm:inline">Disconnect</span>
         </button>
       </div>
     )
   }
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex flex-nowrap items-center gap-1.5">
       {NETWORK_NAME !== 'mainnet' ? (
         <button
           type="button"
           disabled={demoPending || pending}
           onClick={() => void onStartDemo()}
           title="Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM"
-          className="min-h-[44px] rounded-lg border border-sky-500/40 bg-sky-500/10 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+          className="min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl border border-sky-500/40 bg-sky-500/10 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
         >
           {demoPending ? 'Funding…' : 'Demo'}
         </button>
@@ -225,7 +228,7 @@ export function WalletButton() {
         type="button"
         disabled={pending}
         onClick={onOpenWallet}
-        className="min-h-[44px] rounded-lg bg-emerald-500 px-3 sm:px-4 py-2 text-xs sm:text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+        className="min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl bg-emerald-500 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
       >
         {pending ? 'Connecting…' : '⚡ Wallet'}
       </button>

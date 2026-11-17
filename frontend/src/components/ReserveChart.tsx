@@ -218,22 +218,22 @@ export function ReserveChart({
     <section className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 sm:p-5 shadow-sm w-full max-w-full min-w-0 overflow-hidden space-y-3">
       <h2 className="sr-only">Pair History</h2>
       {/* Sleek Chart Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800/80 pb-3">
-        <div className="space-y-0.5">
-          <div className="flex flex-wrap items-baseline gap-2.5">
-            <span className="font-mono text-2xl font-black text-white">
+      <div className="flex flex-wrap items-start justify-between gap-2.5 border-b border-slate-800/80 pb-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="flex flex-wrap items-baseline gap-2 tabular-nums">
+            <span className="font-mono text-xl sm:text-2xl font-black text-white">
               {formatMetric(activeValue, metric)}
             </span>
             <span className="text-xs font-mono text-slate-400">
               {metric === 'mcap'
-                ? 'Market Cap (USD)'
+                ? 'MCap (USD)'
                 : metric === 'price'
                   ? `XLM / $${symbol ?? 'TOKEN'}`
                   : 'XLM Liquidity'}
             </span>
             {delta !== null ? (
               <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-mono font-bold ${
+                className={`rounded-full px-2 py-0.5 text-xs font-mono font-bold ${
                   delta >= 0
                     ? 'bg-emerald-500/15 text-emerald-300'
                     : 'bg-rose-500/15 text-rose-300'
@@ -245,16 +245,17 @@ export function ReserveChart({
             ) : null}
           </div>
 
-          {activeSnapshot ? (
-            <p className="font-mono text-[11px] text-slate-400">
-              {selectedPoint ? `${formatTime(activeSnapshot.t)} · ` : 'Live · '}
-              {metric === 'mcap'
-                ? `Price: ${formatTokenPrice(activePriceXlm)} XLM ($${formatUsdPrice(activePriceXlm * effectiveXlmUsd)}) · TVL: ${activeLiqXlm.toFixed(1)} XLM`
-                : `≈ $${formatUsdPrice(
-                    (metric === 'price' ? activePriceXlm : activeLiqXlm) * effectiveXlmUsd,
-                  )} USD`}
-            </p>
-          ) : null}
+          <p className="min-h-[16px] font-mono text-xs tabular-nums text-slate-400 truncate">
+            {activeSnapshot
+              ? `${selectedPoint ? `${formatTime(activeSnapshot.t)} · ` : 'Live · '}${
+                  metric === 'mcap'
+                    ? `Price ${formatTokenPrice(activePriceXlm)} XLM · TVL ${activeLiqXlm.toFixed(1)} XLM`
+                    : `≈ $${formatUsdPrice(
+                        (metric === 'price' ? activePriceXlm : activeLiqXlm) * effectiveXlmUsd,
+                      )} USD`
+                }`
+              : 'Syncing on-chain snapshots…'}
+          </p>
         </div>
 
         <div
@@ -435,7 +436,7 @@ export function ReserveChart({
           </div>
         </>
       ) : (
-        <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-6 text-center">
+        <div className="h-[222px] rounded-xl border border-dashed border-slate-800 bg-slate-950/40 p-6 flex items-center justify-center text-center">
           <p className="text-xs text-slate-400">
             Awaiting trades · Swaps on Soroswap are plotted live automatically
           </p>
