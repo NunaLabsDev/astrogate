@@ -6,6 +6,9 @@ export interface Env {
   ASSETS: AssetsBinding
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_WEBHOOK_SECRET?: string
+  TELEGRAM_COMMUNITY_CHAT_ID?: string
+  TELEGRAM_FEED_CHAT_ID?: string
+  TELEGRAM_ADMIN_IDS?: string
   APP_BASE_URL?: string
   STELLAR_RPC_URL?: string
   HORIZON_URL?: string
@@ -33,6 +36,7 @@ export interface TelegramMessage {
   chat: TelegramChat
   text?: string
   caption?: string
+  photo?: unknown[]
 }
 
 export interface TelegramCallbackQuery {
@@ -42,10 +46,18 @@ export interface TelegramCallbackQuery {
   data?: string
 }
 
+export interface TelegramInlineQuery {
+  id: string
+  from: TelegramUser
+  query: string
+  offset?: string
+}
+
 export interface TelegramUpdate {
   update_id: number
   message?: TelegramMessage
   callback_query?: TelegramCallbackQuery
+  inline_query?: TelegramInlineQuery
 }
 
 export interface InlineKeyboardButton {
@@ -61,6 +73,7 @@ export interface InlineKeyboardMarkup {
 
 export interface BotRenderedView {
   text: string
+  photoUrl?: string
   reply_markup: InlineKeyboardMarkup
 }
 
@@ -104,4 +117,20 @@ export interface AccountSummaryData {
   funded: boolean
   xlmBalance: string
   assetCount: number
+}
+
+export interface ShoutEntryData {
+  sender: string
+  amount: bigint
+  message: string
+  ledger: number
+}
+
+export interface TokenShoutsData {
+  tokenId: string
+  name: string
+  symbol: string
+  decimals: number
+  kingShout: ShoutEntryData | null
+  shouts: ShoutEntryData[]
 }

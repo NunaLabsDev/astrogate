@@ -57,7 +57,7 @@ export function WalletButton() {
   }
 
   function onOpenWallet() {
-    openWalletModal('connect')
+    openWalletModal()
   }
 
   async function onDisconnect() {
@@ -211,6 +211,9 @@ export function WalletButton() {
     )
   }
 
+  const hasSavedVault = (hotAccounts?.length ?? 0) > 0
+  const hasSavedDemo = (demoAccounts?.length ?? 0) > 0
+
   return (
     <div className="flex flex-nowrap items-center gap-1.5">
       {NETWORK_NAME !== 'mainnet' ? (
@@ -218,19 +221,31 @@ export function WalletButton() {
           type="button"
           disabled={demoPending || pending}
           onClick={() => void onStartDemo()}
-          title="Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM"
+          title={
+            hasSavedDemo
+              ? `Resume saved Testnet demo account(s) (${demoAccounts.length})`
+              : 'Create a disposable Friendbot-funded Testnet wallet with 10,000 XLM'
+          }
           className="min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl border border-sky-500/40 bg-sky-500/10 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
         >
-          {demoPending ? 'Funding…' : 'Demo'}
+          {demoPending ? 'Funding…' : hasSavedDemo ? 'Resume Demo' : 'Demo'}
         </button>
       ) : null}
       <button
         type="button"
         disabled={pending}
         onClick={onOpenWallet}
-        className="min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl bg-emerald-500 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+        className={`min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-bold disabled:opacity-60 ${
+          hasSavedVault
+            ? 'bg-amber-400 text-slate-950 hover:bg-amber-300'
+            : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
+        }`}
       >
-        {pending ? 'Connecting…' : '⚡ Wallet'}
+        {pending
+          ? 'Connecting…'
+          : hasSavedVault
+            ? '🔓 Unlock Vault'
+            : '⚡ Wallet'}
       </button>
     </div>
   )

@@ -4,6 +4,7 @@
  */
 
 export const TELEGRAM_BOT_USERNAME = 'AstroGateSorobanBot'
+export const TELEGRAM_COMMUNITY_URL = 'https://t.me/AstroGateCommunity'
 
 export interface TelegramCloudStorage {
   setItem: (
@@ -137,11 +138,11 @@ export function readTelegramStartParam(): string | null {
   return null
 }
 
-/** Builds a Telegram Mini App deep link (when running inside TMA or sharing to Telegram). */
+/** Builds a Telegram Bot deep link that opens the Mini App / bot screen safely in all clients. */
 export function telegramMiniAppUrl(startParam?: string): string {
   const base = `https://t.me/${TELEGRAM_BOT_USERNAME}`
   return startParam
-    ? `${base}?startapp=${encodeURIComponent(startParam)}`
+    ? `${base}?start=${encodeURIComponent(startParam)}`
     : base
 }
 
@@ -348,5 +349,27 @@ export function shareToTelegram(text: string, url: string): void {
   }
   if (typeof window !== 'undefined') {
     window.open(shareUrl, '_blank', 'noopener,noreferrer')
+  }
+}
+
+/**
+ * Non-blocking ping to the Cloudflare Worker event bridge so verified on-chain
+ * Burn-to-Chat shouts mirror immediately to AstroGate Community & Live Feed.
+ */
+export async function notifyTelegramPulse(txHash: string): Promise<void> {
+  const clean = txHash.trim().toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(clean) || typeof fetch !== 'function') return
+  try {
+    await fetch('/api/telegram/pulse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ txHash: clean }),
+      signal:
+        typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+          ? AbortSignal.timeout(2500)
+          : undefined,
+    })
+  } catch {
+    // Silent no-op when running on static Pages or offline; Cron sync covers fallback
   }
 }

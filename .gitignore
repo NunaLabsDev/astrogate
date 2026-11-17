@@ -15,5 +15,9 @@ logs/*.log
 
 # Secretos locales (nunca en repo; ~/.secrets vive fuera del repo)
 .secrets/
+*.session
+*.session-journal
+__pycache__/
+*.pyc
 .vercel
 **/.vercel

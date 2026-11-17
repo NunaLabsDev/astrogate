@@ -36,6 +36,11 @@ const CONTRACTS = [
     out: 'src/contracts/launchpad',
   },
   {
+    id: constant('SOROBITS_CONTRACT_ID'),
+    name: 'Sorobits',
+    out: 'src/contracts/sorobits',
+  },
+  {
     id: constant('SOROSWAP_ROUTER'),
     name: 'SoroswapRouter',
     out: 'src/contracts/soroswap-router',

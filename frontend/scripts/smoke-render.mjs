@@ -98,6 +98,14 @@ try {
     throw new Error('la ruta /portfolio no renderiza su actividad vacía')
   }
 
+  const sorobitsHtml = renderApp('/sorobits')
+  if (
+    !sorobitsHtml.includes('Sorobits') ||
+    !sorobitsHtml.includes('Season-1 Genesis Archetypes')
+  ) {
+    throw new Error('la ruta /sorobits no renderiza la colección Sorobits')
+  }
+
   const tokenHtml = renderApp('/token/CTOKEN')
   if (!tokenHtml.includes('Reading token')) {
     throw new Error('la ruta /token/:id no renderiza su estado de carga')

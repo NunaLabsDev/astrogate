@@ -54,7 +54,7 @@ export const DEFAULT_TOKEN_METADATA: Record<string, EnrichedTokenMetadata> = {
     description:
       'The genesis insignia and community meme token of AstroGate on Stellar Soroban. Fair-launched with locked liquidity and renounced ownership.',
     website: `https://${import.meta.env.VITE_SITE_ORIGIN ?? 'astrogate.pages.dev'}`,
-    telegram: 'https://t.me/AstroGateStellar',
+    telegram: 'https://t.me/AstroGateCommunity',
     twitter: 'https://x.com/AstroGateHQ',
   },
 }

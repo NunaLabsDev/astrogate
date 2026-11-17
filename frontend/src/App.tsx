@@ -5,11 +5,13 @@ import { HotWalletModal } from './components/HotWalletModal'
 import { ScrollToTop } from './components/ScrollToTop'
 import { OfflineBanner } from './components/OfflineBanner'
 import { PwaInstallPrompt } from './components/PwaInstallPrompt'
+import { SplashScreen } from './components/SplashScreen'
 import { ErrorBoundary, PageErrorFallback } from './components/ErrorBoundary'
 import { HomePage } from './pages/HomePage'
 import { MarketPage } from './pages/MarketPage'
 import { TokenPage } from './pages/TokenPage'
 import { PortfolioPage } from './pages/PortfolioPage'
+import { SorobitsPage } from './pages/SorobitsPage'
 import { CreatePage } from './pages/CreatePage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { BRAND } from './lib/brand'
@@ -23,6 +25,7 @@ import { useWallet } from './store/wallet'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Market', icon: '🔥' },
+  { to: '/sorobits', label: 'Sorobits', icon: '🧬' },
   { to: '/create', label: 'Launch', icon: '🚀' },
   { to: '/portfolio', label: 'Portfolio', icon: '👛' },
 ] as const
@@ -97,6 +100,8 @@ export default function App() {
           void navigate('/create', { replace: true })
         } else if (startParam === 'portfolio') {
           void navigate('/portfolio', { replace: true })
+        } else if (startParam === 'sorobits') {
+          void navigate('/sorobits', { replace: true })
         }
       }
     }
@@ -126,9 +131,16 @@ export default function App() {
             <Link
               to="/"
               aria-label={`${BRAND.name} — Market`}
-              className="flex min-w-0 shrink items-center gap-1.5 text-sm sm:text-lg font-bold tracking-tight text-white hover:text-sky-300 transition-colors"
+              className="flex min-w-0 shrink items-center gap-2 text-sm sm:text-lg font-bold tracking-tight text-white hover:text-sky-300 transition-colors"
             >
-              <span aria-hidden="true" className="text-lg sm:text-xl leading-none">{BRAND.emoji}</span>
+              <img
+                src="/badges/pioneer.png"
+                alt=""
+                width={28}
+                height={28}
+                className="h-7 w-7 shrink-0 rounded-lg border border-sky-400/40 bg-slate-900/80 shadow-sm shadow-sky-500/20"
+                style={{ imageRendering: 'pixelated' }}
+              />
               <span className="truncate">{BRAND.name}</span>
             </Link>
 
@@ -157,6 +169,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/market" element={<MarketPage />} />
             <Route path="/token/:id" element={<TokenPage />} />
+            <Route path="/sorobits" element={<SorobitsPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/create" element={<CreatePage />} />
             <Route path="*" element={<NotFoundPage />} />
@@ -182,6 +195,7 @@ export default function App() {
 
       <HotWalletModal />
       <PwaInstallPrompt />
+      <SplashScreen />
     </div>
   )
 }

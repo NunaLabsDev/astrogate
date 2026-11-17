@@ -69,6 +69,18 @@ export const LAUNCHPAD_WASM_HASH =
   '47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc'
 
 /**
+ * Sorobits (SBIT) 100% On-Chain 32x32 Genomic SEP-50 NFT contract on Stellar Testnet.
+ */
+export const SOROBITS_CONTRACT_ID =
+  'CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT'
+
+/**
+ * SHA-256 hash of the Sorobits SEP-50 contract bytecode deployed on testnet.
+ */
+export const SOROBITS_WASM_HASH =
+  'd1324c3620cd877b5c16bc0af5a46cef7c35360a9c68e3de2e19685c58a5463f'
+
+/**
  * Official AstroGate Developers Treasury address on Stellar Testnet.
  */
 export const DEVELOPER_TREASURY_ADDRESS =

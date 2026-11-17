@@ -1,5 +1,28 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 17 2026, sesión 36 — Sorobits (SBIT) SEP-50 On-Chain NFTs, Renovación Visual Telegram/TMA & Persistencia Wallet)
+Implementación completa, auditoría, deploy en Stellar Testnet de la colección **Sorobits (`SBIT`)** 100% on-chain en Soroban (`32×32` pixel-art genómico + SVG nativo), sección `/sorobits` en web/TMA, splash screen NFT, tarjetas visuales en `@AstroGateSorobanBot` / `@AstroGateCommunity` / `@AstroGateFeed`, arreglo de persistencia visual del Vault y Reglas 9 y 10 en `AGENTS.md`. *AI-generated; revisión humana pendiente.*
+- **Contrato Sorobits (`SBIT`, SEP-50) en Stellar Testnet**:
+  - **Contract ID**: `CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT` (WASM hash `d1324c3620cd877b5c16bc0af5a46cef7c35360a9c68e3de2e19685c58a5463f`, `55,007 bytes` optimizados).
+  - Arte genómico RLE (`2,222 bytes` en contrato) inspirado en la historia de Stellar (`2014` Ledger Square / Rocket Delta, `SCP`, `2019` Orbital Ring, `Soroban`) y facciones, compositor `no_std` `[u8; 1024]`, renderizador SVG `<path>` (`token_uri(0)` verificado on-chain en Genesis `#0` devolviendo `4,181` bytes SVG inline sin IPFS).
+  - Bindings TS y helpers read-only: `frontend/src/contracts/sorobits/`, `frontend/src/lib/sorobits.ts`, `docs/SOROBITS_ARCHITECTURE.md`, `docs/SOROBITS_ART_BIBLE.md`, pipeline gráfico `scripts/sorobits_studio.py`.
+- **Frontend & Mini App UX (`astrogate.pages.dev`)**:
+  - **Sección dedicada Sorobits**: `frontend/src/pages/SorobitsPage.tsx` (`/sorobits`), enlace en barra de navegación (`App.tsx`) y `PortfolioPage.tsx`, más vitrina Season-1 en `HomePage.tsx`.
+  - **SplashScreen & Header NFT**: `frontend/src/components/SplashScreen.tsx` (muestra `Pioneer #00`, `Graduate`, `Legend` al iniciar sesión en TMA/web, SSR-safe), header pixel-art `/badges/pioneer.png` en `App.tsx` y `og:image` en `frontend/index.html`.
+  - **Persistencia Wallet (`wallet.ts`, `WalletButton.tsx`, `HotWalletModal.tsx`)**: detecta vaults locales/CloudStorage cifrados y cuentas Demo existentes mostrando `🔓 Unlock Vault` / `Resume Demo` en lugar de pedir crear cuenta nueva.
+- **Ecosistema Telegram (`@AstroGateSorobanBot`, `@AstroGateCommunity`, `@AstroGateFeed`)**:
+  - **Reglas 9 y 10 (`AGENTS.md`)**: 100% inglés estricto en Telegram y solo enlaces internos Telegram (`https://t.me/AstroGateSorobanBot?start=...`, nunca URLs externas `astrogate.pages.dev` en botones/mensajes) para conservar `Telegram.WebApp.CloudStorage`.
+  - **Visual Photo UI/UX (`frontend/worker/`)**: `sendPhoto` + `editMessageMedia` in-place (`views.ts`, `index.ts`, `types.ts`) con tarjetas `1200×630` en `frontend/public/telegram/*.png` (`astrogate-bot-banner.png`, `sorobits-hero-card.png`, `market-hero-card.png`, `wallet-quests-card.png`) y captions `<= 1024` caracteres.
+  - **Pines en vivo actualizados**: `@AstroGateCommunity` (`17638`, foto banner) y `@AstroGateFeed` (`4204`, foto market); bridge de eventos Soroban (`frontend/worker/events.ts`, cron `*/2 * * * *`) y sistema Quests (`frontend/worker/quests.ts`).
+- **Producción & Verificación (post-edición final)**:
+  - **Rust (`cargo test --workspace`)**: `46/46` (`10` launchpad, `11` sorobits, `25` token).
+  - **Frontend (`cd frontend && npm run check`)**: `tsc -b` + `vite build`, `oxlint` (`0 warnings`, `0 errors` en `146` archivos), `vitest run` (`28/28` suites / `209/209` tests OK), `smoke:render`, `verify:pwa`, `check:csp`.
+  - **Deploy vivo**: Pages (`https://dd699d51.astrogate.pages.dev` / `https://astrogate.pages.dev`) y Worker (`https://astrogate-stellar.pepepop2000.workers.dev`, Version ID `71f0a43b-260a-4127-ad98-acce3176d12f`).
+- **Para retomar en otra PC (secretos fuera de git) y pendientes**:
+  - Copiar manualmente fuera de git `~/.secrets/astrogate/{developer-accounts.env,telegram-bot.env}` y `~/.config/cloudflare/cf-api-token` si se van a ejecutar deploys o comandos on-chain/Bot API desde la otra máquina.
+  - **Pendiente manual `@BotFather`**: `/setuserpic` → `@AstroGateSorobanBot` → subir `frontend/public/telegram/astrogate-community-avatar.png` (la Bot API no permite cambiar el avatar propio del bot).
+  - **Pendiente opcional**: confirmar envío de respuesta en inglés a `@Swagmon` (`17633` en `@AstroGateCommunity`).
+
 ## Handoff rápido (Nov 17 2026, sesión 35 — Bot Chat @AstroGateSorobanBot en Cloudflare Workers & Rediseño TMA Zero-CLS)
 Implementación completa del webhook interactivo del bot de Telegram en Cloudflare Workers, configuración de perfil/comandos bilingües y rediseño minimalista Zero-CLS proporcionado para Telegram Mini App (`390×844`). *AI-generated; revisión humana pendiente.*
 - **Bot Chat Interactivo (`frontend/worker/` + `frontend/scripts/configure-telegram-bot.mjs`)**:

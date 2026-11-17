@@ -12,7 +12,11 @@ import { toast } from '../lib/toast'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
-import { triggerTelegramHaptic } from '../lib/telegram'
+import {
+  notifyTelegramPulse,
+  TELEGRAM_COMMUNITY_URL,
+  triggerTelegramHaptic,
+} from '../lib/telegram'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 
 const BURN_PRESETS = [
@@ -119,6 +123,7 @@ export function TokenHypeBar({
         hash,
       })
       triggerTelegramHaptic('success')
+      if (hash) void notifyTelegramPulse(hash)
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['token-shouts', tokenId] }),
@@ -156,9 +161,19 @@ export function TokenHypeBar({
             Burns shrink supply via <code className="text-amber-300">token.burn()</code>. ≥ {KING_SHOUT_BURN.toLocaleString('en-US')} ${symbol} takes King (24h half-life).
           </p>
         </div>
-        <span className="rounded-full border border-slate-800 bg-slate-950 px-2.5 py-0.5 font-mono text-xs text-slate-400">
-          {list.length} {list.length === 1 ? 'shout' : 'shouts'}
-        </span>
+        <div className="flex items-center gap-2">
+          <a
+            href={TELEGRAM_COMMUNITY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-300 hover:bg-sky-500/20 transition"
+          >
+            💬 Telegram Chat
+          </a>
+          <span className="rounded-full border border-slate-800 bg-slate-950 px-2.5 py-0.5 font-mono text-xs text-slate-400">
+            {list.length} {list.length === 1 ? 'shout' : 'shouts'}
+          </span>
+        </div>
       </div>
 
       {kingShout.data ? (

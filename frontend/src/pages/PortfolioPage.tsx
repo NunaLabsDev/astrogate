@@ -1,11 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { useQueries } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { useTokenList } from '../hooks/useTokenList'
 import { useTokenMetadata } from '../hooks/useTokenMetadata'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { useWallet } from '../store/wallet'
-import { NETWORK_NAME } from '../lib/network'
+import { NETWORK_NAME, SOROBITS_CONTRACT_ID } from '../lib/network'
 import { useCreatedTokens } from '../store/creations'
 import { fetchTokenBalance } from '../lib/token'
 import { errorMessage, formatAmount, shortAddress } from '../lib/format'
@@ -15,6 +15,21 @@ import { toast } from '../lib/toast'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { TokenArt } from '../components/TokenArt'
 import { ActivityFeed } from '../components/ActivityFeed'
+import { useActivity } from '../store/activity'
+import { explorerContractUrl } from '../lib/explorer'
+import { fetchSorobitsByOwner, fetchSorobitsSummary } from '../lib/sorobits'
+import {
+  readTelegramUser,
+  shareToTelegram,
+  telegramMiniAppUrl,
+  triggerTelegramHaptic,
+} from '../lib/telegram'
+import {
+  ASTROGATE_QUEST_BADGES,
+  computePilotPerks,
+  computeQuestSummary,
+  type QuestBadgeId,
+} from '../../worker/quests'
 
 type PortfolioToken = {
   id: string
@@ -31,9 +46,27 @@ const MAX_PORTFOLIO_TOKENS = 20
 export function PortfolioPage() {
   const { publicKey, openWalletModal, startDemo, demoPending, pending } = useWallet()
   const createdTokens = useCreatedTokens((state) => state.tokens)
+  const activityEntries = useActivity((state) => state.entries)
   const tokenList = useTokenList()
   const xlmBalance = useXlmBalance(publicKey)
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
+  const [selectedBadgeId, setSelectedBadgeId] = useState<QuestBadgeId>('pioneer')
+  const tgUser = readTelegramUser()
+
+  const sorobitsSummary = useQuery({
+    queryKey: ['sorobits-summary', SOROBITS_CONTRACT_ID],
+    queryFn: fetchSorobitsSummary,
+    staleTime: 60_000,
+    retry: 1,
+  })
+
+  const ownedSorobits = useQuery({
+    queryKey: ['sorobits-owner', SOROBITS_CONTRACT_ID, publicKey],
+    queryFn: () => fetchSorobitsByOwner(publicKey as string),
+    enabled: Boolean(publicKey),
+    staleTime: 30_000,
+    retry: 1,
+  })
 
   const tokens = useMemo<PortfolioToken[]>(() => {
     const map = new Map<string, PortfolioToken>()
@@ -109,6 +142,47 @@ export function PortfolioPage() {
   const totalUsd = (Number(totalXlm) / 1e7) * xlmUsd
   const netWorthStroops = walletXlmStroops + totalXlm
   const netWorthUsd = walletXlmUsd + totalUsd
+
+  const heldTokenCount = rows.filter((row) => (row.balance.data ?? 0n) > 0n).length
+
+  const accountEntries = publicKey
+    ? activityEntries.filter(
+        (entry) =>
+          entry.status === 'success' &&
+          (!entry.account || entry.account === publicKey),
+      )
+    : []
+  const shoutEntries = accountEntries.filter(
+    (entry) =>
+      entry.kind === 'burn' &&
+      Boolean(entry.detail?.toLowerCase().includes('burn-to-chat')),
+  )
+  const shoutCount = shoutEntries.length
+  const kingBurnCount = shoutEntries.filter(
+    (entry) => Number((entry.amount ?? '0').replace(/,/g, '')) >= 5000,
+  ).length
+  const swapCount = accountEntries.filter((entry) => entry.kind === 'swap').length
+  const graduatedIds = new Set(
+    (tokenList.data ?? []).filter((t) => Boolean(t.pool?.exists)).map((t) => t.id),
+  )
+  const createdTokensList = tokens.filter((t) => t.created)
+  const graduatedCount =
+    createdTokensList.filter((t) => graduatedIds.has(t.id)).length +
+    accountEntries.filter(
+      (entry) => entry.kind === 'swap' && graduatedIds.has(entry.tokenId),
+    ).length
+
+  const questProgress = computeQuestSummary({
+    accountId: publicKey ?? '',
+    funded: Boolean(publicKey && walletXlmStroops > 0n),
+    launchedCount: createdTokensList.length,
+    shoutCount,
+    graduatedCount,
+    swapCount,
+    assetCount: heldTokenCount,
+    kingBurnCount,
+  })
+  const pilotPerks = computePilotPerks(questProgress)
 
   return (
     <>
@@ -278,6 +352,254 @@ export function PortfolioPage() {
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              🧬 Sorobits (`SBIT`) · Pilot &amp; Quest NFTs
+            </h2>
+            <p className="text-xs text-slate-400">
+              {tgUser.username || tgUser.firstName ? (
+                <span className="text-sky-300 font-medium">
+                  {tgUser.username ? `@${tgUser.username}` : tgUser.firstName}
+                </span>
+              ) : (
+                'Stellar Pilot'
+              )}{' '}
+              · {pilotPerks.chatTitle} ·{' '}
+              <span className="font-mono text-emerald-300">
+                {questProgress.unlockedCount}/{ASTROGATE_QUEST_BADGES.length} Season-1 Quests
+              </span>{' '}
+              · Built by NunaLabs
+            </p>
+          </div>
+          {publicKey ? (
+            <button
+              type="button"
+              onClick={() =>
+                shareToTelegram(
+                  `🧬 ${tgUser.username ? `@${tgUser.username}` : 'Pilot'} unlocked ${questProgress.unlockedCount}/${ASTROGATE_QUEST_BADGES.length} Sorobits Season-1 Quests (${pilotPerks.chatTitle}) · Built by NunaLabs`,
+                  telegramMiniAppUrl('portfolio'),
+                )
+              }
+              className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-1.5 text-xs font-semibold text-sky-300 hover:bg-sky-500/20 transition"
+            >
+              📤 Share Sorobits
+            </button>
+          ) : null}
+        </div>
+
+        <div className="mt-3 rounded-xl border border-indigo-500/30 bg-slate-950/75 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-indigo-500/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-indigo-300">
+                SEP-50 · 100% ON-CHAIN SVG
+              </span>
+              <span className="text-slate-300">
+                Minted:{' '}
+                <span className="font-mono font-semibold text-white">
+                  {sorobitsSummary.data?.totalSupply ?? '…'}
+                </span>
+                {' · '}Season 1:{' '}
+                <span className="text-emerald-300 font-semibold">
+                  {sorobitsSummary.data?.season1Sealed ?? true ? 'Sealed' : 'Open'}
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Link
+                to="/sorobits"
+                className="font-semibold text-sky-300 hover:underline"
+              >
+                Explore Sorobits Hub →
+              </Link>
+              <a
+                href={explorerContractUrl(SOROBITS_CONTRACT_ID)}
+                target="_blank"
+                rel="noreferrer"
+                className="font-mono text-[11px] text-slate-400 hover:text-sky-300 hover:underline"
+              >
+                {shortAddress(SOROBITS_CONTRACT_ID)} ↗
+              </a>
+            </div>
+          </div>
+
+          {(() => {
+            const onChainList =
+              ownedSorobits.data && ownedSorobits.data.length > 0
+                ? ownedSorobits.data
+                : sorobitsSummary.data?.genesis0
+                  ? [sorobitsSummary.data.genesis0]
+                  : []
+            if (onChainList.length === 0) return null
+            const isOwnerList = Boolean(ownedSorobits.data && ownedSorobits.data.length > 0)
+            return (
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {onChainList.map((item) => (
+                  <div
+                    key={item.tokenId}
+                    className="flex items-center gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-2.5"
+                  >
+                    <img
+                      src={item.animatedDataUrl}
+                      alt={item.name}
+                      className="h-16 w-16 shrink-0 rounded-lg border border-slate-700 bg-slate-950"
+                      style={{ imageRendering: 'pixelated' }}
+                    />
+                    <div className="min-w-0 text-xs">
+                      <p className="truncate font-semibold text-white">
+                        {item.name}
+                      </p>
+                      <p className="font-mono text-[10px] text-slate-400">
+                        {isOwnerList ? 'Held by you' : `Genesis #${item.tokenId} Live Ledger Proof`} ·{' '}
+                        {item.soulbound ? 'Soulbound' : 'Tradeable'}
+                      </p>
+                      <p className="mt-0.5 truncate text-[11px] text-sky-300">
+                        {item.attributes
+                          .filter((a) => ['Faction', 'Suit', 'Stellar Era'].includes(a.trait_type))
+                          .map((a) => `${a.value}`)
+                          .join(' · ')}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2 rounded-xl border border-slate-800/80 bg-slate-950/60 p-2.5 text-center text-xs">
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">Sprint Boost</p>
+            <p className="font-mono font-bold text-amber-300">{pilotPerks.sprintMultiplier}</p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">Feed Priority</p>
+            <p className="font-mono font-bold text-sky-300">
+              {pilotPerks.feedPriority ? 'Active' : 'AGQ02+'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-slate-500">VIP Alpha</p>
+            <p className="font-mono font-bold text-emerald-300">
+              {pilotPerks.vipAlphaAccess ? 'Eligible' : 'AGQ04+'}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {ASTROGATE_QUEST_BADGES.map((badge) => {
+            const unlocked = Boolean(publicKey && questProgress.unlocked[badge.id])
+            const isSelected = selectedBadgeId === badge.id
+            return (
+              <button
+                key={badge.id}
+                type="button"
+                onClick={() => {
+                  triggerTelegramHaptic('light')
+                  setSelectedBadgeId(badge.id)
+                }}
+                className={`rounded-xl border p-3 text-center transition ${
+                  isSelected
+                    ? 'border-amber-400/70 bg-slate-900 ring-1 ring-amber-400/30'
+                    : unlocked
+                      ? 'border-sky-500/50 bg-sky-950/20 hover:border-sky-400'
+                      : 'border-slate-800 bg-slate-950/50 opacity-75 hover:opacity-100'
+                }`}
+              >
+                <img
+                  src={badge.imagePath}
+                  alt={badge.title}
+                  className={`mx-auto h-16 w-16 rounded-lg object-cover ${
+                    unlocked ? '' : 'grayscale'
+                  }`}
+                />
+                <p className="mt-2 text-xs font-bold text-slate-100">
+                  {badge.emoji} {badge.title}
+                </p>
+                <p className="font-mono text-[10px] text-slate-400">
+                  {badge.assetCode} · {badge.tier}
+                </p>
+                <span
+                  className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    unlocked
+                      ? 'bg-emerald-500/15 text-emerald-300'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {unlocked ? '✅ Unlocked' : '🔒 Locked'}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {(() => {
+          const active =
+            ASTROGATE_QUEST_BADGES.find((b) => b.id === selectedBadgeId) ??
+            ASTROGATE_QUEST_BADGES[0]
+          if (!active) return null
+          const activeUnlocked = Boolean(publicKey && questProgress.unlocked[active.id])
+          const actionPath =
+            active.id === 'launcher'
+              ? '/create'
+              : active.id === 'shouter' ||
+                  active.id === 'graduate' ||
+                  active.id === 'og' ||
+                  active.id === 'whale' ||
+                  active.id === 'phoenix' ||
+                  active.id === 'legend'
+                ? '/market'
+                : null
+          return (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950/80 p-3 text-xs">
+              <div className="flex items-center gap-3 min-w-0">
+                <img
+                  src={active.imagePath}
+                  alt={active.title}
+                  className={`h-11 w-11 shrink-0 rounded-lg ${activeUnlocked ? '' : 'grayscale opacity-75'}`}
+                />
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-100">
+                    {active.emoji} {active.title} ({active.assetCode} · {active.tier})
+                  </p>
+                  <p className="text-slate-400">{active.criteria}</p>
+                </div>
+              </div>
+              {activeUnlocked ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    shareToTelegram(
+                      `🏅 Unlocked ${active.emoji} ${active.title} (${active.assetCode}) on AstroGate · Built by NunaLabs`,
+                      telegramMiniAppUrl('portfolio'),
+                    )
+                  }
+                  className="shrink-0 rounded-lg bg-emerald-500/15 px-3 py-1.5 font-semibold text-emerald-300 hover:bg-emerald-500/25 transition"
+                >
+                  📤 Share {active.assetCode}
+                </button>
+              ) : actionPath ? (
+                <Link
+                  to={actionPath}
+                  className="shrink-0 rounded-lg bg-sky-500 px-3 py-1.5 font-semibold text-slate-950 hover:bg-sky-400 transition"
+                >
+                  Complete Quest →
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => openWalletModal('connect')}
+                  className="shrink-0 rounded-lg bg-amber-400 px-3 py-1.5 font-semibold text-slate-950 hover:bg-amber-300 transition"
+                >
+                  Fund Wallet →
+                </button>
+              )}
+            </div>
+          )
+        })()}
       </section>
 
       <ActivityFeed />

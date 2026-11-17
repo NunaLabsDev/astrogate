@@ -23,6 +23,8 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 7. No usar `sleep` para esperar procesos; usar background + verificación puntual.
 8. Modo prueba (solo testnet): 3 cuentas desechables fondeadas con Friendbot,
    semillas en `localStorage` del navegador. Nunca fondos reales ni mainnet.
+9. Telegram 100% en inglés: todo mensaje, comando, botón, descripción y respuesta de `@AstroGateSorobanBot`, `@AstroGateCommunity` y `@AstroGateFeed` (grupos, canal y DMs) debe mantenerse estrictamente en inglés.
+10. Links en Telegram siempre internos: nunca enviar URLs web externas (`https://astrogate.pages.dev/...`) dentro de chats o botones de Telegram; usar siempre enlaces internos (`https://t.me/AstroGateSorobanBot?start=...`) para abrir la Mini App vía `web_app` y conservar intacta la wallet en `Telegram.WebApp.CloudStorage`.
 
 ## Red (testnet)
 - RPC: https://soroban-testnet.stellar.org
@@ -34,6 +36,8 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - wasm hash del token (ya subido v4.2): 465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d
 - Launchpad contract (v4.2): CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5
 - wasm hash del launchpad (v4.2): 47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc
+- Sorobits NFT contract (SEP-50, Testnet): CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT
+- wasm hash de Sorobits: d1324c3620cd877b5c16bc0af5a46cef7c35360a9c68e3de2e19685c58a5463f
 - Par ASTRO/XLM: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
 - Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
 - Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)

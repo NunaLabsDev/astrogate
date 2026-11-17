@@ -100,6 +100,20 @@ function patchClient(dir, typesSource) {
     )
   }
 
+  // Convierte `export enum Foo { ... }` a `const + type` compatible con `erasableSyntaxOnly`.
+  source = source.replace(
+    /export\s+enum\s+(\w+)\s*\{([\s\S]*?)\}/g,
+    (_m, name, body) => {
+      const entries = [...body.matchAll(/(\w+)\s*=\s*(-?\d+)/g)].map(
+        ([, k, v]) => `  ${k}: ${v},`,
+      )
+      return (
+        `export const ${name} = {\n${entries.join('\n')}\n} as const;\n` +
+        `export type ${name} = (typeof ${name})[keyof typeof ${name}];`
+      )
+    },
+  )
+
   writeFileSync(path, source)
 }
 
@@ -119,6 +133,20 @@ function patchTypes(dir) {
       if (used.length === list.length) return match
       if (used.length === 0) return ''
       return `import {${used.join(', ')}} from '@stellar/stellar-sdk';\n`
+    },
+  )
+
+  // Convierte `export enum Foo { ... }` a `const + type` compatible con `erasableSyntaxOnly`.
+  source = source.replace(
+    /export\s+enum\s+(\w+)\s*\{([\s\S]*?)\}/g,
+    (_m, name, body) => {
+      const entries = [...body.matchAll(/(\w+)\s*=\s*(-?\d+)/g)].map(
+        ([, k, v]) => `  ${k}: ${v},`,
+      )
+      return (
+        `export const ${name} = {\n${entries.join('\n')}\n} as const;\n` +
+        `export type ${name} = (typeof ${name})[keyof typeof ${name}];`
+      )
     },
   )
 

@@ -8,15 +8,24 @@ import {
 } from '@stellar/stellar-sdk'
 import { Client as AstroTokenClient } from '../src/contracts'
 import { Client as LaunchpadClient } from '../src/contracts/launchpad'
+import { Client as SorobitsClient } from '../src/contracts/sorobits'
+import {
+  parseLaunchpadContractEvent,
+  type LaunchpadParsedEvent,
+} from './events'
+import { computeQuestSummary, type QuestProgressSummary } from './quests'
 import type {
   AccountSummaryData,
   Env,
   MarketTokenSummary,
   TokenInspectorData,
+  TokenShoutsData,
 } from './types'
 
 export const LAUNCHPAD_CONTRACT_ID =
   'CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5'
+export const SOROBITS_CONTRACT_ID =
+  'CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT'
 export const ASTRO_TOKEN_ID =
   'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE'
 export const ASTRO_PAIR_ID =
@@ -47,6 +56,15 @@ function makeLaunchpad(rpcUrl: string): LaunchpadClient {
     contractId: LAUNCHPAD_CONTRACT_ID,
     rpcUrl,
     networkPassphrase: NETWORK_PASSPHRASE,
+  })
+}
+
+function makeSorobits(rpcUrl: string): SorobitsClient {
+  return new SorobitsClient({
+    contractId: SOROBITS_CONTRACT_ID,
+    rpcUrl,
+    networkPassphrase: NETWORK_PASSPHRASE,
+    publicKey: READONLY_SOURCE,
   })
 }
 
@@ -350,5 +368,299 @@ export async function fetchHorizonAccountSummary(
     }
   } catch {
     return null
+  }
+}
+
+export async function fetchTokenShoutsData(
+  tokenId: string,
+  env: Env,
+): Promise<TokenShoutsData | null> {
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const token = makeToken(tokenId, rpcUrl)
+  const lp = makeLaunchpad(rpcUrl)
+  try {
+    const [nameTx, symTx, decTx, kingTx, shoutsTx] = await withTimeout(
+      Promise.all([
+        token.name(),
+        token.symbol(),
+        token.decimals(),
+        lp.get_king_shout({ token: tokenId }).catch(() => ({ result: null })),
+        lp.get_shouts({ token: tokenId }).catch(() => ({ result: [] })),
+      ]),
+      4500,
+    )
+    const kingRaw = kingTx.result
+    const shoutsRaw = Array.isArray(shoutsTx.result) ? shoutsTx.result : []
+    return {
+      tokenId,
+      name: String(nameTx.result || 'Token'),
+      symbol: String(symTx.result || 'TOK'),
+      decimals: Number(decTx.result ?? 7),
+      kingShout: kingRaw
+        ? {
+            sender: kingRaw.sender,
+            amount: kingRaw.amount,
+            message: kingRaw.message,
+            ledger: Number(kingRaw.ledger ?? 0),
+          }
+        : null,
+      shouts: shoutsRaw.map((s) => ({
+        sender: s.sender,
+        amount: s.amount,
+        message: s.message,
+        ledger: Number(s.ledger ?? 0),
+      })),
+    }
+  } catch {
+    return null
+  }
+}
+
+export async function fetchTokenMetaSummary(
+  tokenId: string,
+  env: Env,
+): Promise<{ symbol: string; name: string; decimals: number }> {
+  if (tokenId === ASTRO_TOKEN_ID) {
+    return { symbol: 'ASTRO', name: 'Astro Test', decimals: 7 }
+  }
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const token = makeToken(tokenId, rpcUrl)
+  try {
+    const [nameTx, symTx, decTx] = await withTimeout(
+      Promise.all([token.name(), token.symbol(), token.decimals()]),
+      3500,
+    )
+    return {
+      symbol: String(symTx.result || 'TOK'),
+      name: String(nameTx.result || 'Token'),
+      decimals: Number(decTx.result ?? 7),
+    }
+  } catch {
+    return { symbol: 'TOK', name: 'AstroGate Token', decimals: 7 }
+  }
+}
+
+export async function fetchLaunchpadEventsByTxHash(
+  txHash: string,
+  env: Env,
+): Promise<LaunchpadParsedEvent[]> {
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const server = new sorobanRpc.Server(rpcUrl)
+  try {
+    const txRes = await withTimeout(server.getTransaction(txHash), 4500)
+    if (txRes.status !== sorobanRpc.Api.GetTransactionStatus.SUCCESS) {
+      return []
+    }
+    const evRes = await withTimeout(
+      server.getEvents({
+        startLedger: txRes.ledger,
+        endLedger: txRes.ledger + 1,
+        filters: [{ type: 'contract', contractIds: [LAUNCHPAD_CONTRACT_ID] }],
+        limit: 50,
+      }),
+      4000,
+    )
+    const parsed: LaunchpadParsedEvent[] = []
+    for (const ev of evRes.events ?? []) {
+      if (ev.txHash && ev.txHash.toLowerCase() !== txHash.toLowerCase()) {
+        continue
+      }
+      const item = parseLaunchpadContractEvent({
+        id: ev.id,
+        ledger: ev.ledger,
+        txHash: ev.txHash ?? txHash,
+        topic: ev.topic,
+        value: ev.value,
+      })
+      if (item) parsed.push(item)
+    }
+    return parsed
+  } catch {
+    return []
+  }
+}
+
+export async function fetchRecentLaunchpadEvents(
+  startLedger: number | undefined,
+  env: Env,
+): Promise<{ events: LaunchpadParsedEvent[]; latestLedger: number }> {
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const server = new sorobanRpc.Server(rpcUrl)
+  try {
+    const latest = await withTimeout(server.getLatestLedger(), 3500)
+    const latestSeq = Number(latest.sequence ?? 0)
+    const fromLedger =
+      startLedger && startLedger > 0
+        ? startLedger
+        : Math.max(1, latestSeq - 30)
+    if (fromLedger > latestSeq) {
+      return { events: [], latestLedger: latestSeq }
+    }
+    const evRes = await withTimeout(
+      server.getEvents({
+        startLedger: fromLedger,
+        endLedger: latestSeq + 1,
+        filters: [{ type: 'contract', contractIds: [LAUNCHPAD_CONTRACT_ID] }],
+        limit: 50,
+      }),
+      4500,
+    )
+    const parsed: LaunchpadParsedEvent[] = []
+    for (const ev of evRes.events ?? []) {
+      const item = parseLaunchpadContractEvent({
+        id: ev.id,
+        ledger: ev.ledger,
+        txHash: ev.txHash,
+        topic: ev.topic,
+        value: ev.value,
+      })
+      if (item) parsed.push(item)
+    }
+    return { events: parsed, latestLedger: latestSeq }
+  } catch {
+    return { events: [], latestLedger: startLedger ?? 0 }
+  }
+}
+
+export async function findTokenBySymbol(
+  symbolQuery: string,
+  env: Env,
+): Promise<string | null> {
+  const clean = symbolQuery.trim().toUpperCase()
+  if (!clean) return null
+  if (clean === 'ASTRO') return ASTRO_TOKEN_ID
+
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const lp = makeLaunchpad(rpcUrl)
+  try {
+    const countTx = await withTimeout(lp.get_launch_count(), 3500)
+    const total = Number(countTx.result ?? 0)
+    if (total <= 0) return null
+    const limit = Math.min(25, total)
+    const offset = Math.max(0, total - limit)
+    const launchesTx = await withTimeout(
+      lp.get_launches({ offset, limit }),
+      4000,
+    )
+    const records = (launchesTx.result ?? []).slice().reverse()
+    const match = records.find(
+      (r) => String(r.symbol || '').trim().toUpperCase() === clean,
+    )
+    return match?.token ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function fetchUserQuestStatus(
+  accountId: string,
+  env: Env,
+): Promise<QuestProgressSummary> {
+  const rpcUrl = env.STELLAR_RPC_URL || DEFAULT_RPC_URL
+  const lp = makeLaunchpad(rpcUrl)
+  const sb = makeSorobits(rpcUrl)
+  const server = new sorobanRpc.Server(rpcUrl)
+
+  const [account, launchesInfo, recentEvents, sorobitsIds] = await Promise.all([
+    fetchHorizonAccountSummary(accountId, env),
+    (async () => {
+      try {
+        const countTx = await withTimeout(lp.get_launch_count(), 3500)
+        const total = Number(countTx.result ?? 0)
+        if (total <= 0) return { launched: 0, graduatedIds: new Set<string>(), createdGrad: 0 }
+        const limit = Math.min(50, total)
+        const offset = Math.max(0, total - limit)
+        const launchesTx = await withTimeout(
+          lp.get_launches({ offset, limit }),
+          4000,
+        )
+        const records = launchesTx.result ?? []
+        const graduatedIds = new Set<string>()
+        let launched = 0
+        let createdGrad = 0
+        for (const rec of records) {
+          if (rec.pair) graduatedIds.add(rec.token)
+          if (rec.creator === accountId) {
+            launched += 1
+            if (rec.pair) createdGrad += 1
+          }
+        }
+        return { launched, graduatedIds, createdGrad }
+      } catch {
+        return { launched: 0, graduatedIds: new Set<string>(), createdGrad: 0 }
+      }
+    })(),
+    (async () => {
+      try {
+        const latest = await withTimeout(server.getLatestLedger(), 3000)
+        const latestSeq = Number(latest.sequence ?? 0)
+        const fromLedger = Math.max(1, latestSeq - 10_000)
+        const evRes = await withTimeout(
+          server.getEvents({
+            startLedger: fromLedger,
+            endLedger: latestSeq + 1,
+            filters: [{ type: 'contract', contractIds: [LAUNCHPAD_CONTRACT_ID] }],
+            limit: 200,
+          }),
+          4500,
+        )
+        const parsed: LaunchpadParsedEvent[] = []
+        for (const ev of evRes.events ?? []) {
+          const item = parseLaunchpadContractEvent({
+            id: ev.id,
+            ledger: ev.ledger,
+            txHash: ev.txHash,
+            topic: ev.topic,
+            value: ev.value,
+          })
+          if (item) parsed.push(item)
+        }
+        return parsed
+      } catch {
+        return [] as LaunchpadParsedEvent[]
+      }
+    })(),
+    (async () => {
+      try {
+        const res = await withTimeout(sb.tokens_of({ owner: accountId }), 3500)
+        return (res.result ?? []).map((id) => Number(id))
+      } catch {
+        return [] as number[]
+      }
+    })(),
+  ])
+
+  let shoutCount = 0
+  let kingBurnCount = 0
+  let eventLaunchCount = 0
+  let swapCount = 0
+  let tradedGradCount = 0
+  for (const ev of recentEvents) {
+    if (ev.kind === 'shout' && ev.sender === accountId) {
+      shoutCount += 1
+      if (ev.isKing) kingBurnCount += 1
+    }
+    if (ev.kind === 'launch' && ev.creator === accountId) eventLaunchCount += 1
+    if (ev.kind === 'trade' && ev.trader === accountId) {
+      swapCount += 1
+      if (launchesInfo.graduatedIds.has(ev.tokenId)) {
+        tradedGradCount += 1
+      }
+    }
+  }
+
+  return {
+    ...computeQuestSummary({
+      accountId,
+      funded: Boolean(account?.funded),
+      launchedCount: Math.max(launchesInfo.launched, eventLaunchCount),
+      shoutCount,
+      graduatedCount: launchesInfo.createdGrad + tradedGradCount,
+      swapCount,
+      assetCount: account?.assetCount ?? 0,
+      kingBurnCount,
+    }),
+    sorobitsIds,
+    sorobitsBalance: sorobitsIds.length,
   }
 }

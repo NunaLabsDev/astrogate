@@ -651,6 +651,25 @@ function HotWalletDialog() {
         ) : (
           /* Connect / Create / Import / External Flow */
           <div className="space-y-4">
+            {hasExistingVault ? (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-500/40 bg-amber-950/25 px-3.5 py-2.5 text-xs">
+                <div className="min-w-0">
+                  <p className="font-bold text-amber-200">
+                    Saved Vault Found ({hotAccounts.length})
+                  </p>
+                  <p className="truncate font-mono text-[11px] text-amber-100/80">
+                    {activeAccount ? `${activeAccount.label} · ${shortAddress(activeAccount.publicKey)}` : 'Unlock with your PIN'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openWalletModal('unlock')}
+                  className="shrink-0 rounded-xl bg-amber-400 px-3 py-1.5 text-xs font-black text-slate-950 hover:bg-amber-300"
+                >
+                  🔓 Unlock
+                </button>
+              </div>
+            ) : null}
             <div
               role="tablist"
               aria-label="Wallet setup options"

@@ -199,8 +199,8 @@ export const useWallet = create<WalletState>((set, get) => ({
       walletModalOpen: true,
       walletModalView:
         view ??
-        (state.mode === 'hot' && state.publicKey
-          ? state.hotUnlocked
+        (state.hotAccounts.length > 0
+          ? state.hotUnlocked && state.mode === 'hot' && state.publicKey
             ? 'manage'
             : 'unlock'
           : 'connect'),

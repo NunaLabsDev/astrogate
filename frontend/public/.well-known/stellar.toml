@@ -1,0 +1,85 @@
+VERSION="2.1.0"
+
+NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
+
+ACCOUNTS=[
+  "GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+]
+
+[DOCUMENTATION]
+ORG_NAME="AstroGate · Built by NunaLabs"
+ORG_URL="https://t.me/AstroGateCommunity"
+ORG_LOGO="https://astrogate.pages.dev/icon-512.png"
+ORG_DESCRIPTION="Fair-Flywheel v4.2 Launchpad + Soroswap AMM & Sorobits (SBIT) 100% On-Chain 32x32 Genomic NFTs on Stellar Soroban Testnet (CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT) · Built by NunaLabs."
+
+[[CURRENCIES]]
+code="AGQ01"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 01 · Floodgate Pioneer"
+desc="Sorobits Season-1 Genesis Archetype: 2014 Ledger Square · Funded a Stellar Soroban Testnet wallet."
+image="https://astrogate.pages.dev/badges/pioneer.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ02"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 02 · Fair Launcher"
+desc="Sorobits Season-1 Genesis Archetype: 2014 Rocket Delta · Launched a Fair-Flywheel v4.2 token on Soroban."
+image="https://astrogate.pages.dev/badges/launcher.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ03"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 03 · Shout King"
+desc="Sorobits Season-1 Genesis Archetype: SCP Consensus Telemetry · Burned tokens on-chain in Burn-to-Chat."
+image="https://astrogate.pages.dev/badges/shouter.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ04"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 04 · Soroswap Graduate"
+desc="Sorobits Season-1 Genesis Archetype: 2019 Orbital Circle · Participated in a 100% LP-burned Soroswap graduation."
+image="https://astrogate.pages.dev/badges/graduate.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ05"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 05 · Early OG"
+desc="Sorobits Season-1 Genesis Archetype: FCA00C Quest 3D Optics · Early AstroGate holder."
+image="https://astrogate.pages.dev/badges/og.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ06"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 06 · Curve Trader"
+desc="Sorobits Season-1 Genesis Archetype: AMM Abyssal Circle · Active trader on AstroGate bonding curves."
+image="https://astrogate.pages.dev/badges/whale.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ07"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 07 · Burn Guardian"
+desc="Sorobits Season-1 Genesis Archetype: Burn State Laser Phoenix · Crowned a >=5,000 Burn-to-Chat King Shout."
+image="https://astrogate.pages.dev/badges/phoenix.png"
+display_decimals=0
+is_asset_anchored=false
+
+[[CURRENCIES]]
+code="AGQ08"
+issuer="GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE"
+name="AGQ 08 · Genesis Legend"
+desc="Sorobits Season-1 Genesis Archetype: Golden Soroban & ZK Diamond · Unlocked 5+ Quest Badges & Graduated."
+image="https://astrogate.pages.dev/badges/legend.png"
+display_decimals=0
+is_asset_anchored=false
