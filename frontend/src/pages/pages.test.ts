@@ -42,6 +42,12 @@ import { DexPage } from './DexPage'
 import { DocsPage } from './DocsPage'
 import { HomePage } from './HomePage'
 import { PortfolioPage } from './PortfolioPage'
+import { SorobitsPage } from './SorobitsPage'
+import {
+  computeLivePilotXp,
+  formatCollectorTrait,
+  nextTierProgress,
+} from '../lib/sorobits'
 
 function renderWithProviders(element: ReactElement, initialEntry = '/') {
   const client = new QueryClient({
@@ -97,6 +103,51 @@ describe('Page Components and Lifecycle', () => {
       const html = renderWithProviders(createElement(WalletButton))
       expect(html).toContain('Demo')
       expect(html).toContain('Wallet')
+    })
+
+    it('renders SorobitsPage with top 3-step onboarding, Sync XP explanation, and 7 Cosmic Realms lore', () => {
+      const html = renderWithProviders(createElement(SorobitsPage), '/sorobits')
+      expect(html).toContain('Claim Free Sorobit')
+      expect(html).toContain('Mint Mystery Capsule')
+      expect(html).toContain('7 XLM')
+      expect(html).toContain('Forge Next Generation')
+      expect(html).toContain('What is Sync XP?')
+      expect(html).toContain('7 Cosmic Realms')
+      expect(html).toContain('Horizon Starlight')
+      expect(html).toContain('Prism Aurora')
+      expect(html).not.toContain('2019 Orbital AMM')
+      expect(html).not.toContain('Season-1 Genesis Archetypes')
+      expect(html).not.toContain('/badges/')
+    })
+
+    it('maps collector traits, calculates live Launchpad XP, and tracks shield tier progress', () => {
+      expect(formatCollectorTrait('Faction', 'Soroswap Jade')).toBe(
+        'Emerald Orbit',
+      )
+      expect(formatCollectorTrait('Suit', 'LedgerSquare')).toBe(
+        'Starlight Vanguard',
+      )
+      expect(formatCollectorTrait('TTL Shield', 'SovereignTTL')).toBe(
+        'Solar Gold Shield (T2)',
+      )
+      expect(
+        computeLivePilotXp(
+          {
+            launches: 1,
+            graduations: 0,
+            trades: 3,
+            shouts: 1,
+            kingShouts: 0,
+            burnsTriggered: 0,
+          },
+          2,
+        ),
+      ).toBe(2 * 150 + 250 + 3 * 50 + 100)
+      const prog = nextTierProgress(350, 1)
+      expect(prog.currentTierName).toBe('Bronze Guardian')
+      expect(prog.nextTierName).toBe('Solar Gold Shield')
+      expect(prog.xpToNext).toBe(150)
+      expect(prog.progressPct).toBe(50)
     })
 
     it('renders DocsPage with protocol lifecycle, audits, Stellar best practices, REST API and MCP', () => {

@@ -53,6 +53,239 @@ export interface LaunchpadPilotTelemetry {
   burnsTriggered: number
 }
 
+export interface CosmicRealmSpec {
+  id: number
+  onChainName: string
+  name: string
+  tagline: string
+  description: string
+  accent: string
+  badge: string
+}
+
+export const COSMIC_REALMS: readonly CosmicRealmSpec[] = [
+  {
+    id: 0,
+    onChainName: 'Horizon Signal',
+    name: 'Horizon Starlight',
+    tagline: 'Dawn of the First Star',
+    description:
+      'Fearless deep-space navigators guided by the earliest cosmic beacons.',
+    accent: 'from-sky-500/20 to-indigo-900/30 border-sky-500/30',
+    badge: 'text-sky-300',
+  },
+  {
+    id: 1,
+    onChainName: 'Roscoe Violet',
+    name: 'Nebula Violet',
+    tagline: 'Mystic Starweavers',
+    description:
+      'Arcane cosmic explorers attuned to twilight nebulae and astral mysteries.',
+    accent: 'from-violet-500/20 to-purple-950/30 border-violet-500/30',
+    badge: 'text-violet-300',
+  },
+  {
+    id: 2,
+    onChainName: 'Zebulon Crimson',
+    name: 'Supernova Crimson',
+    tagline: 'Solar Flame Guardians',
+    description:
+      'Fierce forge masters born in stellar fire and unstoppable cosmic energy.',
+    accent: 'from-rose-500/20 to-red-950/30 border-rose-500/30',
+    badge: 'text-rose-300',
+  },
+  {
+    id: 3,
+    onChainName: 'Soroswap Jade',
+    name: 'Emerald Orbit',
+    tagline: 'Warp-Gate Voyagers',
+    description:
+      'Swift interstellar traders charting luminous jade wormholes across Stellar.',
+    accent: 'from-emerald-500/20 to-teal-950/30 border-emerald-500/30',
+    badge: 'text-emerald-300',
+  },
+  {
+    id: 4,
+    onChainName: 'Abyssal Trench',
+    name: 'Abyssal Starlight',
+    tagline: 'Astral Tide Keepers',
+    description:
+      'Deep-cosmos guardians harvesting rare pearls of gravity and starlight.',
+    accent: 'from-cyan-500/20 to-slate-900/40 border-cyan-500/30',
+    badge: 'text-cyan-300',
+  },
+  {
+    id: 5,
+    onChainName: 'Golden Soroban',
+    name: 'Celestial Gold',
+    tagline: 'Sunforged Citadel',
+    description:
+      'Mythic relic keepers radiating royal solar armor and ancient wisdom.',
+    accent: 'from-amber-500/20 to-stone-900/40 border-amber-500/30',
+    badge: 'text-amber-300',
+  },
+  {
+    id: 6,
+    onChainName: 'Poseidon Prism',
+    name: 'Prism Aurora',
+    tagline: 'Astral Mirage Shifters',
+    description:
+      'Rare luminous travelers refracting multidimensional aurora light.',
+    accent: 'from-fuchsia-500/20 to-indigo-950/40 border-fuchsia-500/30',
+    badge: 'text-fuchsia-300',
+  },
+] as const
+
+const COLLECTOR_VALUE_MAP: Record<string, string> = {
+  // Factions -> Cosmic Realms
+  'Horizon Signal': 'Horizon Starlight',
+  'Roscoe Violet': 'Nebula Violet',
+  'Zebulon Crimson': 'Supernova Crimson',
+  'Soroswap Jade': 'Emerald Orbit',
+  'Abyssal Trench': 'Abyssal Starlight',
+  'Golden Soroban': 'Celestial Gold',
+  'Poseidon Prism': 'Prism Aurora',
+  // Suits
+  LedgerSquare: 'Starlight Vanguard',
+  TelemetryRect: 'Nova Pulse Armor',
+  DeltaTriangle: 'Solar Wing Suit',
+  OrbitalCircle: 'Astro Gravity Suit',
+  ZkDiamond: 'Prism Aegis Armor',
+  // Helmets
+  ExplorerDome: 'Astral Dome',
+  Vanguard: 'Vanguard Crest',
+  CyborgHull: 'Mecha Titan Helm',
+  VoidHood: 'Shadow Void Hood',
+  // Visors
+  ClassicAstro: 'Starlight Visor',
+  Fca00c3D: 'Hypernova Prism',
+  FCA00C3D: 'Hypernova Prism',
+  ScpLattice: 'Quorum Matrix',
+  SCPLattice: 'Quorum Matrix',
+  SonarSweep: 'Deep Cosmos Radar',
+  TwinLaser: 'Supernova Beams',
+  // Relics
+  None: 'Pure Pilot',
+  LedgerAntenna: 'Star Beacon',
+  RocketFin: 'Comet Wing',
+  SovereignCrown: 'Royal Halo Crown',
+  OrbitalHalo: 'Planetary Ring',
+  HydroFin: 'Astral Crest',
+  SorobanCrown: 'Celestial Crown',
+  StroopOrb: 'Floating Star Orb',
+  // Auras
+  QuorumSlice: 'Orbit Sparks',
+  WarpResonance: 'Hyperdrive Aura',
+  // Shields
+  OriginHUD: 'Starlight Frame (T0)',
+  ArchivalBronze: 'Bronze Guardian (T1)',
+  SovereignTTL: 'Solar Gold Shield (T2)',
+  YardstickPrism: 'Obsidian Prism Shield (T3)',
+  CleanVoid: 'Celestial Void Halo (T4)',
+  // Genesis origin legends
+  '2014 Ledger-1': 'First Star Pioneer',
+  '2014 Rocket': 'Nova Launcher',
+  'SCP Consensus': 'Cosmic Herald',
+  '2019 Orbital': 'Warp Voyager',
+  'FCA00C Quest': 'Prism Seeker',
+  'AMM Depth': 'Tide Navigator',
+  'Burn State': 'Phoenix Forged',
+}
+
+const COLLECTOR_TRAIT_LABELS: Record<string, string> = {
+  Faction: 'Cosmic Realm',
+  Suit: 'Armor Suit',
+  'TTL Shield': 'Guardian Shield',
+  'Stellar Era': 'Origin Legend',
+}
+
+export function formatTraitLabel(traitType: string): string {
+  return COLLECTOR_TRAIT_LABELS[traitType] ?? traitType
+}
+
+export function formatCollectorTrait(
+  traitType: string,
+  rawValue: string | number,
+): string {
+  const str = String(rawValue)
+  if (traitType === 'Aura' && str === 'None') return 'Calm Cosmos'
+  if (traitType === 'Relic' && str === 'None') return 'Pure Pilot'
+  if (traitType === 'Stellar Era' && str === 'Golden Soroban') {
+    return 'Solar Legend'
+  }
+  return COLLECTOR_VALUE_MAP[str] ?? str
+}
+
+export function getRealmForItem(item: SorobitOnChainItem): CosmicRealmSpec {
+  const factionAttr = item.attributes.find((a) => a.trait_type === 'Faction')
+  const rawFaction = factionAttr ? String(factionAttr.value) : ''
+  return (
+    COSMIC_REALMS.find(
+      (r) => r.onChainName === rawFaction || r.name === rawFaction,
+    ) ?? COSMIC_REALMS[0]
+  )
+}
+
+export function computeLivePilotXp(
+  pilot: LaunchpadPilotTelemetry | null | undefined,
+  claimedCount: number,
+): number {
+  const baseClaims = Math.max(0, claimedCount) * 150
+  if (!pilot) return baseClaims
+  return (
+    baseClaims +
+    pilot.launches * 250 +
+    pilot.graduations * 500 +
+    pilot.trades * 50 +
+    pilot.shouts * 100 +
+    pilot.kingShouts * 400
+  )
+}
+
+const TIER_DEFINITIONS = [
+  { tier: 0, name: 'Starlight Frame', minXp: 0, nextXp: 200 },
+  { tier: 1, name: 'Bronze Guardian', minXp: 200, nextXp: 500 },
+  { tier: 2, name: 'Solar Gold Shield', minXp: 500, nextXp: 1200 },
+  { tier: 3, name: 'Obsidian Prism Shield', minXp: 1200, nextXp: 2500 },
+  { tier: 4, name: 'Celestial Void Halo', minXp: 2500, nextXp: null },
+] as const
+
+export interface TierProgressInfo {
+  currentTierName: string
+  nextTierName: string | null
+  nextThreshold: number | null
+  progressPct: number
+  xpToNext: number
+}
+
+export function nextTierProgress(
+  xpScore: number,
+  rankTier: number,
+): TierProgressInfo {
+  const clamped = Math.max(0, Math.min(4, Math.floor(rankTier)))
+  const current = TIER_DEFINITIONS[clamped]
+  const next = clamped < 4 ? TIER_DEFINITIONS[clamped + 1] : null
+  if (!next || current.nextXp === null) {
+    return {
+      currentTierName: current.name,
+      nextTierName: null,
+      nextThreshold: null,
+      progressPct: 100,
+      xpToNext: 0,
+    }
+  }
+  const span = Math.max(1, current.nextXp - current.minXp)
+  const gained = Math.max(0, xpScore - current.minXp)
+  const progressPct = Math.min(100, Math.max(0, Math.round((gained / span) * 100)))
+  return {
+    currentTierName: current.name,
+    nextTierName: next.name,
+    nextThreshold: current.nextXp,
+    progressPct,
+    xpToNext: Math.max(0, current.nextXp - xpScore),
+  }
+}
+
 function unwrapSorobitOk<T>(value: unknown): T | null {
   if (value === null || value === undefined) return null
   if (typeof value === 'object' && value !== null && 'error' in value) return null
@@ -147,27 +380,38 @@ export async function fetchSorobitById(
 
 export async function fetchSorobitsByOwner(
   ownerAddress: string,
-  limit = 8,
+  limit = 50,
 ): Promise<SorobitOnChainItem[]> {
   if (!ownerAddress || !SOROBITS_CONTRACT_ID) return []
   try {
     const ids = await executeWithRpcFailover(async (rpcUrl) => {
       const client = makeSorobitsClient(rpcUrl)
       try {
-        const pageTx = await client.tokens_of_page({
-          owner: ownerAddress,
-          offset: 0,
-          limit,
-        })
-        return (pageTx.result ?? []).slice(0, limit)
+        const collected: number[] = []
+        let offset = 0
+        while (collected.length < limit) {
+          const pageSize = Math.min(50, limit - collected.length)
+          const pageTx = await client.tokens_of_page({
+            owner: ownerAddress,
+            offset,
+            limit: pageSize,
+          })
+          const page = (pageTx.result ?? []).map((id) => Number(id))
+          collected.push(...page)
+          if (page.length < pageSize) break
+          offset += page.length
+        }
+        return collected.slice(0, limit)
       } catch {
         const idsTx = await client.tokens_of({ owner: ownerAddress })
-        return (idsTx.result ?? []).slice(0, limit)
+        return (idsTx.result ?? []).map((id) => Number(id)).slice(0, limit)
       }
     })
     if (ids.length === 0) return []
     const items = await Promise.all(ids.map((id) => fetchSorobitById(Number(id))))
-    return items.filter((item): item is SorobitOnChainItem => item !== null)
+    return items
+      .filter((item): item is SorobitOnChainItem => item !== null)
+      .sort((a, b) => b.tokenId - a.tokenId)
   } catch {
     return []
   }

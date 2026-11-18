@@ -109,7 +109,8 @@ try {
   const sorobitsHtml = renderApp('/sorobits')
   if (
     !sorobitsHtml.includes('Sorobits') ||
-    !sorobitsHtml.includes('Season-1 Genesis Archetypes')
+    !sorobitsHtml.includes('7 Cosmic Realms') ||
+    !sorobitsHtml.includes('Claim Free Sorobit')
   ) {
     throw new Error('la ruta /sorobits no renderiza la colección Sorobits')
   }
