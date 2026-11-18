@@ -9,6 +9,7 @@
  * - Resilient storage access via centralized storage abstraction.
  */
 
+import { networkStorageKey } from './network'
 import { readStorageJson, removeStorageKey, writeStorageJson } from './storage'
 
 export type LaunchStep =
@@ -51,7 +52,7 @@ export interface LaunchCheckpoint {
   updatedAt: number
 }
 
-const CHECKPOINT_STORAGE_PREFIX = 'astrogate.launch.checkpoint.v1'
+const CHECKPOINT_STORAGE_PREFIX = networkStorageKey('astrogate.launch.checkpoint.v1')
 export const CHECKPOINT_TTL_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 const memoryCheckpoints = new Map<string, LaunchCheckpoint>()

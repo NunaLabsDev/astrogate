@@ -19,7 +19,7 @@ function requireSubtle(): SubtleCrypto {
   return subtle
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
+export function bytesToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== 'undefined') {
     return Buffer.from(bytes).toString('base64')
   }
@@ -30,7 +30,7 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary)
 }
 
-function base64ToBytes(encoded: string): Uint8Array {
+export function base64ToBytes(encoded: string): Uint8Array {
   if (typeof Buffer !== 'undefined') {
     return new Uint8Array(Buffer.from(encoded, 'base64'))
   }
@@ -56,71 +56,113 @@ async function deriveAesKey(
 ): Promise<CryptoKey> {
   const subtle = requireSubtle()
   const pinBytes = new TextEncoder().encode(pin)
-  const baseKey = await subtle.importKey(
-    'raw',
-    toArrayBuffer(pinBytes),
-    'PBKDF2',
-    false,
-    ['deriveKey'],
-  )
-  return subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      salt: toArrayBuffer(salt),
-      iterations,
-      hash: 'SHA-256',
-    },
-    baseKey,
-    { name: 'AES-GCM', length: 256 },
-    false,
-    usage,
-  )
+  try {
+    const baseKey = await subtle.importKey(
+      'raw',
+      toArrayBuffer(pinBytes),
+      'PBKDF2',
+      false,
+      ['deriveKey'],
+    )
+    return await subtle.deriveKey(
+      {
+        name: 'PBKDF2',
+        salt: toArrayBuffer(salt),
+        iterations,
+        hash: 'SHA-256',
+      },
+      baseKey,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      usage,
+    )
+  } finally {
+    pinBytes.fill(0)
+  }
 }
 
-/** Encrypts a Stellar secret seed under a user PIN using a fresh random salt & IV. */
+/** Encrypts a Stellar secret seed under a user PIN using a fresh random salt, IV, and optional AAD. */
 export async function encryptSecretWithPin(
   secret: string,
   pin: string,
   iterations = VAULT_PBKDF2_ITERATIONS,
+  aad?: string,
 ): Promise<EncryptedSecretPayload> {
   const subtle = requireSubtle()
   const salt = globalThis.crypto.getRandomValues(new Uint8Array(SALT_BYTES))
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES))
   const aesKey = await deriveAesKey(pin, salt, iterations, ['encrypt'])
   const plaintext = new TextEncoder().encode(secret)
-  const encrypted = await subtle.encrypt(
-    { name: 'AES-GCM', iv: toArrayBuffer(iv) },
-    aesKey,
-    toArrayBuffer(plaintext),
-  )
-  return {
-    v: 1,
-    kdf: 'PBKDF2-SHA256',
-    iterations,
-    salt: bytesToBase64(salt),
-    iv: bytesToBase64(iv),
-    ciphertext: bytesToBase64(new Uint8Array(encrypted)),
+  const additionalData = aad ? toArrayBuffer(new TextEncoder().encode(aad)) : undefined
+  try {
+    const encrypted = await subtle.encrypt(
+      additionalData
+        ? { name: 'AES-GCM', iv: toArrayBuffer(iv), additionalData }
+        : { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      aesKey,
+      toArrayBuffer(plaintext),
+    )
+    return {
+      v: 1,
+      kdf: 'PBKDF2-SHA256',
+      iterations,
+      salt: bytesToBase64(salt),
+      iv: bytesToBase64(iv),
+      ciphertext: bytesToBase64(new Uint8Array(encrypted)),
+    }
+  } finally {
+    plaintext.fill(0)
   }
 }
 
-/** Decrypts a Stellar secret seed; throws `'Invalid PIN or corrupted vault.'` on auth failure. */
+/**
+ * Decrypts a Stellar secret seed; verifies optional AAD (falling back to legacy v1
+ * payloads without AAD if needed) and throws `'Incorrect wallet PIN.'` on auth failure.
+ */
 export async function decryptSecretWithPin(
   payload: EncryptedSecretPayload,
   pin: string,
+  aad?: string,
 ): Promise<string> {
   const subtle = requireSubtle()
   const salt = base64ToBytes(payload.salt)
   const iv = base64ToBytes(payload.iv)
   const ciphertext = base64ToBytes(payload.ciphertext)
   const aesKey = await deriveAesKey(pin, salt, payload.iterations, ['decrypt'])
+  const ivBuf = toArrayBuffer(iv)
+  const ctBuf = toArrayBuffer(ciphertext)
+  const aadBuf = aad ? toArrayBuffer(new TextEncoder().encode(aad)) : undefined
   try {
     const decrypted = await subtle.decrypt(
-      { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      aadBuf ? { name: 'AES-GCM', iv: ivBuf, additionalData: aadBuf } : { name: 'AES-GCM', iv: ivBuf },
       aesKey,
-      toArrayBuffer(ciphertext),
+      ctBuf,
     )
-    return new TextDecoder().decode(decrypted)
+    const view = new Uint8Array(decrypted)
+    try {
+      return new TextDecoder().decode(view)
+    } finally {
+      view.fill(0)
+    }
   } catch {
+    if (aadBuf) {
+      // Backwards compatibility for pre-AAD v1 encrypted payloads on device/CloudStorage.
+      try {
+        const legacyDecrypted = await subtle.decrypt(
+          { name: 'AES-GCM', iv: ivBuf },
+          aesKey,
+          ctBuf,
+        )
+        const view = new Uint8Array(legacyDecrypted)
+        try {
+          return new TextDecoder().decode(view)
+        } finally {
+          view.fill(0)
+        }
+      } catch {
+        // Fall through to PIN error
+      }
+    }
     throw new Error('Incorrect wallet PIN.')
   }
 }

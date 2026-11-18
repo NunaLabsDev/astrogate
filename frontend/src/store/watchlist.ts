@@ -1,7 +1,8 @@
 import { create } from 'zustand'
+import { networkStorageKey } from '../lib/network'
 import { readStorageJson, writeStorageJson } from '../lib/storage'
 
-const STORAGE_KEY = 'astrogate.watchlist.v1'
+const STORAGE_KEY = networkStorageKey('astrogate.watchlist.v1')
 
 export function loadWatchlist(): string[] {
   const parsed = readStorageJson<unknown>(STORAGE_KEY)

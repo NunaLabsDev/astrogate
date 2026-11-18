@@ -3,8 +3,8 @@
 use soroban_sdk::{contracttype, Bytes, BytesN, Env, String};
 
 use crate::assets::{
-    FACTION_COUNT, FACTION_NAMES, FACTION_PALETTES, GENESIS_TEMPLATES, HELMET_NAMES, RELIC_NAMES,
-    SUIT_NAMES, VISOR_NAMES, AURA_NAMES,
+    AURA_NAMES, FACTION_COUNT, FACTION_NAMES, FACTION_PALETTES, GENESIS_TEMPLATES, HELMET_NAMES,
+    RELIC_NAMES, SUIT_NAMES, VISOR_NAMES,
 };
 
 pub const GRID: usize = 32;
@@ -47,14 +47,14 @@ pub struct SorobitRecord {
 
 /// Stack byte writer avoiding heap allocation in `no_std` Soroban WASM.
 pub struct ByteWriter {
-    buf: [u8; 10_240],
+    buf: [u8; 16_384],
     len: usize,
 }
 
 impl ByteWriter {
     pub fn new() -> Self {
         Self {
-            buf: [0u8; 10_240],
+            buf: [0u8; 16_384],
             len: 0,
         }
     }
@@ -109,14 +109,19 @@ impl ByteWriter {
         }
     }
 
-    pub fn into_soroban_string(&self, e: &Env) -> String {
+    pub fn to_soroban_string(&self, e: &Env) -> String {
         String::from_bytes(e, &self.buf[..self.len])
+    }
+
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.len
     }
 }
 
 /// Validates packed `(len, val)` RLE stream decodes to exact 1,024 pixels in semantic range `0..=15`.
 pub fn validate_rle_layer(bytes: &[u8]) -> bool {
-    if bytes.is_empty() || bytes.len() % 2 != 0 {
+    if bytes.is_empty() || !bytes.len().is_multiple_of(2) {
         return false;
     }
     let mut total: usize = 0;
@@ -150,9 +155,9 @@ pub fn validate_palette45(pal: &[u8]) -> bool {
         return false;
     }
     let mut lums = [0u32; 16];
-    for s in 1..=15usize {
+    for (s, lum) in lums.iter_mut().enumerate().skip(1) {
         let base = (s - 1) * 3;
-        lums[s] = scaled_luminance(pal[base], pal[base + 1], pal[base + 2]);
+        *lum = scaled_luminance(pal[base], pal[base + 1], pal[base + 2]);
     }
     // Never pure #000000 sel-out dark at slot 7 (index 6*3..6*3+3)
     if pal[18] == 0 && pal[19] == 0 && pal[20] == 0 {
@@ -259,8 +264,12 @@ pub fn overlay_frame(rank_tier: u32, buf: &mut [u8; PIXELS]) {
     match rank_tier {
         0 => {
             // OriginHUD: 3px Parallel-style corner brackets only
-            let corners: [(isize, isize, isize, isize); 4] =
-                [(0, 0, 1, 1), (31, 0, -1, 1), (0, 31, 1, -1), (31, 31, -1, -1)];
+            let corners: [(isize, isize, isize, isize); 4] = [
+                (0, 0, 1, 1),
+                (31, 0, -1, 1),
+                (0, 31, 1, -1),
+                (31, 31, -1, -1),
+            ];
             for (cx, cy, dx, dy) in corners {
                 set(buf, cx as usize, cy as usize, 11);
                 set(buf, (cx + dx) as usize, cy as usize, 8);
@@ -306,8 +315,12 @@ pub fn overlay_frame(rank_tier: u32, buf: &mut [u8; PIXELS]) {
                 set(buf, 0, i, 10);
                 set(buf, 31, i, 10);
             }
-            let corners: [(isize, isize, isize, isize); 4] =
-                [(0, 0, 1, 1), (31, 0, -1, 1), (0, 31, 1, -1), (31, 31, -1, -1)];
+            let corners: [(isize, isize, isize, isize); 4] = [
+                (0, 0, 1, 1),
+                (31, 0, -1, 1),
+                (0, 31, 1, -1),
+                (31, 31, -1, -1),
+            ];
             for (cx, cy, dx, dy) in corners {
                 set(buf, cx as usize, cy as usize, 6);
                 set(buf, (cx + dx) as usize, cy as usize, 13);
@@ -337,8 +350,15 @@ pub fn sanitize_genes(helmet: u8, visor: u8, relic: &mut u8, aura: &mut u8) {
 }
 
 /// Writes crisp per-color `<path>` SVG elements from the already-composited `[u8; 1024]` grid.
-pub fn write_svg(w: &mut ByteWriter, grid: &[u8; PIXELS], pal45: &[u8; PALETTE_BYTES], animated: bool) {
-    w.push_str("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' shape-rendering='crispEdges'>");
+pub fn write_svg(
+    w: &mut ByteWriter,
+    grid: &[u8; PIXELS],
+    pal45: &[u8; PALETTE_BYTES],
+    animated: bool,
+) {
+    w.push_str(
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' shape-rendering='crispEdges'>",
+    );
     if animated {
         w.push_str("<style>@keyframes p{0%,100%{opacity:1}50%{opacity:.65}}.v{animation:p 5s infinite}</style>");
     }
@@ -355,7 +375,7 @@ pub fn write_svg(w: &mut ByteWriter, grid: &[u8; PIXELS], pal45: &[u8; PALETTE_B
             continue;
         }
         // Check if slot appears anywhere before emitting `<path>` tag
-        if !grid.iter().any(|&px| px == slot) {
+        if !grid.contains(&slot) {
             continue;
         }
         let rgb_i = (slot as usize - 1) * 3;
@@ -415,9 +435,18 @@ pub fn faction_name(id: u8) -> &'static str {
 pub fn trait_name(cat: LayerCategory, id: u8) -> &'static str {
     match cat {
         LayerCategory::Suit => SUIT_NAMES.get(id as usize).copied().unwrap_or("CustomSuit"),
-        LayerCategory::Helmet => HELMET_NAMES.get(id as usize).copied().unwrap_or("CustomHelmet"),
-        LayerCategory::Visor => VISOR_NAMES.get(id as usize).copied().unwrap_or("CustomVisor"),
-        LayerCategory::Relic => RELIC_NAMES.get(id as usize).copied().unwrap_or("CustomRelic"),
+        LayerCategory::Helmet => HELMET_NAMES
+            .get(id as usize)
+            .copied()
+            .unwrap_or("CustomHelmet"),
+        LayerCategory::Visor => VISOR_NAMES
+            .get(id as usize)
+            .copied()
+            .unwrap_or("CustomVisor"),
+        LayerCategory::Relic => RELIC_NAMES
+            .get(id as usize)
+            .copied()
+            .unwrap_or("CustomRelic"),
         LayerCategory::Aura => AURA_NAMES.get(id as usize).copied().unwrap_or("CustomAura"),
     }
 }
@@ -447,6 +476,39 @@ pub fn apply_optional_rle(custom: Option<Bytes>, season1_fallback: &[u8], grid: 
     overlay_rle(season1_fallback, grid);
 }
 
+/// Verifies a validated RLE layer renders comfortably inside `ByteWriter`'s static SVG/JSON budget.
+pub fn validate_rle_render_budget(bytes: &[u8], pal45: &[u8; PALETTE_BYTES]) -> bool {
+    let mut grid = [14u8; PIXELS];
+    overlay_rle(bytes, &mut grid);
+    overlay_frame(3, &mut grid);
+    let mut w = ByteWriter::new();
+    // Conservative dry-run: count SVG bytes including worst-case `@keyframes` overhead,
+    // keeping >= 3 KB margin for `token_uri` JSON metadata wrapper.
+    const MAX_SVG_BUDGET: usize = 12_800;
+    let mut runs: usize = 0;
+    for y in 0..GRID {
+        let row = &grid[y * GRID..(y + 1) * GRID];
+        let mut x = 0usize;
+        while x < GRID {
+            let s = row[x];
+            let mut width = 1usize;
+            while x + width < GRID && row[x + width] == s {
+                width += 1;
+            }
+            if s != 14 {
+                runs += 1;
+            }
+            x += width;
+        }
+    }
+    // Each `<path>` run is ~16 bytes max (`M31 31h32v1h-32z`); cap runs early before full render.
+    if runs > 720 {
+        return false;
+    }
+    write_svg(&mut w, &grid, pal45, true);
+    w.len() <= MAX_SVG_BUDGET
+}
+
 /// Resolves full 32x32 grid from Season 1 compiled constants cleanly.
 #[cfg(test)]
 #[allow(dead_code)]
@@ -454,11 +516,26 @@ pub fn compose_season1_grid(dna: &[u8; 32], rank_tier: u32) -> [u8; PIXELS] {
     use crate::assets::{AURA_LAYERS, HELMET_LAYERS, RELIC_LAYERS, SUIT_LAYERS, VISOR_LAYERS};
     let mut grid = [0u8; PIXELS];
     render_procedural_sky(dna, &mut grid);
-    overlay_rle(AURA_LAYERS[(dna[6] as usize) % AURA_LAYERS.len()], &mut grid);
-    overlay_rle(SUIT_LAYERS[(dna[2] as usize) % SUIT_LAYERS.len()], &mut grid);
-    overlay_rle(HELMET_LAYERS[(dna[3] as usize) % HELMET_LAYERS.len()], &mut grid);
-    overlay_rle(VISOR_LAYERS[(dna[4] as usize) % VISOR_LAYERS.len()], &mut grid);
-    overlay_rle(RELIC_LAYERS[(dna[5] as usize) % RELIC_LAYERS.len()], &mut grid);
+    overlay_rle(
+        AURA_LAYERS[(dna[6] as usize) % AURA_LAYERS.len()],
+        &mut grid,
+    );
+    overlay_rle(
+        SUIT_LAYERS[(dna[2] as usize) % SUIT_LAYERS.len()],
+        &mut grid,
+    );
+    overlay_rle(
+        HELMET_LAYERS[(dna[3] as usize) % HELMET_LAYERS.len()],
+        &mut grid,
+    );
+    overlay_rle(
+        VISOR_LAYERS[(dna[4] as usize) % VISOR_LAYERS.len()],
+        &mut grid,
+    );
+    overlay_rle(
+        RELIC_LAYERS[(dna[5] as usize) % RELIC_LAYERS.len()],
+        &mut grid,
+    );
     overlay_frame(rank_tier, &mut grid);
     grid
 }

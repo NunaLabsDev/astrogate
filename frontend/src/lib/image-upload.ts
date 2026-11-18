@@ -1,7 +1,7 @@
 export const MAX_RAW_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB
+export const MAX_LOGO_UPLOAD_BYTES = 32_768 // 32 KB max compressed payload
 export const LOGO_TARGET_SIZE = 128
-export const PINATA_PIN_FILE_URL = 'https://api.pinata.cloud/pinning/pinFileToIPFS'
-export const PINATA_GATEWAY_BASE = 'https://gateway.pinata.cloud/ipfs/'
+export const DEFAULT_PUBLIC_ORIGIN = 'https://astrogate.pages.dev'
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/png',
@@ -17,8 +17,24 @@ export interface CompressedLogoResult {
   dataUrl: string
   blob: Blob
   mimeType: string
+  sha256: string
   width: number
   height: number
+}
+
+/**
+ * Computes lowercase 64-char SHA-256 hex digest using WebCrypto for content-addressed logos.
+ */
+export async function computeSha256Hex(
+  input: Uint8Array | ArrayBuffer,
+): Promise<string> {
+  const bytes = input instanceof Uint8Array ? input : new Uint8Array(input)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer)
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, '0'),
+  ).join('')
 }
 
 /**
@@ -80,9 +96,16 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+function extForMime(mime: string): 'webp' | 'png' | 'jpg' | 'gif' {
+  if (mime === 'image/png') return 'png'
+  if (mime === 'image/jpeg' || mime === 'image/jpg') return 'jpg'
+  if (mime === 'image/gif') return 'gif'
+  return 'webp'
+}
+
 /**
  * Center-crops and compresses any raster image in the browser to a lightweight
- * 128x128 WebP (with JPEG fallback) ready for local preview or IPFS pinning.
+ * 128x128 WebP (with JPEG fallback) and computes its content-addressed SHA-256 digest.
  */
 export async function compressImageFileToWebp(
   file: File,
@@ -126,11 +149,16 @@ export async function compressImageFileToWebp(
       throw new Error('Browser could not compress image.')
     }
 
-    const dataUrl = await blobToDataUrl(chosenBlob)
+    const [dataUrl, buf] = await Promise.all([
+      blobToDataUrl(chosenBlob),
+      chosenBlob.arrayBuffer(),
+    ])
+    const sha256 = await computeSha256Hex(buf)
     return {
       dataUrl,
       blob: chosenBlob,
       mimeType: chosenBlob.type || 'image/webp',
+      sha256,
       width: targetSize,
       height: targetSize,
     }
@@ -139,50 +167,66 @@ export async function compressImageFileToWebp(
   }
 }
 
-export function isPinataConfigured(
-  env: Record<string, unknown> = import.meta.env as Record<string, unknown>,
-): boolean {
-  const raw = env.VITE_PINATA_JWT
-  return typeof raw === 'string' && raw.trim().length > 0
-}
-
 /**
- * Optionally pins a compressed logo Blob to Pinata IPFS when `VITE_PINATA_JWT`
- * is configured. Returns `null` when running in zero-config / keyless mode.
+ * Publishes a compressed token logo to AstroGate's content-addressed Worker store
+ * (`/api/v1/logos`) and returns its immutable SHA-256 URL for `LaunchRecord.meta`
+ * on Stellar Soroban (zero API keys, zero third-party pinning lock-in).
  */
-export async function uploadImageToIpfsIfConfigured(
+export async function uploadTokenLogo(
   blob: Blob,
-  fileName = 'token-logo.webp',
-  options?: { jwt?: string; fetchFn?: typeof fetch },
-): Promise<string | null> {
-  const envJwt = (import.meta.env as Record<string, unknown>).VITE_PINATA_JWT
-  const jwt = (options?.jwt ?? (typeof envJwt === 'string' ? envJwt : '')).trim()
-  if (!jwt) return null
+  options?: {
+    sha256?: string
+    endpoint?: string
+    fallbackOrigin?: string
+    fetchFn?: typeof fetch
+  },
+): Promise<string> {
+  if (blob.size <= 0 || blob.size > MAX_LOGO_UPLOAD_BYTES) {
+    throw new Error(
+      `Compressed logo must be between 1 and ${MAX_LOGO_UPLOAD_BYTES} bytes.`,
+    )
+  }
 
-  const form = new FormData()
-  form.append('file', blob, fileName)
+  const buffer = await blob.arrayBuffer()
+  const sha256 = options?.sha256 ?? (await computeSha256Hex(buffer))
+  const contentType = blob.type || 'image/webp'
+  const ext = extForMime(contentType)
+  const fallbackOrigin = (
+    options?.fallbackOrigin ?? DEFAULT_PUBLIC_ORIGIN
+  ).replace(/\/+$/, '')
+  const deterministicUrl = `${fallbackOrigin}/api/v1/logos/${sha256}.${ext}`
 
   const fetchImpl = options?.fetchFn ?? globalThis.fetch
-  const res = await fetchImpl(PINATA_PIN_FILE_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${jwt}`,
-    },
-    body: form,
-    signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-      ? AbortSignal.timeout(15_000)
-      : undefined,
-  })
+  const candidates = options?.endpoint
+    ? [options.endpoint]
+    : ['/api/v1/logos', `${fallbackOrigin}/api/v1/logos`]
 
-  if (!res.ok) {
-    throw new Error(`IPFS upload failed (${res.status})`)
+  for (const endpoint of candidates) {
+    try {
+      const res = await fetchImpl(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': contentType,
+          'X-Logo-Sha256': sha256,
+        },
+        body: buffer,
+        signal:
+          typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+            ? AbortSignal.timeout(10_000)
+            : undefined,
+      })
+      if (!res.ok) continue
+      const json = (await res.json()) as { ok?: boolean; url?: unknown }
+      if (json.ok && typeof json.url === 'string' && json.url.startsWith('https://')) {
+        return json.url
+      }
+      if (json.ok) {
+        return deterministicUrl
+      }
+    } catch {
+      // Try next endpoint or deterministic fallback URL
+    }
   }
 
-  const json = (await res.json()) as { IpfsHash?: unknown }
-  const cid = typeof json.IpfsHash === 'string' ? json.IpfsHash.trim() : ''
-  if (!cid) {
-    throw new Error('IPFS upload returned no CID.')
-  }
-
-  return `${PINATA_GATEWAY_BASE}${cid}`
+  return deterministicUrl
 }

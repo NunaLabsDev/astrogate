@@ -44,7 +44,25 @@ type PortfolioToken = {
 const MAX_PORTFOLIO_TOKENS = 20
 
 export function PortfolioPage() {
-  const { publicKey, openWalletModal, startDemo, demoPending, pending } = useWallet()
+  const {
+    publicKey,
+    mode,
+    hotAccounts,
+    hotActiveId,
+    hotPrimaryId,
+    telegramLink,
+    hotUnlocked,
+    openWalletModal,
+    startDemo,
+    demoPending,
+    pending,
+  } = useWallet()
+  const activeHotAccount =
+    hotAccounts?.find((a) => a.id === hotActiveId) ?? hotAccounts?.[0] ?? null
+  const isActivePrimary = Boolean(
+    activeHotAccount &&
+      (hotPrimaryId ? activeHotAccount.id === hotPrimaryId : true),
+  )
   const createdTokens = useCreatedTokens((state) => state.tokens)
   const activityEntries = useActivity((state) => state.entries)
   const tokenList = useTokenList()
@@ -166,11 +184,12 @@ export function PortfolioPage() {
     (tokenList.data ?? []).filter((t) => Boolean(t.pool?.exists)).map((t) => t.id),
   )
   const createdTokensList = tokens.filter((t) => t.created)
-  const graduatedCount =
-    createdTokensList.filter((t) => graduatedIds.has(t.id)).length +
-    accountEntries.filter(
-      (entry) => entry.kind === 'swap' && graduatedIds.has(entry.tokenId),
-    ).length
+  const graduatedCount = new Set([
+    ...createdTokensList.filter((t) => graduatedIds.has(t.id)).map((t) => t.id),
+    ...accountEntries
+      .filter((entry) => entry.kind === 'swap' && graduatedIds.has(entry.tokenId))
+      .map((entry) => entry.tokenId),
+  ]).size
 
   const questProgress = computeQuestSummary({
     accountId: publicKey ?? '',
@@ -227,7 +246,49 @@ export function PortfolioPage() {
           </div>
         </section>
       ) : (
-        <section className="grid gap-3 sm:grid-cols-3">
+        <>
+          {mode === 'hot' && activeHotAccount ? (
+            <section className="rounded-2xl border border-sky-500/30 bg-sky-950/15 p-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-sky-300">
+                    ⚡ AstroGate Native Wallet
+                  </span>
+                  {telegramLink ? (
+                    <span className="inline-flex items-center rounded-full border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
+                      @{telegramLink.username} · Linked
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openWalletModal(hotUnlocked ? 'manage' : 'unlock')}
+                      className="inline-flex items-center rounded-full border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/25"
+                    >
+                      + Link @username
+                    </button>
+                  )}
+                  {isActivePrimary ? (
+                    <span className="rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-300">
+                      ★ Primary
+                    </span>
+                  ) : null}
+                </div>
+                <p className="text-xs text-slate-300 font-mono truncate">
+                  {activeHotAccount.label} · {shortAddress(publicKey)} ·{' '}
+                  {hotAccounts.length} sub-wallet{hotAccounts.length === 1 ? '' : 's'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => openWalletModal(hotUnlocked ? 'manage' : 'unlock')}
+                className="min-h-[40px] rounded-xl border border-sky-500/40 bg-slate-950/60 px-3.5 py-2 text-xs font-bold text-sky-200 hover:bg-sky-500/20"
+              >
+                ⚙️ Manage Wallets / Export Keys
+              </button>
+            </section>
+          ) : null}
+
+          <section className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-4">
             <p className="text-xs uppercase tracking-wide text-slate-500">
               Wallet XLM Balance
@@ -280,6 +341,7 @@ export function PortfolioPage() {
             </p>
           </div>
         </section>
+        </>
       )}
 
       <section className="liquid-glass rounded-3xl p-5 sm:p-8 space-y-4">
@@ -358,7 +420,7 @@ export function PortfolioPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              🧬 Sorobits (`SBIT`) · Pilot &amp; Quest NFTs
+              🧬 Sorobits (<code className="font-mono text-sky-300">SBIT</code>) · Pilot &amp; Quest NFTs
             </h2>
             <p className="text-xs text-slate-400">
               {tgUser.username || tgUser.firstName ? (

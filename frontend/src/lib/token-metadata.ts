@@ -3,7 +3,7 @@ import {
   sanitizeTelegramUrl,
   sanitizeTwitterUrl,
 } from './format'
-import { ASTRO_TOKEN_ID } from './network'
+import { ASTRO_TOKEN_ID, networkStorageKey } from './network'
 import {
   readStorageJson,
   removeStorageKey,
@@ -20,7 +20,7 @@ export interface EnrichedTokenMetadata {
   updatedAt?: number
 }
 
-const METADATA_KEY_PREFIX = 'astrogate.token.meta.'
+const METADATA_KEY_PREFIX = networkStorageKey('astrogate.token.meta.')
 const memoryCache = new Map<string, EnrichedTokenMetadata>()
 const metadataListeners = new Set<() => void>()
 

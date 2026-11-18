@@ -38,6 +38,7 @@ vi.mock('../store/wallet', () => ({
 
 import { CreateTokenForm } from '../components/CreateTokenForm'
 import { WalletButton } from '../components/WalletButton'
+import { DocsPage } from './DocsPage'
 import { HomePage } from './HomePage'
 import { PortfolioPage } from './PortfolioPage'
 
@@ -88,6 +89,15 @@ describe('Page Components and Lifecycle', () => {
       const html = renderWithProviders(createElement(WalletButton))
       expect(html).toContain('Demo')
       expect(html).toContain('Wallet')
+    })
+
+    it('renders DocsPage with protocol lifecycle, audits, Stellar best practices, REST API and MCP', () => {
+      const html = renderWithProviders(createElement(DocsPage), '/docs')
+      expect(html).toContain('AstroGate Developer, Audit')
+      expect(html).toContain('Security Hardening')
+      expect(html).toContain('/api/v1/tokens')
+      expect(html).toContain('NunaLabs')
+      expect(html).toContain('mcpServers')
     })
   })
 

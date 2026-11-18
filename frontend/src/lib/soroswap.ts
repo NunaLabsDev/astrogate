@@ -5,6 +5,7 @@ import { Client as RouterClient } from '../contracts/soroswap-router'
 import { isValidContractAddress } from './address'
 import {
   executeWithRpcFailover,
+  LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
   RPC_URL,
   SOROSWAP_FACTORY,
@@ -105,12 +106,15 @@ export function priceImpactPercent(
   amountOut: bigint,
   reserveIn: bigint,
   reserveOut: bigint,
+  feePercent: number = SOROSWAP_SWAP_FEE_PERCENT,
 ): number {
   const spot = spotAmountOut(amountIn, reserveIn, reserveOut)
   if (spot <= 0n || amountOut <= 0n) return 0
   // Soroswap aplica la fee sobre el amount_in (30 bps, mismo resultado en la
-  // salida): la referencia no-comisionada es spot * (1 - fee).
-  const feeBps = BigInt(Math.round(SOROSWAP_SWAP_FEE_PERCENT * 100))
+  // salida): la referencia no-comisionada es spot * (1 - fee). En curvas v4.3
+  // donde los montos ya vienen ajustados por fee, pasar `feePercent = 0`.
+  const safeFee = Number.isFinite(feePercent) && feePercent > 0 ? feePercent : 0
+  const feeBps = BigInt(Math.round(safeFee * 100))
   const spotAfterFee = (spot * (10_000n - feeBps)) / 10_000n
   if (spotAfterFee <= 0n) return 0
   const difference = spotAfterFee - amountOut
@@ -517,9 +521,9 @@ async function ensurePair(
     await createTx.signAndSend()
   }
 
-  // Espera acotada: como mucho 5 intentos, 1,5 s entre ellos.
+  // Espera acotada: como mucho 10 intentos, 1,5 s entre ellos (~15 s, cubre ledgers mainnet).
   // Se considera listo cuando el par existe Y sus reservas ya se leen.
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 10; attempt++) {
     const checkTx = await factory.pair_exists({
       token_a: tokenId,
       token_b: XLM_SAC,
@@ -633,11 +637,10 @@ export async function withdrawLiquidity(params: {
   }
 
   // Orden real del par y suministro LP para fijar los mínimos de salida.
-  const pair = pairClientFor(pool.pairId)
-  const [token0Tx, supplyTx] = await Promise.all([
-    pair.token_0(),
-    pair.total_supply(),
-  ])
+  const [token0Tx, supplyTx] = await executeWithRpcFailover(async (rpcUrl) => {
+    const pair = pairClientFor(pool.pairId!, undefined, rpcUrl)
+    return Promise.all([pair.token_0(), pair.total_supply()])
+  })
   const tokenFirst =
     unwrapResult<string>(token0Tx.result, 'token_0') === tokenId
   const totalSupply = unwrapResult<bigint>(supplyTx.result, 'total_supply')
@@ -756,18 +759,27 @@ export type BurnedLpInfo = {
 }
 
 /**
- * Lee on-chain cuántos LP tokens están quemados permanentemente en la dirección
- * blackhole de Stellar (`STELLAR_BURN_ADDRESS`), impidiendo cualquier rug-pull.
+ * Lee on-chain cuántos LP tokens están bloqueados: ya sea quemados permanentemente
+ * en la dirección blackhole de Stellar (`STELLAR_BURN_ADDRESS`, tokens legacy) o
+ * bloqueados por 7 años dentro del contrato Launchpad (`LAUNCHPAD_CONTRACT_ID`).
  */
 export async function fetchBurnedLpInfo(pairId: string): Promise<BurnedLpInfo> {
   return executeWithRpcFailover(async (rpcUrl) => {
     const pair = pairClientFor(pairId, undefined, rpcUrl)
-    const [burnedTx, supplyTx] = await Promise.all([
+    const calls = [
       pair.balance({ id: STELLAR_BURN_ADDRESS }),
       pair.total_supply(),
-    ])
-    const burnedLp = unwrapResult<bigint>(burnedTx.result, 'balance')
-    const totalSupply = unwrapResult<bigint>(supplyTx.result, 'total_supply')
+      ...(isValidContractAddress(LAUNCHPAD_CONTRACT_ID)
+        ? [pair.balance({ id: LAUNCHPAD_CONTRACT_ID })]
+        : []),
+    ]
+    const results = await Promise.all(calls)
+    const deadBurnLp = unwrapResult<bigint>(results[0].result, 'balance')
+    const totalSupply = unwrapResult<bigint>(results[1].result, 'total_supply')
+    const contractLockedLp = results[2]
+      ? unwrapResult<bigint>(results[2].result, 'balance_contract')
+      : 0n
+    const burnedLp = deadBurnLp + contractLockedLp
     const fullyBurned = isLpFullyBurned(burnedLp, totalSupply)
     return {
       burnedLp,

@@ -1,13 +1,32 @@
-# AstroGate 🌊🚀 — Stellar Fair Launchpad & AMM
+# AstroGate 🌊🚀 — Stellar Fair-Flywheel Launchpad, AMM & Sorobits
 
-AstroGate is a decentralized, zero-backend Fair Launchpad and automated market maker (AMM) built natively on Stellar/Soroban. It introduces fair, anti-rug memecoin launch mechanics to the Stellar ecosystem:
+AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on-chain collectible platform built natively on **Stellar / Soroban**.
 
-- **Zero Protocol Deploy Fee**: Deploy a Fair-Flywheel launch for your initial curve buy (`>= 2 XLM`) + standard Stellar network gas (~0.05 XLM).
-- **Fair-Flywheel v4.1 Allocation (`45 / 25 / 29.7 / 0.3`)**: `4,500,000` (`45%`) Virtual Bonding Curve (`1,250 vXLM → 1,000 XLM` goal, `3.24x` curve range) · `2,500,000` (`25%`) Soroswap DEX Reserve (`0.00%` base graduation cliff) · `2,970,000` (`29.7%`) Milestone Proof-of-Burn Vault · `30,000` (`0.3%`) 15-day post-graduation creator vesting (5 tranches × 6,000 every 3 days).
-- **Anti-Whale Progressive Vault + Dual Proof-of-Burn & Registry**: Curve buys `> 2%` of virtual XLM add up to `+5.00%` straight into `real_xlm_vault`; at graduation (`1,000 XLM`), `100%` Soroswap LP is burned to `GAAAA...WHF`, Stage 1 burns `1,485,000` tokens via `token.burn()`, and Stage 2 permissionlessly burns `1,485,000` at `>= 1,800 XLM` DEX depth (`get_launches`, `get_curve`).
-- **Permanent Mint Freezing & 3-Tier Burn-to-Chat + King Shout**: Contract ownership is renounced immediately on launch (`renounce_ownership`), token supply is sealed via OpenZeppelin `Capped`, and traders burn tokens (`>= 50` Chat, `500` Hype, `>= 5,000` pinned King Shout) directly via `burn_shout`.
-- **Real-Time Live Pricing & 0ms Quotes**: Multi-source XLM oracle waterfall combined with instant deterministic `997/1000` constant-product AMM math and RPC failover across testnet nodes. Zero mock data.
-- **Zero-Backend Architecture**: Identity = non-custodial wallet (`@creit.tech/stellar-wallets-kit`) or 1-click Testnet Demo keypair. Data = Stellar Horizon + Soroban RPC.
+- **Zero Custodial Backend**: Identity = native self-custodial Stellar Wallet (`PBKDF2-SHA256` + `AES-GCM-256` vault synced via `Telegram.WebApp.CloudStorage` and encrypted `AGVAULT1:` bundles, linked cryptographically to Telegram `@username` via Ed25519 proofs, with exportable `S...` seeds). State & pricing = Stellar Horizon + Soroban RPC directly.
+- **Fair-Flywheel v4.3 Launchpad** (`7 XLM` protocol fee + `>= 2 XLM` initial creator curve buy):
+  - Fixed `10,000,000` supply (`7` decimals, aligned with `1 XLM = 10^7` stroops) and **immediate `renounce_ownership()`** on launch.
+  - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range): flat `0.80%` buy fee (`0.50%` treasury + `0.30%` curve/buyback floor), asymmetric `2.50% -> 1.50%` sell fee, and P2P transfers locked until graduation.
+  - **33.0% (`3,300,000`)** Soroswap DEX Pool Reserve seeded automatically at graduation (`0.00%` price cliff) with **100% LP time-locked inside the Launchpad contract for 7 years** (`reclaim_expired_lp` thereafter).
+  - **0.3% (`30,000`)** 15-day post-graduation creator vesting (`5 × 6,000` every 3 days), plus creator's initial curve seed locked until graduation (or 7-day stalled fallback).
+  - **0.7% (`70,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` on graduation.
+  - **Organic Deflation Only (0% Idle Burn Vault)**: Real burns via chunked DEX Buyback & Burn (`trigger_buyback_burn`) and 3-tier Burn-to-Chat (`burn_shout`).
+- **Sorobits (SEP-50) On-Chain Pixel Collectibles**: `32×32` deterministic & generative pixel avatars rendered natively on-chain via RLE + SVG (`render_svg`, `animated_svg`) with 256-bit genomes (`BytesN<32>`), epigenetic XP/rank evolution, free Soulbound `AGQ01` Pioneer badge, and `7 XLM` evolving Mystery Capsules (`mint_capsule`).
+- **Telegram Mini App & Live Feed Bot (`@AstroGateSorobanBot`)**: Interactive commands in `@AstroGateCommunity` + automated, spam-filtered on-chain notifications streamed strictly to `@AstroGateFeed`.
+
+---
+
+## Documentation Map (Developers, Auditors & AI Agents)
+
+| Document | Purpose |
+| :--- | :--- |
+| [AGENTS.md](./AGENTS.md) | Repository onboarding, invariants & build gates for autonomous AI coding/auditing agents |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | End-to-end architecture, state machines, cryptography, RPC failover, and Telegram event pipeline |
+| [AUDIT_GUIDE.md](./AUDIT_GUIDE.md) | Security audit playbook & invariant checklist for human auditors and AI auditing agents |
+| [SECURITY.md](./SECURITY.md) | Trust boundaries, implemented controls, known limitations, and vulnerability disclosure |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Development workflow, Rust/TS quality gates, and PR standards |
+| [TRADEMARK.md](./TRADEMARK.md) | Brand, logo, and anti-phishing usage policy (source code is MIT; brand marks belong to NunaLabs) |
+| [docs/AI_AGENT_INTEGRATION.md](./docs/AI_AGENT_INTEGRATION.md) | SDK usage & function-calling schemas for autonomous AI agents |
+| [frontend/public/llms.txt](./frontend/public/llms.txt) | Concise LLM-readable protocol index served at `/llms.txt` (full context at `/llms-full.txt`) |
 
 ---
 
@@ -15,110 +34,87 @@ AstroGate is a decentralized, zero-backend Fair Launchpad and automated market m
 
 ```mermaid
 flowchart TD
-    User["User Wallet (Freighter, xBull, Albedo)"] <--> Frontend["AstroGate Frontend (React 19 + Vite + TS)"]
-    Frontend <--> Oracles["Live Price Oracles (Coinbase, Binance, CoinGecko)"]
-    Frontend <--> RPC["Stellar Soroban RPC Node"]
-    Frontend <--> Horizon["Stellar Horizon Node"]
-    RPC <--> TokenContract["SEP-41 Token Contract (OpenZeppelin)"]
-    RPC <--> SoroswapFactory["Soroswap Factory & Pair Contracts"]
-    RPC <--> SoroswapRouter["Soroswap Router (Atomic Swaps)"]
-    SoroswapFactory -.-> DeadAccount["Blackhole Dead Account (GAAAA...WHF)"]
+    User["Native AstroGate Wallet (@username Linked · Multi-Wallet)"] <--> Frontend["AstroGate SPA (React 19 + Vite + TS)"]
+    Frontend <--> Oracles["XLM/USD Oracles (Coinbase, Binance, CoinGecko)"]
+    Frontend <--> RPC["Soroban RPC Pool (Multi-endpoint Failover)"]
+    Frontend <--> Horizon["Stellar Horizon API"]
+    RPC <--> Launchpad["Fair-Flywheel Launchpad v4.3"]
+    RPC <--> Token["SEP-41 Token (OpenZeppelin Stellar 0.8.0)"]
+    RPC <--> Sorobits["Sorobits NFT (SEP-50)"]
+    RPC <--> Soroswap["Soroswap Factory & Router"]
+    Launchpad -. "7Y LP Lock & Legacy Burn" .-> Blackhole["Contract Vault / Legacy Blackhole"]
+    Worker["Cloudflare Worker (@AstroGateSorobanBot)"] <--> RPC
+    Worker -- "Automated Alerts Only" --> Feed["@AstroGateFeed"]
+    Worker <--> Community["@AstroGateCommunity (Commands Only)"]
 ```
 
 ---
 
-## Live Contracts & Testnet Deployment
+## Live Testnet Contracts & Endpoints
 
-| Component | Testnet Contract / Address |
+> AstroGate is currently running on **Stellar Testnet** (`Test SDF Network ; September 2015`). Do **not** treat testnet contracts as mainnet-audited.
+
+| Component | Testnet Identifier |
 | :--- | :--- |
-| **RPC Endpoint** | `https://soroban-testnet.stellar.org` |
-| **Horizon Endpoint** | `https://horizon-testnet.stellar.org` |
+| **Soroban RPC** | `https://soroban-testnet.stellar.org` |
+| **Horizon API** | `https://horizon-testnet.stellar.org` |
+| **Launchpad Contract (v4.3)** | `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` |
+| **Launchpad WASM Hash (v4.3 deployed)** | `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7` |
+| **Token WASM Hash (v4.2 deployed)** | `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6` |
 | **Flagship Token ($ASTRO)** | `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` |
-| **Token WASM Bytecode Hash (v4.2)** | `465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d` |
-| **Fair-Flywheel Launchpad Contract (v4.2)** | `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5` |
-| **Launchpad WASM Bytecode Hash (v4.2)** | `47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc` |
+| **ASTRO / XLM Soroswap Pair** | `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP` |
+| **Sorobits NFT Contract (SEP-50)** | `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3` |
 | **Soroswap Factory** | `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY` |
 | **Soroswap Router** | `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD` |
-| **XLM SAC (Stellar Asset Contract)** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| **Native XLM SAC** | `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
 | **Anti-Rug Burn Address** | `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF` |
-| **Developer Treasury (Testnet)** | `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE` |
 
 ---
 
-## Key Features
+## Local Development & Verification
 
-1. **Fair Launch Form (`/create`)**:
-   - Minimalist launchpad (`launch_fair`): Name, Ticker, Seed XLM, live SVG preview, and optional collapsed off-chain links encoded in on-chain `meta` (`≤ 512` bytes).
-   - Fixed 10M supply (7 decimals, aligned with 1 XLM = 10^7 stroops; `7 XLM` protocol creation fee + min `2 XLM` initial curve buy): locks `45%` on the `1,250 vXLM → 1,000 XLM` Virtual Bonding Curve (`3.24x` curve range), `25%` Soroswap DEX Reserve, `29.7%` Proof-of-Burn Vault (`1.485M` on graduation + `1.485M` at `1,800 XLM`), and `0.3%` 15-day post-graduation creator vesting, while renouncing mint authority atomically.
-2. **Instant Curve & AMM Trading, King Shout & Audit (`/token/:id`)**:
-   - Seamless deterministic quotes against either the Fair-Flywheel Bonding Curve (pre-graduation) or Soroswap DEX pools (post-graduation) with dynamic anti-whale / slippage guards and permissionless `trigger_milestone_burn` / `claim_creator_vesting`.
-   - 3-tier Burn-to-Chat (`burn_shout`, `get_king_shout`), live ledger activity feed, and **Audit & Contract** tab with 90-day TTL refresh (`extendTokenTtl`).
-3. **Live Pump-Style Market Feed (`/`, `/market`)**:
-   - Discovers tokens directly from the Launchpad v4 on-chain registry (`get_launches`, `get_curve`) merged with Soroswap factory events (no external DB needed).
-   - Features King of the Hill spotlight, Fair Launchpad verified filter (`✓ Fair`), instant search, and watchlist.
-4. **Local Portfolio & Data Export (`/portfolio`)**:
-   - View created tokens, user holdings, and local transaction activity.
-   - Export full transaction history as CSV or JSON for personal records / auditing.
-5. **1-Click Testnet Demo Wallet + Telegram Mini App Self-Custody Vault (`@AstroGateSorobanBot`)**:
-   - Create an encrypted self-custody Stellar wallet in-app (`PBKDF2-SHA256 + AES-GCM-256`, synced encrypted to `Telegram.WebApp.CloudStorage`), connect Freighter/xBull/LOBSTR/WalletConnect, or launch `Demo` mode with Friendbot funding in one tap.
+### Prerequisites
+- Node.js `>= 22`, npm
+- Rust toolchain + `wasm32v1-none` target + `stellar-cli` (`>= 25`)
 
----
-
-## Local Development & Quick Start
-
+### Quick Start
 ```bash
-# Clone repository
-git clone https://github.com/ruwaq/astro-launchpad.git
-cd astro-launchpad
-git checkout main
-
-# Install dependencies and start dev server
-cd frontend
+git clone https://github.com/NunaLabsDev/astrogate.git
+cd astrogate/frontend
 npm ci
-npm run dev # http://localhost:5173
+npm run dev   # http://localhost:5173 (includes /docs Developer & Audit Hub)
 ```
 
-### Verification & Testing Gates
+### AI Integration, Public API & MCP Server
+- **Developer & Audit Hub UI**: `/docs` (live protocol lifecycle, audited controls, Stellar best practices, REST/MCP/SDK snippets)
+- **Public REST API**: `GET /api/v1/health`, `GET /api/v1/tokens`, `GET /api/v1/tokens/:id`, `GET /api/v1/tokens/:id/audit`, `GET /api/v1/tokens/:id/quote`, `GET /api/v1/sorobits`, `GET /api/v1/wallet/resolve?q=@username`, `POST /api/v1/wallet/link`, `GET /api/v1/wallet/vault`, `GET /openapi.json`
+- **Model Context Protocol (MCP)**:
+  - Remote Worker HTTP endpoint: `POST /mcp`
+  - Local Stdio server (`zero-config`, connects directly to Soroban RPC): `cd frontend && npm run mcp`
+- **LLM Specs**: `/llms.txt` & `/llms-full.txt`
 
+### Full Quality & Audit Gates
 ```bash
-# Run full frontend quality gate (build + lint + tests + smoke SSR + PWA audit + CSP parity)
+# Smart contracts: build astro-token WASM fixture first, then formatting, clippy & unit tests
+stellar contract build --package astro-token
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+stellar contract build
+
+# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 217 Vitest specs, SSR smoke, PWA, CSP parity
+cd frontend
+npx tsc --noEmit -p tsconfig.worker.json
 npm run check
 
-# Run smart contract unit tests
-cargo test -p astro-token
-cargo test -p astro-launchpad-contract
-
-# Run smart contract linter
-cargo clippy -p astro-token --all-targets -- -D warnings
-
-# Read-only live on-chain testnet verification (zero secret needed)
-npm run verify:discovery     # Real pair discovery from Soroswap factory
-npm run verify:demo          # 3 new Friendbot accounts + complete lifecycle flow
+# Live read-only / disposable-account Testnet E2E checks (no STELLAR_SECRET required)
+npm run verify:discovery
+npm run verify:token-events
+npm run verify:demo
 ```
 
 ---
 
-## Production Deployment
+## License
 
-### Cloudflare Workers / Pages
-Defined in `frontend/wrangler.jsonc` with static assets:
-```bash
-cd frontend
-npm run build
-npm run deploy # npx wrangler deploy
-```
-
-### Vercel Deployment
-Pre-configured in `frontend/vercel.json` with strict Content-Security-Policy (CSP), HSTS, and cache headers:
-```bash
-vercel --prod
-```
-
----
-
-## Security Status
-
-- **Verified via automated gates**: frontend strict typecheck, unit tests, lint, SSR smoke, PWA audit and CSP parity run on every `npm run check`; contract tests run with `cargo test`. No third-party security audit has been performed yet — do not rely on this repository as audited.
-- **Smart Contracts**: built on audited OpenZeppelin Stellar components (`stellar-tokens 0.8.0`).
-- **Anti-Rug Guarantee**: mathematically irrevocable LP lock to canonical dead address.
-- **Content Security Policy**: strict headers applied across all deployment targets (parity enforced by `npm run check:csp`).
+Licensed under the [MIT License](./LICENSE).

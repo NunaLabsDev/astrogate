@@ -8,12 +8,12 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
-    symbol_short, Address, Bytes, BytesN, Env, String, Symbol, Vec,
+    symbol_short, token, Address, Bytes, BytesN, ContractExecutable, Env, String, Symbol, Vec,
 };
 use stellar_access::access_control::{self, AccessControl};
 use stellar_macros::{only_admin, only_role};
 use stellar_tokens::non_fungible::{
-    burnable::{Burnable, NonFungibleBurnable},
+    burnable::{emit_burn, Burnable, NonFungibleBurnable},
     combinations::Compose,
     enumerable::{Enumerable, NonFungibleEnumerable},
     royalties::{NonFungibleRoyalties, Royalties, RoyaltySupport},
@@ -21,13 +21,13 @@ use stellar_tokens::non_fungible::{
 };
 
 use crate::assets::{
-    AURA_LAYERS, FACTION_COUNT, GENESIS_TEMPLATES, HELMET_LAYERS, RELIC_LAYERS, SUIT_LAYERS,
-    VISOR_LAYERS,
+    AURA_LAYERS, FACTION_COUNT, FACTION_PALETTES, GENESIS_TEMPLATES, HELMET_LAYERS, RELIC_LAYERS,
+    SUIT_LAYERS, VISOR_LAYERS,
 };
 use crate::engine::{
     apply_optional_rle, overlay_frame, render_procedural_sky, resolve_palette, sanitize_genes,
-    validate_palette45, validate_rle_layer, write_svg, write_token_uri_json, ByteWriter,
-    LayerCategory, SorobitRecord, PIXELS,
+    validate_palette45, validate_rle_layer, validate_rle_render_budget, write_svg,
+    write_token_uri_json, ByteWriter, LayerCategory, SorobitRecord, PIXELS,
 };
 
 const DAY_IN_LEDGERS: u32 = 17_280;
@@ -39,10 +39,32 @@ pub const PERSISTENT_TTL_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - (14 * DAY_IN_
 pub const MAX_GENESIS_ARCHETYPES: u32 = 8;
 pub const MAX_RANK_TIER: u32 = 4;
 pub const MAX_ROYALTY_BPS: u32 = 1_500; // Capped at 15% max creator royalty
+/// Fee fijo de cápsula generativa (`7 XLM` en stroops) alineado con el fee del Launchpad.
+pub const CAPSULE_MINT_FEE_STROOPS: i128 = 70_000_000;
+/// Cupo base de cápsulas generativas para wallets nuevas antes de desbloquear más por actividad/Forja.
+pub const BASE_CAPSULE_QUOTA: u32 = 2;
 
 const ROLE_MINTER: Symbol = symbol_short!("minter");
 const ROLE_CURATOR: Symbol = symbol_short!("curator");
 const ROLE_TELEMETRY: Symbol = symbol_short!("telemetry");
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LaunchpadPilotRecord {
+    pub launches: u32,
+    pub graduations: u32,
+    pub trades: u32,
+    pub volume_xlm_stroops: i128,
+    pub shouts: u32,
+    pub king_shouts: u32,
+    pub burns_triggered: u32,
+}
+
+#[allow(dead_code)]
+#[soroban_sdk::contractclient(name = "LaunchpadPilotClient")]
+pub trait LaunchpadPilotInterface {
+    fn get_pilot(e: &Env, user: Address) -> LaunchpadPilotRecord;
+}
 
 #[contracttype]
 #[derive(Clone)]
@@ -50,8 +72,14 @@ enum DataKey {
     GenesisCapPerArchetype,
     GenesisMinted(u32),
     Sorobit(u32),
+    ClaimedArchetype(Address, u32),
+    CapsulesMinted(Address),
+    LaunchpadAddress,
+    XlmSac,
+    Treasury,
+    CapsuleFee,
     SeasonLayer(u32, u32, u32), // (season, LayerCategory as u32, layer_id)
-    SeasonPalette(u32, u32),     // (season, faction_id)
+    SeasonPalette(u32, u32),    // (season, faction_id)
     SeasonSealed(u32),
     SeasonActive,
 }
@@ -71,6 +99,11 @@ pub enum SorobitsError {
     RoyaltyTooHigh = 308,
     RecordMissing = 309,
     EntropyEmpty = 310,
+    AlreadyClaimed = 311,
+    QuestNotUnlocked = 312,
+    ForgeInvalidPair = 313,
+    CapsuleQuotaReached = 314,
+    PaymentNotConfigured = 315,
 }
 
 #[contractevent]
@@ -136,6 +169,9 @@ impl Sorobits {
         e.storage()
             .instance()
             .set(&DataKey::GenesisCapPerArchetype, &genesis_cap_per_archetype);
+        e.storage()
+            .instance()
+            .set(&DataKey::Treasury, &royalty_receiver);
         e.storage().instance().set(&DataKey::SeasonActive, &1u32);
 
         // Season 1 compiled pixel assets are sealed from block zero.
@@ -154,58 +190,304 @@ impl Sorobits {
         archetype_id: u32,
         soulbound: bool,
     ) -> u32 {
+        Self::mint_genesis_internal(e, &to, archetype_id, soulbound)
+    }
+
+    /// Vincula la dirección del contrato Launchpad para validar misiones y epigenética on-chain.
+    #[only_admin]
+    pub fn set_launchpad(e: &Env, launchpad: Address) {
+        e.storage()
+            .instance()
+            .set(&DataKey::LaunchpadAddress, &launchpad);
+        Self::extend_ttl(e);
+    }
+
+    pub fn get_launchpad(e: &Env) -> Option<Address> {
+        e.storage().instance().get(&DataKey::LaunchpadAddress)
+    }
+
+    /// Configura el SAC nativo de XLM utilizado para minteo de cápsulas de 7 XLM.
+    #[only_admin]
+    pub fn set_xlm_sac(e: &Env, xlm_sac: Address) {
+        e.storage().instance().set(&DataKey::XlmSac, &xlm_sac);
+        Self::extend_ttl(e);
+    }
+
+    pub fn get_xlm_sac(e: &Env) -> Option<Address> {
+        e.storage().instance().get(&DataKey::XlmSac)
+    }
+
+    /// Configura la dirección de tesorería receptora de comisiones de Cápsula (solo Admin).
+    #[only_admin]
+    pub fn set_treasury(e: &Env, treasury: Address) {
+        e.storage().instance().set(&DataKey::Treasury, &treasury);
+        Self::extend_ttl(e);
+    }
+
+    pub fn get_treasury(e: &Env) -> Option<Address> {
+        e.storage().instance().get(&DataKey::Treasury)
+    }
+
+    /// Ajusta dinámicamente el precio en XLM de las Cápsulas Generativas (0..=100,000 XLM, solo Admin).
+    #[only_admin]
+    pub fn set_capsule_fee(e: &Env, fee_stroops: i128) {
+        if !(0..=1_000_000_000_000).contains(&fee_stroops) {
+            panic_with_error!(e, SorobitsError::InvalidPalette);
+        }
+        e.storage()
+            .instance()
+            .set(&DataKey::CapsuleFee, &fee_stroops);
+        Self::extend_ttl(e);
+    }
+
+    /// Devuelve el precio actual de una Cápsula Generativa Sorobit en stroops (default 7 XLM).
+    pub fn get_capsule_fee(e: &Env) -> i128 {
+        e.storage()
+            .instance()
+            .get(&DataKey::CapsuleFee)
+            .unwrap_or(CAPSULE_MINT_FEE_STROOPS)
+    }
+
+    /// Calcula el cupo usado y el máximo permitido de Cápsulas Generativas para `user`
+    /// (`(minted_active, max_allowed)`): base 2 + 1 por quest reclamada + trades/graduaciones/shouts.
+    pub fn get_capsule_quota(e: &Env, user: Address) -> (u32, u32) {
+        let cap_key = DataKey::CapsulesMinted(user.clone());
+        let minted_active: u32 = e.storage().persistent().get(&cap_key).unwrap_or(0u32);
+        let mut max_allowed = BASE_CAPSULE_QUOTA;
+
+        for id in 1..=MAX_GENESIS_ARCHETYPES {
+            if Self::has_claimed(e, user.clone(), id) {
+                max_allowed = max_allowed.saturating_add(1);
+            }
+        }
+
+        if let Some(lp) = Self::get_launchpad(e) {
+            let pilot = LaunchpadPilotClient::new(e, &lp).get_pilot(&user);
+            max_allowed = max_allowed
+                .saturating_add(pilot.trades.min(10))
+                .saturating_add(pilot.graduations.saturating_mul(3))
+                .saturating_add(pilot.shouts.min(5));
+        }
+
+        (minted_active, max_allowed)
+    }
+
+    /// Acuña una Cápsula Generativa Sorobit pagando 7 XLM en XLM SAC hacia tesorería,
+    /// respetando el cupo anti-ballena desbloqueado por actividad y liberando cupo al forjar.
+    pub fn mint_capsule(e: &Env, user: Address, user_entropy: Bytes) -> u32 {
+        user.require_auth();
+        if user_entropy.is_empty() || user_entropy.len() > 64 {
+            panic_with_error!(e, SorobitsError::EntropyEmpty);
+        }
+
+        let (minted_active, max_allowed) = Self::get_capsule_quota(e, user.clone());
+        if minted_active >= max_allowed {
+            panic_with_error!(e, SorobitsError::CapsuleQuotaReached);
+        }
+
+        let xlm_sac: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::XlmSac)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
+        let treasury: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
+
+        let fee = Self::get_capsule_fee(e);
+        if fee > 0 {
+            token::Client::new(e, &xlm_sac).transfer(&user, &treasury, &fee);
+        }
+
+        let cap_key = DataKey::CapsulesMinted(user.clone());
+        e.storage()
+            .persistent()
+            .set(&cap_key, &minted_active.saturating_add(1));
+        Self::bump_persistent(e, &cap_key);
+
+        Self::mint_generative_internal(e, &user, &user_entropy, 0, 0, 100, false)
+    }
+
+    /// Permite a cualquier piloto reclamar 1 vez su Sorobit Genesis AGQ01 ("Floodgate Pioneer").
+    pub fn claim_pioneer(e: &Env, user: Address) -> u32 {
+        Self::claim_quest_badge(e, user, 1)
+    }
+
+    /// Permite reclamar cualquiera de los 8 arquetipos Genesis (`1..=8`) verificando on-chain
+    /// la telemetría real del piloto en `Launchpad::get_pilot`.
+    pub fn claim_quest_badge(e: &Env, user: Address, archetype_id: u32) -> u32 {
+        user.require_auth();
         if !(1..=MAX_GENESIS_ARCHETYPES).contains(&archetype_id) {
             panic_with_error!(e, SorobitsError::InvalidArchetype);
         }
-
-        let cap: u32 = e
-            .storage()
-            .instance()
-            .get(&DataKey::GenesisCapPerArchetype)
-            .unwrap_or(0);
-        let minted_key = DataKey::GenesisMinted(archetype_id);
-        let minted: u32 = e.storage().instance().get(&minted_key).unwrap_or(0);
-        if cap > 0 && minted >= cap {
-            panic_with_error!(e, SorobitsError::GenesisCapReached);
+        if Self::has_claimed(e, user.clone(), archetype_id) {
+            panic_with_error!(e, SorobitsError::AlreadyClaimed);
         }
-        e.storage().instance().set(&minted_key, &(minted + 1));
 
-        let token_id = <Self as NonFungibleToken>::ContractType::mint(e, &to);
-        let tmpl = &GENESIS_TEMPLATES[(archetype_id - 1) as usize];
-        let mut dna_bytes = Self::derive_entropy(e, token_id, archetype_id as u8);
-        dna_bytes[0] = 1; // Season 1
-        dna_bytes[1] = tmpl.faction;
-        dna_bytes[2] = tmpl.suit;
-        dna_bytes[3] = tmpl.helmet;
-        dna_bytes[4] = tmpl.visor;
-        dna_bytes[5] = tmpl.relic;
-        dna_bytes[6] = tmpl.aura;
+        if archetype_id > 1 {
+            let lp: Address = e
+                .storage()
+                .instance()
+                .get(&DataKey::LaunchpadAddress)
+                .unwrap_or_else(|| panic_with_error!(e, SorobitsError::QuestNotUnlocked));
+            let pilot = LaunchpadPilotClient::new(e, &lp).get_pilot(&user);
+            let unlocked = match archetype_id {
+                2 => pilot.launches > 0,
+                3 => pilot.shouts > 0,
+                4 => pilot.graduations > 0,
+                5 => pilot.trades > 0 || pilot.launches > 0 || pilot.shouts > 0,
+                6 => pilot.trades > 0,
+                7 => pilot.king_shouts > 0 || pilot.burns_triggered > 0,
+                8 => {
+                    let mut claimed_count = 0u32;
+                    for id in 1..=7u32 {
+                        if Self::has_claimed(e, user.clone(), id) {
+                            claimed_count += 1;
+                        }
+                    }
+                    claimed_count >= 4
+                        && (pilot.graduations > 0 || Self::has_claimed(e, user.clone(), 4))
+                }
+                _ => false,
+            };
+            if !unlocked {
+                panic_with_error!(e, SorobitsError::QuestNotUnlocked);
+            }
+        }
 
-        let dna = BytesN::from_array(e, &dna_bytes);
-        let rec = SorobitRecord {
-            dna: dna.clone(),
-            edition: archetype_id,
-            generation: 0,
-            rank_tier: tmpl.frame as u32,
-            xp_score: 0,
-            born_ledger: e.ledger().sequence(),
-            soulbound,
+        let claim_key = DataKey::ClaimedArchetype(user.clone(), archetype_id);
+        e.storage().persistent().set(&claim_key, &true);
+        Self::bump_persistent(e, &claim_key);
+        // AGQ01 Pioneer gratis (0 XLM) es Soulbound para frenar granjas Sybil de Forja.
+        Self::mint_genesis_internal(e, &user, archetype_id, archetype_id == 1)
+    }
+
+    /// Sincroniza sin permisos el XP y `rank_tier` epigenético de un Sorobit desde la actividad real on-chain de su dueño.
+    pub fn sync_epigenetics(e: &Env, token_id: u32) -> SorobitRecord {
+        let owner = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
+        let mut rec = Self::load_record(e, token_id);
+
+        let mut claimed_count = 0u32;
+        for id in 1..=MAX_GENESIS_ARCHETYPES {
+            if Self::has_claimed(e, owner.clone(), id) {
+                claimed_count += 1;
+            }
+        }
+
+        let pilot = if let Some(lp) = Self::get_launchpad(e) {
+            LaunchpadPilotClient::new(e, &lp).get_pilot(&owner)
+        } else {
+            LaunchpadPilotRecord {
+                launches: 0,
+                graduations: 0,
+                trades: 0,
+                volume_xlm_stroops: 0,
+                shouts: 0,
+                king_shouts: 0,
+                burns_triggered: 0,
+            }
         };
+
+        let computed_xp = claimed_count
+            .saturating_mul(150)
+            .saturating_add(pilot.launches.saturating_mul(250))
+            .saturating_add(pilot.graduations.saturating_mul(500))
+            .saturating_add(pilot.trades.saturating_mul(50))
+            .saturating_add(pilot.shouts.saturating_mul(100))
+            .saturating_add(pilot.king_shouts.saturating_mul(400));
+
+        rec.xp_score = rec.xp_score.max(computed_xp);
+        let tier = if rec.xp_score >= 2_500 {
+            4
+        } else if rec.xp_score >= 1_200 {
+            3
+        } else if rec.xp_score >= 500 {
+            2
+        } else if rec.xp_score >= 200 {
+            1
+        } else {
+            0
+        };
+        rec.rank_tier = rec.rank_tier.max(tier).min(MAX_RANK_TIER);
 
         let key = DataKey::Sorobit(token_id);
         e.storage().persistent().set(&key, &rec);
         Self::bump_persistent(e, &key);
         Self::extend_ttl(e);
 
-        SorobitMintedEvent {
-            to,
+        EpigeneticUpdatedEvent {
             token_id,
-            edition: rec.edition,
-            dna,
-            soulbound,
+            rank_tier: rec.rank_tier,
+            xp_score: rec.xp_score,
         }
         .publish(e);
-        token_id
+        rec
+    }
+
+    /// Quema 2 Sorobits transferibles del dueño y forja 1 Sorobit ascendido de nueva generación (`Gen + 1`).
+    pub fn forge_ascend(
+        e: &Env,
+        owner: Address,
+        burn_id_a: u32,
+        burn_id_b: u32,
+        user_entropy: Bytes,
+    ) -> u32 {
+        owner.require_auth();
+        if burn_id_a == burn_id_b {
+            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
+        }
+        if user_entropy.is_empty() || user_entropy.len() > 64 {
+            panic_with_error!(e, SorobitsError::EntropyEmpty);
+        }
+        if <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_a) != owner
+            || <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_b) != owner
+        {
+            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
+        }
+
+        let rec_a = Self::load_record(e, burn_id_a);
+        let rec_b = Self::load_record(e, burn_id_b);
+        if rec_a.soulbound || rec_b.soulbound {
+            panic_with_error!(e, SorobitsError::SoulboundLocked);
+        }
+
+        Self::burn_without_reauth(e, &owner, burn_id_a);
+        Self::burn_without_reauth(e, &owner, burn_id_b);
+
+        // Forjar 2 Sorobits en 1 libera un slot activo de cápsula para mantener el loop deflacionario.
+        let cap_key = DataKey::CapsulesMinted(owner.clone());
+        let minted_active: u32 = e.storage().persistent().get(&cap_key).unwrap_or(0u32);
+        if minted_active > 0 {
+            e.storage().persistent().set(&cap_key, &(minted_active - 1));
+            Self::bump_persistent(e, &cap_key);
+        }
+
+        let next_gen = rec_a.generation.max(rec_b.generation).saturating_add(1);
+        let next_tier = (rec_a.rank_tier.max(rec_b.rank_tier) + 1).min(MAX_RANK_TIER);
+        let next_xp = rec_a
+            .xp_score
+            .saturating_add(rec_b.xp_score)
+            .saturating_add(500);
+
+        Self::mint_generative_internal(
+            e,
+            &owner,
+            &user_entropy,
+            next_gen,
+            next_tier,
+            next_xp,
+            false,
+        )
+    }
+
+    /// Indica si una wallet ya reclamó un arquetipo Genesis específico.
+    pub fn has_claimed(e: &Env, user: Address, archetype_id: u32) -> bool {
+        e.storage()
+            .persistent()
+            .get(&DataKey::ClaimedArchetype(user, archetype_id))
+            .unwrap_or(false)
     }
 
     /// Acuña un Sorobit generativo con Genoma criptográfico de 256 bits (`BytesN<32>`)
@@ -218,61 +500,7 @@ impl Sorobits {
         user_entropy: Bytes,
         soulbound: bool,
     ) -> u32 {
-        if user_entropy.is_empty() || user_entropy.len() > 64 {
-            panic_with_error!(e, SorobitsError::EntropyEmpty);
-        }
-        let token_id = <Self as NonFungibleToken>::ContractType::mint(e, &to);
-        let season: u32 = e.storage().instance().get(&DataKey::SeasonActive).unwrap_or(1);
-
-        let mut preimage = Bytes::new(e);
-        preimage.extend_from_slice(&e.ledger().sequence().to_le_bytes());
-        preimage.extend_from_slice(&e.ledger().timestamp().to_le_bytes());
-        preimage.extend_from_slice(&token_id.to_le_bytes());
-        preimage.append(&user_entropy);
-        let hash: BytesN<32> = e.crypto().sha256(&preimage).into();
-        let mut dna_bytes = hash.to_array();
-
-        let faction = dna_bytes[1] % (FACTION_COUNT as u8);
-        let suit = dna_bytes[2] % (SUIT_LAYERS.len() as u8);
-        let helmet = dna_bytes[3] % (HELMET_LAYERS.len() as u8);
-        let visor = dna_bytes[4] % (VISOR_LAYERS.len() as u8);
-        let mut relic = dna_bytes[5] % (RELIC_LAYERS.len() as u8);
-        let mut aura = dna_bytes[6] % (AURA_LAYERS.len() as u8);
-        sanitize_genes(helmet, visor, &mut relic, &mut aura);
-
-        dna_bytes[0] = (season.min(255)) as u8;
-        dna_bytes[1] = faction;
-        dna_bytes[2] = suit;
-        dna_bytes[3] = helmet;
-        dna_bytes[4] = visor;
-        dna_bytes[5] = relic;
-        dna_bytes[6] = aura;
-
-        let dna = BytesN::from_array(e, &dna_bytes);
-        let rec = SorobitRecord {
-            dna: dna.clone(),
-            edition: 0,
-            generation: 0,
-            rank_tier: 0,
-            xp_score: 0,
-            born_ledger: e.ledger().sequence(),
-            soulbound,
-        };
-
-        let key = DataKey::Sorobit(token_id);
-        e.storage().persistent().set(&key, &rec);
-        Self::bump_persistent(e, &key);
-        Self::extend_ttl(e);
-
-        SorobitMintedEvent {
-            to,
-            token_id,
-            edition: 0,
-            dna,
-            soulbound,
-        }
-        .publish(e);
-        token_id
+        Self::mint_generative_internal(e, &to, &user_entropy, 0, 0, 0, soulbound)
     }
 
     /// Actualiza la epigenética viva (`rank_tier` del marco TTL y `xp_score`) sin alterar el genoma base.
@@ -325,7 +553,9 @@ impl Sorobits {
         }
         let mut tmp = [0u8; 2048];
         rle_bytes.copy_into_slice(&mut tmp[..len]);
-        if !validate_rle_layer(&tmp[..len]) {
+        if !validate_rle_layer(&tmp[..len])
+            || !validate_rle_render_budget(&tmp[..len], &FACTION_PALETTES[0])
+        {
             panic_with_error!(e, SorobitsError::InvalidLayerRle);
         }
 
@@ -364,6 +594,13 @@ impl Sorobits {
         Self::extend_ttl(e);
     }
 
+    /// Actualiza el bytecode WASM del contrato (solo Admin).
+    #[only_admin]
+    pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
+        e.deployer()
+            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
+    }
+
     /// Cambia la temporada activa para nuevos mints generativos (`1..=255`).
     #[only_admin]
     pub fn set_active_season(e: &Env, season: u32) {
@@ -393,7 +630,7 @@ impl Sorobits {
         let (_rec, grid, pal) = Self::compose_for_token(e, token_id);
         let mut w = ByteWriter::new();
         write_svg(&mut w, &grid, &pal, false);
-        w.into_soroban_string(e)
+        w.to_soroban_string(e)
     }
 
     /// Devuelve la versión animada (`5s` pulso de visor acorde al cierre SCP) para Mini App / galería.
@@ -401,7 +638,7 @@ impl Sorobits {
         let (_rec, grid, pal) = Self::compose_for_token(e, token_id);
         let mut w = ByteWriter::new();
         write_svg(&mut w, &grid, &pal, true);
-        w.into_soroban_string(e)
+        w.to_soroban_string(e)
     }
 
     /// Devuelve los 1,024 índices semánticos resueltos (`0..=15`) + 45 bytes de paleta RGB (`1,069` bytes)
@@ -429,6 +666,20 @@ impl Sorobits {
         out
     }
 
+    /// Paginación acotada de tokens de una cuenta para evitar límites de presupuesto Soroban.
+    pub fn tokens_of_page(e: &Env, owner: Address, offset: u32, limit: u32) -> Vec<u32> {
+        let count = <Self as NonFungibleToken>::ContractType::balance(e, &owner);
+        let mut out = Vec::new(e);
+        if offset >= count || limit == 0 {
+            return out;
+        }
+        let end = offset.saturating_add(limit.min(50)).min(count);
+        for idx in offset..end {
+            out.push_back(Enumerable::get_owner_token_id(e, &owner, idx));
+        }
+        out
+    }
+
     pub fn genesis_minted(e: &Env, archetype_id: u32) -> u32 {
         e.storage()
             .instance()
@@ -450,24 +701,164 @@ impl Sorobits {
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_BUMP_AMOUNT);
     }
 
-    /// Protege contra expiración/archivado el registro genómico de un token específico.
+    /// Protege contra expiración/archivado el registro genómico y los assets de temporada de un token.
     pub fn extend_token_ttl(e: &Env, token_id: u32) {
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
         let key = DataKey::Sorobit(token_id);
         Self::bump_persistent(e, &key);
+        let rec = Self::load_record(e, token_id);
+        Self::bump_season_assets_ttl(e, &rec.dna.to_array());
         Self::extend_ttl(e);
     }
 
     // ---------------- Helpers privados ----------------
 
+    fn mint_genesis_internal(e: &Env, to: &Address, archetype_id: u32, soulbound: bool) -> u32 {
+        if !(1..=MAX_GENESIS_ARCHETYPES).contains(&archetype_id) {
+            panic_with_error!(e, SorobitsError::InvalidArchetype);
+        }
+
+        let cap: u32 = e
+            .storage()
+            .instance()
+            .get(&DataKey::GenesisCapPerArchetype)
+            .unwrap_or(0);
+        let minted_key = DataKey::GenesisMinted(archetype_id);
+        let minted: u32 = e.storage().instance().get(&minted_key).unwrap_or(0);
+        if cap > 0 && minted >= cap {
+            panic_with_error!(e, SorobitsError::GenesisCapReached);
+        }
+        e.storage().instance().set(&minted_key, &(minted + 1));
+
+        let token_id = <Self as NonFungibleToken>::ContractType::mint(e, to);
+        let tmpl = &GENESIS_TEMPLATES[(archetype_id - 1) as usize];
+        let mut dna_bytes = Self::derive_entropy(e, token_id, archetype_id as u8);
+        dna_bytes[0] = 1; // Season 1
+        dna_bytes[1] = tmpl.faction;
+        dna_bytes[2] = tmpl.suit;
+        dna_bytes[3] = tmpl.helmet;
+        dna_bytes[4] = tmpl.visor;
+        dna_bytes[5] = tmpl.relic;
+        dna_bytes[6] = tmpl.aura;
+
+        let dna = BytesN::from_array(e, &dna_bytes);
+        let rec = SorobitRecord {
+            dna: dna.clone(),
+            edition: archetype_id,
+            generation: 0,
+            rank_tier: tmpl.frame as u32,
+            xp_score: 0,
+            born_ledger: e.ledger().sequence(),
+            soulbound,
+        };
+
+        let key = DataKey::Sorobit(token_id);
+        e.storage().persistent().set(&key, &rec);
+        Self::bump_persistent(e, &key);
+        Self::extend_ttl(e);
+
+        SorobitMintedEvent {
+            to: to.clone(),
+            token_id,
+            edition: rec.edition,
+            dna,
+            soulbound,
+        }
+        .publish(e);
+        token_id
+    }
+
+    fn mint_generative_internal(
+        e: &Env,
+        to: &Address,
+        user_entropy: &Bytes,
+        generation: u32,
+        rank_tier: u32,
+        xp_score: u32,
+        soulbound: bool,
+    ) -> u32 {
+        if user_entropy.is_empty() || user_entropy.len() > 64 {
+            panic_with_error!(e, SorobitsError::EntropyEmpty);
+        }
+        let token_id = <Self as NonFungibleToken>::ContractType::mint(e, to);
+        let season: u32 = e
+            .storage()
+            .instance()
+            .get(&DataKey::SeasonActive)
+            .unwrap_or(1);
+
+        let prng_bytes: [u8; 32] = e.prng().gen();
+        let mut preimage = Bytes::new(e);
+        preimage.extend_from_slice(&e.ledger().sequence().to_le_bytes());
+        preimage.extend_from_slice(&e.ledger().timestamp().to_le_bytes());
+        preimage.extend_from_slice(&token_id.to_le_bytes());
+        preimage.extend_from_slice(&prng_bytes);
+        preimage.append(user_entropy);
+        let hash: BytesN<32> = e.crypto().sha256(&preimage).into();
+        let mut dna_bytes = hash.to_array();
+
+        let faction = dna_bytes[1] % (FACTION_COUNT as u8);
+        let suit = dna_bytes[2] % (SUIT_LAYERS.len() as u8);
+        let helmet = dna_bytes[3] % (HELMET_LAYERS.len() as u8);
+        let visor = dna_bytes[4] % (VISOR_LAYERS.len() as u8);
+        let mut relic = dna_bytes[5] % (RELIC_LAYERS.len() as u8);
+        let mut aura = dna_bytes[6] % (AURA_LAYERS.len() as u8);
+        sanitize_genes(helmet, visor, &mut relic, &mut aura);
+
+        dna_bytes[0] = (season.min(255)) as u8;
+        dna_bytes[1] = faction;
+        dna_bytes[2] = suit;
+        dna_bytes[3] = helmet;
+        dna_bytes[4] = visor;
+        dna_bytes[5] = relic;
+        dna_bytes[6] = aura;
+
+        let dna = BytesN::from_array(e, &dna_bytes);
+        let rec = SorobitRecord {
+            dna: dna.clone(),
+            edition: 0,
+            generation,
+            rank_tier,
+            xp_score,
+            born_ledger: e.ledger().sequence(),
+            soulbound,
+        };
+
+        let key = DataKey::Sorobit(token_id);
+        e.storage().persistent().set(&key, &rec);
+        Self::bump_persistent(e, &key);
+        Self::extend_ttl(e);
+
+        SorobitMintedEvent {
+            to: to.clone(),
+            token_id,
+            edition: 0,
+            dna,
+            soulbound,
+        }
+        .publish(e);
+        token_id
+    }
+
     fn derive_entropy(e: &Env, token_id: u32, salt: u8) -> [u8; 32] {
+        let prng_bytes: [u8; 32] = e.prng().gen();
         let mut pre = Bytes::new(e);
         pre.extend_from_slice(&e.ledger().sequence().to_le_bytes());
         pre.extend_from_slice(&e.ledger().timestamp().to_le_bytes());
         pre.extend_from_slice(&token_id.to_le_bytes());
+        pre.extend_from_slice(&prng_bytes);
         pre.push_back(salt);
         let h: BytesN<32> = e.crypto().sha256(&pre).into();
         h.to_array()
+    }
+
+    /// Quema interna tras haber autenticado a `owner` una sola vez en la invocación padre,
+    /// evitando `Error(Auth, ExistingValue)` en Soroban SDK 28.
+    fn burn_without_reauth(e: &Env, owner: &Address, token_id: u32) {
+        Base::update(e, Some(owner), None, token_id);
+        Enumerable::remove_from_enumerations(e, owner, token_id);
+        emit_burn(e, owner, token_id);
+        e.storage().persistent().remove(&DataKey::Sorobit(token_id));
     }
 
     fn load_record(e: &Env, token_id: u32) -> SorobitRecord {
@@ -483,9 +874,11 @@ impl Sorobits {
 
     fn bump_persistent(e: &Env, key: &DataKey) {
         if e.storage().persistent().has(key) {
-            e.storage()
-                .persistent()
-                .extend_ttl(key, PERSISTENT_TTL_THRESHOLD, PERSISTENT_BUMP_AMOUNT);
+            e.storage().persistent().extend_ttl(
+                key,
+                PERSISTENT_TTL_THRESHOLD,
+                PERSISTENT_BUMP_AMOUNT,
+            );
         }
     }
 
@@ -495,10 +888,30 @@ impl Sorobits {
         }
     }
 
+    fn bump_season_assets_ttl(e: &Env, dna: &[u8; 32]) {
+        let season = dna[0] as u32;
+        Self::bump_persistent(e, &DataKey::SeasonSealed(season));
+        if season <= 1 {
+            return;
+        }
+        let layers = [
+            (LayerCategory::Aura, dna[6]),
+            (LayerCategory::Suit, dna[2]),
+            (LayerCategory::Helmet, dna[3]),
+            (LayerCategory::Visor, dna[4]),
+            (LayerCategory::Relic, dna[5]),
+        ];
+        for (cat, id) in layers {
+            Self::bump_persistent(e, &DataKey::SeasonLayer(season, cat as u32, id as u32));
+        }
+        Self::bump_persistent(e, &DataKey::SeasonPalette(season, dna[1] as u32));
+    }
+
     fn compose_for_token(e: &Env, token_id: u32) -> (SorobitRecord, [u8; PIXELS], [u8; 45]) {
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
         let rec = Self::load_record(e, token_id);
         let dna = rec.dna.to_array();
+        Self::bump_season_assets_ttl(e, &dna);
         let season = dna[0] as u32;
         let mut grid = [0u8; PIXELS];
         render_procedural_sky(&dna, &mut grid);
@@ -579,7 +992,7 @@ impl NonFungibleToken for Sorobits {
         let dna = rec.dna.to_array();
         let mut w = ByteWriter::new();
         write_token_uri_json(&mut w, token_id, &rec, &dna, &grid, &pal);
-        w.into_soroban_string(e)
+        w.to_soroban_string(e)
     }
 }
 

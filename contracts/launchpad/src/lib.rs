@@ -1,17 +1,18 @@
 #![no_std]
 
-//! AstroGate Fair-Flywheel Launchpad Contract (v4.1).
+//! AstroGate Fair-Flywheel Launchpad Contract (v4.3).
 //!
 //! Provides a complete anti-whale, zero-cliff launchpad lifecycle on Stellar Soroban:
-//! 1. Fixed 10M token supply (7 decimals): 45% Virtual Curve (4.5M), 25% Soroswap DEX
-//!    Graduation Reserve (2.5M), 29.7% Milestone Proof-of-Burn Vault (2.97M), and
-//!    0.3% Creator 15-day Post-Graduation Vesting (30K).
-//! 2. Calibrated Virtual LP (1,250 vXLM -> 1,000 real XLM goal, 3.24x curve range) with
-//!    progressive anti-whale fee-to-floor surcharges and zero pre-graduation creator dumps.
+//! 1. Fixed 10M token supply (7 decimals): 66% Virtual Curve (6.6M), 33% Soroswap DEX
+//!    Graduation Reserve (3.3M), 0.3% Creator 15-day Post-Graduation Vesting (30K), and
+//!    0.7% Developer / Protocol Ecosystem Allocation (70K released at graduation).
+//! 2. Calibrated Virtual LP (1,000 vXLM -> 1,000 real XLM goal, 4.00x curve range) with
+//!    flat 0.80% curve buys, asymmetric anti-sniper curve sells (2.50% -> 1.50%), and
+//!    creator initial seed lock until graduation (+7d fallback).
 //! 3. Atomic Soroswap graduation at 1,000 XLM net curve raise (0.00% base price cliff,
-//!    100% LP burned to `GAAAA...WHF`, Milestone 1 burns 1.485M tokens via `token.burn`).
-//! 4. Permissionless Milestone 2 burn (remaining 1.485M when Soroswap pool reaches
-//!    1,800 XLM) and 3-tier Burn-to-Chat (`50 / 500 / 5,000+` King Shout).
+//!    100% LP time-locked inside Launchpad contract for 7 years via `reclaim_expired_lp`).
+//! 4. Organic deflation only (zero artificial idle burn vault): anti-MEV chunked
+//!    DEX Buyback-and-Burn and 3-tier Burn-to-Chat (`50 / 500 / 5,000+` King Shout).
 
 mod contract;
 #[cfg(test)]

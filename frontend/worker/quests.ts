@@ -36,7 +36,7 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
     emoji: '🚀',
     title: 'Fair Launcher',
     subtitle: 'Sorobits · 2014 Rocket Delta',
-    criteria: 'Launch a Fair-Flywheel v4.2 token on-chain.',
+    criteria: 'Launch a Fair-Flywheel v4.3 token on-chain.',
     imagePath: '/badges/launcher.png',
     tier: 'Silver',
   },
@@ -125,18 +125,25 @@ export function computeQuestSummary(input: {
   graduatedCount: number
   swapCount?: number
   assetCount?: number
+  ecosystemTokenCount?: number
   kingBurnCount?: number
 }): QuestProgressSummary {
   const swapCount = input.swapCount ?? 0
   const assetCount = input.assetCount ?? 0
+  const ecosystemTokenCount = input.ecosystemTokenCount
   const kingBurnCount = input.kingBurnCount ?? 0
+
+  const hasEcosystemAsset =
+    ecosystemTokenCount !== undefined
+      ? ecosystemTokenCount > 0
+      : assetCount > 0
 
   const unlocked: Record<QuestBadgeId, boolean> = {
     pioneer: input.funded,
     launcher: input.launchedCount > 0,
     shouter: input.shoutCount > 0,
     graduate: input.graduatedCount > 0,
-    og: assetCount > 0 || input.launchedCount > 0 || swapCount > 0,
+    og: hasEcosystemAsset || input.launchedCount > 0 || swapCount > 0,
     whale: swapCount > 0 || input.graduatedCount > 0,
     phoenix: kingBurnCount > 0,
     legend: false,

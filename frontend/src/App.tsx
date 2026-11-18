@@ -13,6 +13,7 @@ import { TokenPage } from './pages/TokenPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { SorobitsPage } from './pages/SorobitsPage'
 import { CreatePage } from './pages/CreatePage'
+import { DocsPage } from './pages/DocsPage'
 import { NotFoundPage } from './pages/NotFoundPage'
 import { BRAND } from './lib/brand'
 import {
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { to: '/sorobits', label: 'Sorobits', icon: '🧬' },
   { to: '/create', label: 'Launch', icon: '🚀' },
   { to: '/portfolio', label: 'Portfolio', icon: '👛' },
+  { to: '/docs', label: 'Docs', icon: '📘' },
 ] as const
 
 function navLinkClass(active: boolean) {
@@ -96,12 +98,16 @@ export default function App() {
       if (startParam && pathname === '/') {
         if (/^C[A-Z2-7]{55}$/.test(startParam)) {
           void navigate(`/token/${startParam}`, { replace: true })
-        } else if (startParam === 'create') {
+        } else if (startParam === 'market') {
+          void navigate('/market', { replace: true })
+        } else if (startParam === 'create' || startParam === 'launch') {
           void navigate('/create', { replace: true })
-        } else if (startParam === 'portfolio') {
+        } else if (startParam === 'portfolio' || startParam === 'wallet') {
           void navigate('/portfolio', { replace: true })
-        } else if (startParam === 'sorobits') {
+        } else if (startParam === 'sorobits' || startParam === 'nfts') {
           void navigate('/sorobits', { replace: true })
+        } else if (startParam === 'docs' || startParam === 'audit') {
+          void navigate('/docs', { replace: true })
         }
       }
     }
@@ -111,7 +117,13 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    return syncTelegramBackButton(pathname !== '/', () => navigate(-1))
+    return syncTelegramBackButton(pathname !== '/', () => {
+      if ((window.history.state as { idx?: number } | null)?.idx) {
+        void navigate(-1)
+      } else {
+        void navigate('/')
+      }
+    })
   }, [pathname, navigate])
 
   return (
@@ -172,14 +184,30 @@ export default function App() {
             <Route path="/sorobits" element={<SorobitsPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />
             <Route path="/create" element={<CreatePage />} />
+            <Route path="/docs" element={<DocsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </ErrorBoundary>
       </main>
 
       <footer className="hidden sm:block mx-auto w-full max-w-5xl border-t border-slate-800/60 px-4 py-5 text-center text-xs text-slate-500">
-        <p>
-          {BRAND.emoji} {BRAND.name} · Fair Memecoin Launchpad on Stellar Soroban
+        <p className="flex flex-wrap items-center justify-center gap-3">
+          <span>
+            {BRAND.emoji} {BRAND.name} · Fair Memecoin Launchpad on Stellar Soroban
+          </span>
+          <span aria-hidden="true">·</span>
+          <Link to="/docs" className="text-sky-400 hover:underline">
+            Docs, Audits &amp; API
+          </Link>
+          <span aria-hidden="true">·</span>
+          <a
+            href="https://github.com/NunaLabsDev/astrogate"
+            target="_blank"
+            rel="noreferrer"
+            className="text-slate-300 hover:text-white hover:underline"
+          >
+            GitHub ↗
+          </a>
         </p>
       </footer>
 

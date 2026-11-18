@@ -56,8 +56,13 @@ export function TokenHypeBar({
   const [burnAmountInput, setBurnAmountInput] = useState(String(MIN_SHOUT_BURN))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmHighBurnKey, setConfirmHighBurnKey] = useState<string | null>(null)
 
   const burnAmountBase = parseAmount(burnAmountInput, decimals)
+  const burnWholeTokens = Number(burnAmountBase) / 10 ** Math.max(0, Math.trunc(decimals))
+  const isHighBurn = burnWholeTokens >= 500
+  const currentConfirmKey = `${burnAmountInput}:${message.trim()}`
+  const confirmingHighBurn = isHighBurn && confirmHighBurnKey === currentConfirmKey
   const minShoutBase = BigInt(MIN_SHOUT_BURN) * 10n ** BigInt(Math.max(0, Math.trunc(decimals)))
   const utf8Bytes = new TextEncoder().encode(message.trim()).length
 
@@ -93,12 +98,17 @@ export function TokenHypeBar({
       setError(`Insufficient $${symbol} balance to burn.`)
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
     }
+    if (isHighBurn && confirmHighBurnKey !== currentConfirmKey) {
+      setConfirmHighBurnKey(currentConfirmKey)
+      return
+    }
 
+    setConfirmHighBurnKey(null)
     setBusy(true)
     try {
       const { hash } = await burnAndShout({
@@ -144,7 +154,6 @@ export function TokenHypeBar({
   }
 
   const list = shouts.data ?? []
-  const burnWholeTokens = Number(burnAmountBase) / 10 ** Math.max(0, Math.trunc(decimals))
   const burnCostXlm = spotPriceXlm > 0 ? burnWholeTokens * spotPriceXlm : 0
   const burnCostUsd = burnCostXlm * xlmUsd
   const missingBalance =
@@ -203,8 +212,11 @@ export function TokenHypeBar({
                   key={preset.amount}
                   type="button"
                   disabled={busy}
-                  onClick={() => setBurnAmountInput(preset.amount)}
-                  className={`rounded-lg border px-2.5 py-1 font-mono text-xs transition ${
+                  onClick={() => {
+                    setBurnAmountInput(preset.amount)
+                    setConfirmHighBurnKey(null)
+                  }}
+                  className={`min-h-[34px] rounded-lg border px-2.5 py-1.5 font-mono text-xs transition ${
                     burnAmountInput === preset.amount
                       ? 'border-amber-500/60 bg-amber-500/15 text-amber-300 font-bold'
                       : 'border-slate-800 bg-slate-950 text-slate-400 hover:text-slate-200'
@@ -252,6 +264,26 @@ export function TokenHypeBar({
             >
               Buy ${symbol} to Shout →
             </button>
+          ) : confirmingHighBurn ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <button
+                type="submit"
+                disabled={busy}
+                className="min-h-[40px] rounded-xl bg-rose-500 px-3.5 py-2 text-xs font-black text-white hover:bg-rose-400 transition disabled:opacity-50"
+              >
+                {busy
+                  ? 'Burning…'
+                  : `Confirm Burn ${burnAmountInput} $${symbol}`}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmHighBurnKey(null)}
+                className="min-h-[40px] rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white transition"
+              >
+                Cancel
+              </button>
+            </div>
           ) : (
             <button
               type="submit"

@@ -4,7 +4,11 @@ import type { TokenListing } from '../lib/discovery'
 import type { LaunchpadToken } from '../lib/token'
 import { effectiveLiquidityStroops, pickGraduatingCandidates } from '../lib/market'
 import { tokenPriceInXlmNumber } from '../lib/soroswap'
-import { GRADUATION_TARGET_XLM, graduationProgressForListing } from '../lib/tokenomics'
+import {
+  FAIR_LAUNCH_TOTAL_BASIS,
+  GRADUATION_TARGET_XLM,
+  graduationProgressForListing,
+} from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { useTokenInfo } from '../hooks/useTokenInfo'
@@ -38,8 +42,13 @@ export function KingOfTheHill({
     return () => window.clearInterval(timer)
   }, [paused, candidates.length])
 
-  // Supply real on-chain: siempre llamar hooks de forma incondicional antes del return.
-  const activeInfo = useTokenInfo(active?.id ?? '')
+  // Ungraduated Fair-Flywheel launches have a fixed 10M supply — skip extra RPC reads on each 4s slide tick.
+  const isVerifiedUngraduated = Boolean(
+    active?.verifiedLaunchpad && !active.curve?.graduated,
+  )
+  const activeInfo = useTokenInfo(
+    active && !isVerifiedUngraduated ? active.id : '',
+  )
   const activeMeta = useTokenMetadata(active?.id ?? '')
 
   // Reserve identical vertical space during initial market fetch so list never jumps (0 CLS).
@@ -71,9 +80,11 @@ export function KingOfTheHill({
   const priceXlm = tokenPriceInXlmNumber(active.pool, active.decimals)
   const displayLiquidity = effectiveLiquidityStroops(active)
   const reserveXlmNum = Number(displayLiquidity) / 1e7
-  const totalSupply = activeInfo.data
-    ? Number(activeInfo.data.totalSupply) / 10 ** activeInfo.data.decimals
-    : 0
+  const totalSupply = isVerifiedUngraduated
+    ? Number(FAIR_LAUNCH_TOTAL_BASIS)
+    : activeInfo.data
+      ? Number(activeInfo.data.totalSupply) / 10 ** activeInfo.data.decimals
+      : 0
   const marketCapUsd = priceXlm * totalSupply * xlmUsd
 
   const stepPrev = () => {
@@ -113,7 +124,7 @@ export function KingOfTheHill({
                 type="button"
                 onClick={stepPrev}
                 aria-label="Previous graduating token"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/80 text-sm font-bold text-slate-200 hover:border-amber-400/60"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/80 text-sm font-bold text-slate-200 hover:border-amber-400/60"
               >
                 ‹
               </button>
@@ -124,7 +135,7 @@ export function KingOfTheHill({
                 type="button"
                 onClick={stepNext}
                 aria-label="Next graduating token"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/80 text-sm font-bold text-slate-200 hover:border-amber-400/60"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/80 text-sm font-bold text-slate-200 hover:border-amber-400/60"
               >
                 ›
               </button>

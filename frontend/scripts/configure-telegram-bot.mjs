@@ -34,55 +34,66 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET
 const WEBHOOK_URL =
   process.env.TELEGRAM_WEBHOOK_URL ||
-  'https://astrogate-stellar.pepepop2000.workers.dev/telegram/webhook'
+  'https://astrogate.pages.dev/telegram/webhook'
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://astrogate.pages.dev/'
+const DROP_PENDING = process.argv.includes('--drop-pending')
 
 if (!BOT_TOKEN) {
   console.error('Missing TELEGRAM_BOT_TOKEN in env or ~/.secrets/astrogate/telegram-bot.env')
   process.exit(1)
 }
 
-async function tgCall(method, payload) {
-  const res = await fetch(
-    `https://api.telegram.org/bot${encodeURIComponent(BOT_TOKEN)}/${method}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    },
-  )
-  const json = await res.json()
-  if (!json.ok) {
-    throw new Error(`Telegram ${method} failed: ${JSON.stringify(json)}`)
+async function tgCall(method, payload, attempt = 1) {
+  try {
+    const res = await fetch(
+      `https://api.telegram.org/bot${encodeURIComponent(BOT_TOKEN)}/${method}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    )
+    const json = await res.json()
+    if (!json.ok) {
+      throw new Error(`Telegram ${method} failed: ${JSON.stringify(json)}`)
+    }
+    console.log(`✓ ${method}`)
+    return json.result
+  } catch (err) {
+    if (attempt < 3) {
+      await new Promise((r) => setTimeout(r, attempt * 400))
+      return tgCall(method, payload, attempt + 1)
+    }
+    throw err
   }
-  console.log(`✓ ${method}`)
-  return json.result
 }
 
 const DEFAULT_AND_PRIVATE_COMMANDS = [
   { command: 'start', description: 'Open AstroGate hub & Mini App' },
-  { command: 'market', description: 'Live Fair-Flywheel v4.2 curves & DEX' },
+  { command: 'market', description: 'Live Fair-Flywheel v4.3 curves & DEX' },
   { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
   { command: 'king', description: 'King of the Hill & King Shout throne' },
   { command: 'quests', description: 'Season-1 NFT quests & rank (GA...)' },
   { command: 'rewards', description: 'Bounties, sprints & wallet check' },
   { command: 'launch', description: 'Launch a Fair-Flywheel token (7 XLM)' },
   { command: 'wallet', description: 'Self-custody vault & Friendbot faucet' },
-  { command: 'token', description: 'Inspect Soroban token contract (CA...)' },
-  { command: 'shouts', description: 'Live Burn-to-Chat messages (CA...)' },
-  { command: 'v42', description: 'Fair-Flywheel v4.2 tokenomics' },
+  { command: 'token', description: 'Inspect Soroban token (CA... or SYMBOL)' },
+  { command: 'shouts', description: 'Live Burn-to-Chat shouts (CA... or SYMBOL)' },
+  { command: 'ask', description: 'Ask anything about AstroGate' },
+  { command: 'v42', description: 'Fair-Flywheel v4.3 tokenomics' },
   { command: 'help', description: 'Commands, inline share & safety' },
 ]
 
 const GROUP_COMMANDS = [
-  { command: 'market', description: 'Live Fair-Flywheel v4.2 curves & DEX' },
+  { command: 'market', description: 'Live Fair-Flywheel v4.3 curves & DEX' },
   { command: 'king', description: 'King of the Hill & King Shout throne' },
   { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
   { command: 'quests', description: 'Check Sorobits NFT quests (GA...)' },
-  { command: 'token', description: 'Inspect Soroban token contract (CA...)' },
-  { command: 'shouts', description: 'Live Burn-to-Chat messages (CA...)' },
+  { command: 'token', description: 'Inspect Soroban token (CA... or SYMBOL)' },
+  { command: 'shouts', description: 'Live Burn-to-Chat shouts (CA... or SYMBOL)' },
+  { command: 'ask', description: 'Ask anything about AstroGate' },
   { command: 'rewards', description: 'Bounties, sprints & claim info' },
-  { command: 'v42', description: 'Fair-Flywheel v4.2 tokenomics' },
+  { command: 'v42', description: 'Fair-Flywheel v4.3 tokenomics' },
   { command: 'help', description: 'Commands & safety rules' },
 ]
 
@@ -106,26 +117,32 @@ await tgCall('setMyDescription', { language_code: 'es', description: '' })
 await tgCall('setMyShortDescription', { language_code: 'es', short_description: '' })
 
 // 2. Apply unified English identity & descriptions (built by NunaLabs)
-await tgCall('setMyName', {
-  name: 'AstroGate · NunaLabs',
-})
+const DESIRED_NAME = 'AstroGate · NunaLabs'
+const currentName = await tgCall('getMyName', {})
+if (currentName?.name !== DESIRED_NAME) {
+  await tgCall('setMyName', { name: DESIRED_NAME })
+} else {
+  console.log('✓ setMyName (unchanged)')
+}
 
 await tgCall('setMyShortDescription', {
   short_description:
-    'AstroGate — Fair Launchpad, Soroswap AMM & Sorobits 100% On-Chain NFTs on Stellar Soroban · Built by NunaLabs.',
+    'AstroGate — Fair Launchpad, Soroswap DEX & On-Chain Sorobits NFTs on Stellar Soroban · Built by NunaLabs.',
 })
 
 await tgCall('setMyDescription', {
   description: [
     'AstroGate — Fair Launchpad & Sorobits NFTs on Stellar Soroban (Testnet)',
     '',
-    '• 1-Tap Launch (7 XLM) · 10M fixed supply · 100% LP burned on Soroswap',
-    '• Fair-Flywheel v4.2 · 0.80% flat buys · Auto Buyback & Burn',
-    '• Sorobits (SBIT) · 100% on-chain 32x32 genomic SVG NFTs (SEP-50)',
-    '• Self-Custody Vault synced inside Telegram CloudStorage',
+    '• 1-Tap Launch (7 XLM) · 10M supply · 7Y LP lock on Soroswap',
+    '• Fair-Flywheel v4.3 · 0.80% flat buys · Auto Buyback & Burn',
+    '• Sorobits (SBIT) · 100% on-chain 32x32 SVG NFTs (SEP-50)',
+    '• Instant Q&A (/ask) + Encrypted CloudStorage Wallet',
     '',
-    'Tap START below to open the Mini App or run commands directly.',
-    'Built by NunaLabs',
+    'Community: @AstroGateCommunity · Radar: @AstroGateFeed',
+    'All 3 Chats: https://t.me/addlist/dyMTkV2uU6hmYzE0',
+    '',
+    'Tap START below to open the Mini App. Built by NunaLabs',
   ].join('\n'),
 })
 
@@ -157,8 +174,14 @@ if (WEBHOOK_SECRET) {
   await tgCall('setWebhook', {
     url: WEBHOOK_URL,
     secret_token: WEBHOOK_SECRET,
-    allowed_updates: ['message', 'callback_query', 'inline_query'],
-    drop_pending_updates: true,
+    allowed_updates: [
+      'message',
+      'edited_message',
+      'callback_query',
+      'inline_query',
+      'chat_member',
+    ],
+    drop_pending_updates: DROP_PENDING,
   })
 } else {
   console.warn('! TELEGRAM_WEBHOOK_SECRET not set; skipped setWebhook')

@@ -8,7 +8,17 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "TELEGRAM_COMMUNITY_CHAT_ID": "-1001625368092",
-    "TELEGRAM_FEED_CHAT_ID": "-1001796630202"
+    "TELEGRAM_FEED_CHAT_ID": "-1003912502880",
+    "TELEGRAM_FOLDER_URL": "https://t.me/addlist/dyMTkV2uU6hmYzE0"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ASTRO_KV",
+      "id": "4e9766f1e476477bb1191f07f9a3c25f"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
   },
   "triggers": {
     "crons": ["*/2 * * * *"]

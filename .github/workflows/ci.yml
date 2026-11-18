@@ -55,8 +55,8 @@ jobs:
         # limpio, bajar AUDIT_BASELINE aquí y en scripts/npm-audit-ratchet.mjs.
         run: node scripts/npm-audit-ratchet.mjs
 
-      - name: Build, lint, tests y smoke
-        run: npm run check
+      - name: Worker typecheck, build, lint, tests y smoke
+        run: npx tsc --noEmit -p tsconfig.worker.json && npm run check
 
   contracts:
     name: Contratos (fmt + clippy + tests)
@@ -68,14 +68,20 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: wasm32v1-none
 
       - uses: Swatinem/rust-cache@v2
 
       - name: Formato
         run: cargo fmt --all -- --check
 
+      - name: Compilar WASM astro-token requerido por tests de Launchpad
+        env:
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
+        run: cargo build --release --target wasm32v1-none -p astro-token
+
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Build
         run: cargo build --workspace

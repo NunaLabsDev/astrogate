@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useXlmBalance } from '../hooks/useXlmBalance'
@@ -15,6 +15,8 @@ import {
 import { explorerTxUrl } from '../lib/explorer'
 import { isValidContractAddress, isValidStellarAddress } from '../lib/address'
 import { invalidateTokenData } from '../lib/query'
+import { resolveUsernameOrAddress } from '../lib/wallet-directory'
+import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
 
@@ -24,19 +26,67 @@ const inputClass =
 const AMOUNT_PERCENTS = [25, 50, 75, 100] as const
 
 export function TransferCard({ token }: { token: LaunchpadToken }) {
-  const { publicKey, demoAccounts, getSigner } = useWallet()
+  const { publicKey, mode, demoAccounts, requireSignerOrPrompt } = useWallet()
   const queryClient = useQueryClient()
   const balance = useTokenBalance(publicKey, token.id)
   const xlmBalance = useXlmBalance(publicKey)
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  const [resolving, setResolving] = useState(false)
+  const [resolvedHandle, setResolvedHandle] = useState<{
+    raw: string
+    address: string
+    username: string
+    verifiedTelegram: boolean
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sent, setSent] = useState<{
     amount: bigint
     to: string
     hash?: string
   } | null>(null)
+
+  const trimmedTo = to.trim()
+  const isHandleCandidate = Boolean(
+    trimmedTo &&
+      !isValidStellarAddress(trimmedTo) &&
+      !isValidContractAddress(trimmedTo) &&
+      /^@?[a-zA-Z0-9_]{3,32}$/.test(trimmedTo),
+  )
+
+  useEffect(() => {
+    if (!isHandleCandidate) return
+    let cancelled = false
+    const timer = setTimeout(() => {
+      if (cancelled) return
+      setResolving(true)
+      void resolveUsernameOrAddress(trimmedTo)
+        .then((res) => {
+          if (cancelled) return
+          if (res?.username) {
+            setResolvedHandle({
+              raw: trimmedTo,
+              address: res.address,
+              username: res.username,
+              verifiedTelegram: res.verifiedTelegram,
+            })
+          } else {
+            setResolvedHandle(null)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setResolvedHandle(null)
+        })
+        .finally(() => {
+          if (!cancelled) setResolving(false)
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isHandleCandidate, trimmedTo])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -47,23 +97,47 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
       setError('Connect your wallet or activate demo mode to transfer tokens.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
 
-    const destination = to.trim()
-    if (isValidContractAddress(destination)) {
+    const rawDest = to.trim()
+    if (isValidContractAddress(rawDest)) {
       setError(
-        'Contract address detected (starts with C). Please enter a Stellar user account (starts with G).',
+        'Contract address detected (starts with C). Please enter a Stellar user account (starts with G) or @username.',
       )
       return
     }
+
+    let destination = rawDest
     if (!isValidStellarAddress(destination)) {
-      setError('Please enter a valid Stellar public key (starts with G).')
-      return
+      if (resolvedHandle && resolvedHandle.raw === rawDest) {
+        destination = resolvedHandle.address
+      } else {
+        setResolving(true)
+        const resolved = await resolveUsernameOrAddress(rawDest).finally(() =>
+          setResolving(false),
+        )
+        if (!resolved?.address) {
+          setError(
+            'Enter a valid Stellar public key (G…) or a linked Telegram @username.',
+          )
+          return
+        }
+        destination = resolved.address
+        if (resolved.username) {
+          setResolvedHandle({
+            raw: rawDest,
+            address: resolved.address,
+            username: resolved.username,
+            verifiedTelegram: resolved.verifiedTelegram,
+          })
+        }
+      }
     }
+
     if (destination === publicKey) {
       setError('Destination account cannot be the same as source account.')
       return
@@ -78,7 +152,7 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
       setError('Insufficient token balance.')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
@@ -139,15 +213,30 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
 
       <form onSubmit={onSubmit} aria-busy={busy} className="mt-4 grid gap-3">
         <label className="block text-sm">
-          <span className="text-slate-400">Destination Account</span>
+          <span className="text-slate-400">Destination Account or @username</span>
           <input
             className={inputClass}
             value={to}
-            onChange={(event) => setTo(event.target.value)}
-            placeholder="G…"
+            onChange={(event) => {
+              setTo(event.target.value)
+              setResolvedHandle(null)
+              setResolving(false)
+            }}
+            placeholder="G… or @username"
             autoComplete="off"
             spellCheck={false}
           />
+          {isHandleCandidate && resolving ? (
+            <span className="mt-1 block text-xs text-slate-400">
+              Resolving Telegram @username…
+            </span>
+          ) : isHandleCandidate &&
+            resolvedHandle &&
+            resolvedHandle.raw === trimmedTo ? (
+            <span className="mt-1 block text-xs text-emerald-300 font-mono">
+              ✓ @{resolvedHandle.username} → {shortAddress(resolvedHandle.address)}
+            </span>
+          ) : null}
         </label>
 
         {demoAccounts.filter((acc) => acc.publicKey !== publicKey).length > 0 ? (

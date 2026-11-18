@@ -358,7 +358,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
 
   if (curve && !curve.graduated) {
     notes.push(
-      'Active Fair-Flywheel v4.1 Virtual Bonding Curve: DEX reserves (2.5M), Burn Vault (2.97M), and Creator 15d Vesting (30K) are custody-locked inside Launchpad.',
+      'Active Fair-Flywheel v4.3 Virtual Bonding Curve: DEX reserves (3.3M), Creator 15d Vesting (30K), and Ecosystem (70K) are custody-locked inside Launchpad.',
     )
     return {
       tokenId,

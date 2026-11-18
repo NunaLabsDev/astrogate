@@ -10,6 +10,7 @@ import { recordActivity } from '../store/activity'
 import { errorMessage, formatAmount, parseAmount } from '../lib/format'
 import { explorerTxUrl } from '../lib/explorer'
 import { invalidateTokenData } from '../lib/query'
+import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
 
@@ -19,7 +20,7 @@ const inputClass =
 const AMOUNT_PERCENTS = [25, 50, 75, 100] as const
 
 export function BurnCard({ token }: { token: LaunchpadToken }) {
-  const { publicKey, getSigner } = useWallet()
+  const { publicKey, mode, requireSignerOrPrompt } = useWallet()
   const queryClient = useQueryClient()
   const balance = useTokenBalance(publicKey, token.id)
   const info = useTokenInfo(token.id)
@@ -27,6 +28,7 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [confirmAmount, setConfirmAmount] = useState<string | null>(null)
   const [burned, setBurned] = useState<{ amount: bigint; hash?: string } | null>(
     null,
   )
@@ -40,9 +42,9 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
       setError('Connect your wallet or activate demo mode to burn tokens.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
 
@@ -55,12 +57,18 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
       setError('You cannot burn more tokens than your balance.')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
     }
+    const normalizedKey = amountBase.toString()
+    if (confirmAmount !== normalizedKey) {
+      setConfirmAmount(normalizedKey)
+      return
+    }
 
+    setConfirmAmount(null)
     setBusy(true)
     let hash: string | undefined
     try {
@@ -123,7 +131,10 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
           <input
             className={inputClass}
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              setAmount(event.target.value)
+              setConfirmAmount(null)
+            }}
             placeholder="1"
             inputMode="decimal"
           />
@@ -146,9 +157,10 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
                     key={pct}
                     type="button"
                     disabled={busy || slice <= 0n}
-                    onClick={() =>
+                    onClick={() => {
                       setAmount(formatAmount(slice, token.decimals))
-                    }
+                      setConfirmAmount(null)
+                    }}
                     className="inline-flex min-h-[36px] items-center rounded-md border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:border-emerald-500 disabled:opacity-50"
                   >
                     {pct === 100 ? 'MAX' : `${pct}%`}
@@ -159,13 +171,43 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
           </div>
         ) : null}
 
-        <button
-          type="submit"
-          disabled={busy || !publicKey}
-          className="min-h-[44px] w-full rounded-lg border border-rose-800 bg-rose-950/40 px-6 py-3 text-base font-medium text-rose-200 hover:border-rose-600 disabled:opacity-60 sm:w-auto"
-        >
-          {busy ? 'Burning…' : 'Burn Tokens'}
-        </button>
+        {confirmAmount && confirmAmount === parseAmount(amount, token.decimals).toString() ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-rose-800/70 bg-rose-950/30 p-3">
+            <span className="text-xs text-rose-200">
+              Permanently destroy{' '}
+              <strong>
+                {formatAmount(BigInt(confirmAmount), token.decimals)}{' '}
+                {token.symbol ?? 'token'}
+              </strong>
+              ? This cannot be undone.
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="submit"
+                disabled={busy || !publicKey}
+                className="min-h-[40px] rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
+              >
+                {busy ? 'Burning…' : 'Confirm Permanent Burn'}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmAmount(null)}
+                className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="submit"
+            disabled={busy || !publicKey}
+            className="min-h-[44px] w-full rounded-lg border border-rose-800 bg-rose-950/40 px-6 py-3 text-base font-medium text-rose-200 hover:border-rose-600 disabled:opacity-60 sm:w-auto"
+          >
+            {busy ? 'Burning…' : 'Burn Tokens'}
+          </button>
+        )}
       </form>
 
       {busy ? (

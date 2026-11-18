@@ -10,7 +10,7 @@ ACCOUNTS=[
 ORG_NAME="AstroGate · Built by NunaLabs"
 ORG_URL="https://t.me/AstroGateCommunity"
 ORG_LOGO="https://astrogate.pages.dev/icon-512.png"
-ORG_DESCRIPTION="Fair-Flywheel v4.2 Launchpad + Soroswap AMM & Sorobits (SBIT) 100% On-Chain 32x32 Genomic NFTs on Stellar Soroban Testnet (CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT) · Built by NunaLabs."
+ORG_DESCRIPTION="Fair-Flywheel v4.2 Launchpad + Soroswap AMM & Sorobits (SBIT) 100% On-Chain 32x32 Genomic NFTs on Stellar Soroban Testnet (CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3) · Built by NunaLabs."
 
 [[CURRENCIES]]
 code="AGQ01"

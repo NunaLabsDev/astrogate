@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { networkStorageKey } from '../lib/network'
 import { readStorageJson, writeStorageJson } from '../lib/storage'
 
 /**
@@ -14,7 +15,7 @@ export type CreatedToken = {
   createdAt: number
 }
 
-const STORAGE_KEY = 'astrogate.created-tokens.v1'
+const STORAGE_KEY = networkStorageKey('astrogate.created-tokens.v1')
 const MAX_TOKENS = 100
 
 function isCreatedToken(value: unknown): value is CreatedToken {

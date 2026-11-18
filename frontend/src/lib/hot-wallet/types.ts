@@ -4,6 +4,14 @@
  * and easy to scale (multi-account, BIP39, hardware/cloud encrypted sync).
  */
 
+export interface TelegramWalletLinkMeta {
+  tgUserId?: number
+  username: string
+  primaryPublicKey: string
+  linkedAt: number
+  verifiedTelegram?: boolean
+}
+
 export interface HotAccountMeta {
   id: string
   label: string
@@ -33,6 +41,10 @@ export interface EncryptedWalletRecord {
 export interface HotVaultStore {
   v: 1
   activeId: string
+  /** Sub-wallet ID configured to receive P2P payments/tips addressed to `@username`. */
+  primaryId?: string
+  /** Verified or self-signed Telegram `@username` link metadata. */
+  telegramLink?: TelegramWalletLinkMeta | null
   wallets: EncryptedWalletRecord[]
   failedAttempts: number
   /** Unix timestamp (ms) until next unlock attempt is permitted after repeated failures. */

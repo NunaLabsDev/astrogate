@@ -1,74 +1,117 @@
 /**
- * Fair-Flywheel v4.2 Tokenomics (AstroGate 42 / 28 / 29.5 / 0.5 on Stellar / Soroban).
+ * Fair-Flywheel v4.3 Tokenomics (AstroGate 66 / 33 / 0.3 / 0.7 on Stellar / Soroban).
  *
  * Fair & Sustainable Flywheel Rules:
  * 1. Standard Supply: 10,000,000 tokens (7 decimals, aligned with 1 XLM = 10^7 stroops).
- * 2. 42.0% (4,200,000 tokens): Virtual Bonding Curve (`2,000 vXLM -> 1,000 real XLM goal`),
- *    2.25x curve appreciation with FLAT 0.80% buy fee (zero whale surcharge on buys!).
- * 3. 28.0% (2,800,000 tokens): Reserved for Soroswap DEX Pool at graduation + >= 1,000 real XLM,
- *    with 0.00% graduation cliff and 100% LP burned to `GAAAA...WHF`.
- * 4. 29.5% (2,950,000 tokens): Milestone Proof-of-Burn Vault — 1,475,000 burned via `token.burn()`
- *    at graduation + 1,475,000 permissionlessly burned once Soroswap XLM reserve >= 1,800 XLM,
- *    plus 60% of surplus curve floor fees reserved for real Soroswap Buyback & Burn.
- * 5. 0.5% (50,000 tokens): 15-day post-graduation creator vesting (5 tranches of 10,000 every 3 days),
+ * 2. 66.0% (6,600,000 tokens): Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM goal`),
+ *    4.00x curve appreciation with FLAT 0.80% buy fee (zero whale surcharge on buys!).
+ * 3. 33.0% (3,300,000 tokens): Reserved for Soroswap DEX Pool at graduation + >= 1,000 real XLM,
+ *    with 0.00% graduation cliff and 100% LP time-locked in-contract for 7 years (`reclaim_expired_lp`).
+ * 4. 0.3% (30,000 tokens): 15-day post-graduation creator vesting (5 tranches of 6,000 every 3 days),
  *    plus creator's initial paid curve seed locked until graduation.
- * 6. Renounced Ownership & Curve Lock: Minting disabled forever; P2P transfers locked until graduation.
+ * 5. 0.7% (70,000 tokens): Developer / Protocol Ecosystem allocation transferred to treasury on graduation.
+ * 6. Organic Deflation Only: Zero idle burn vault; 60% of surplus curve floor fees fund permissionless
+ *    Soroswap Buyback & Burn plus 3-tier Burn-to-Chat shouts. P2P transfers lock until graduation.
  */
 import type { PoolState } from './soroswap'
 import { DEFAULT_XLM_USD_PRICE } from './xlm'
+import {
+  BASE_CURVE_FEE_BPS,
+  BURN_VAULT_ALLOCATION_BPS,
+  BURN_VAULT_TOKENS_ALLOC_BASE,
+  CREATOR_ALLOCATION_BPS,
+  CREATOR_VESTING_ALLOC_BASE,
+  CURVE_ALLOCATION_BPS,
+  CURVE_REAL_XLM_GOAL_STROOPS,
+  CURVE_TOKENS_ALLOC_BASE,
+  CURVE_VIRTUAL_TOKEN_START_BASE,
+  CURVE_VIRTUAL_XLM_START_STROOPS,
+  DEV_ALLOCATION_BPS,
+  DEV_TOKENS_ALLOC_BASE,
+  DEX_ALLOCATION_BPS,
+  DEX_TOKENS_ALLOC_BASE,
+  FAIR_INITIAL_SUPPLY_BASE,
+  FAIR_LAUNCH_DECIMALS,
+  FAIR_LAUNCH_TOTAL_BASIS,
+  GRADUATION_TARGET_XLM,
+  LAUNCH_CREATION_FEE_STROOPS,
+  LAUNCH_CREATION_FEE_XLM,
+  LP_LOCK_YEARS,
+  MAX_WHALE_SURCHARGE_BPS,
+  MIN_SEED_XLM,
+  MIN_SEED_XLM_STROOPS,
+  POOL_ALLOCATION_BPS,
+  POOL_FLOOR_FEE_BPS,
+  SELL_FLOOR_EARLY_BPS,
+  SELL_FLOOR_LATE_BPS,
+  STELLAR_BURN_ADDRESS,
+  STROOPS_PER_UNIT,
+  TREASURY_FEE_BPS,
+  WHALE_FREE_SHARE_BPS,
+  curveFeeBpsForOrder,
+  curveSellFeeBps,
+  curveVirtualReserves,
+  divCeil,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
+  type LocalBuyQuote,
+  type LocalSellQuote,
+} from './curve-math'
 
 export { DEVELOPER_TREASURY_ADDRESS } from './network'
+export {
+  BASE_CURVE_FEE_BPS,
+  BURN_VAULT_ALLOCATION_BPS,
+  BURN_VAULT_TOKENS_ALLOC_BASE,
+  CREATOR_ALLOCATION_BPS,
+  CREATOR_VESTING_ALLOC_BASE,
+  CURVE_ALLOCATION_BPS,
+  CURVE_REAL_XLM_GOAL_STROOPS,
+  CURVE_TOKENS_ALLOC_BASE,
+  CURVE_VIRTUAL_TOKEN_START_BASE,
+  CURVE_VIRTUAL_XLM_START_STROOPS,
+  DEV_ALLOCATION_BPS,
+  DEV_TOKENS_ALLOC_BASE,
+  DEX_ALLOCATION_BPS,
+  DEX_TOKENS_ALLOC_BASE,
+  FAIR_INITIAL_SUPPLY_BASE,
+  FAIR_LAUNCH_DECIMALS,
+  FAIR_LAUNCH_TOTAL_BASIS,
+  GRADUATION_TARGET_XLM,
+  LAUNCH_CREATION_FEE_STROOPS,
+  LAUNCH_CREATION_FEE_XLM,
+  LP_LOCK_YEARS,
+  MAX_WHALE_SURCHARGE_BPS,
+  MIN_SEED_XLM,
+  MIN_SEED_XLM_STROOPS,
+  POOL_ALLOCATION_BPS,
+  POOL_FLOOR_FEE_BPS,
+  SELL_FLOOR_EARLY_BPS,
+  SELL_FLOOR_LATE_BPS,
+  STELLAR_BURN_ADDRESS,
+  STROOPS_PER_UNIT,
+  TREASURY_FEE_BPS,
+  WHALE_FREE_SHARE_BPS,
+  curveFeeBpsForOrder,
+  curveSellFeeBps,
+  curveVirtualReserves,
+  divCeil,
+  localCurveQuoteBuy,
+  localCurveQuoteSell,
+  type LocalBuyQuote,
+  type LocalSellQuote,
+}
 
-/** Stroops / smallest unit per whole unit (10^7 on Stellar). */
-export const STROOPS_PER_UNIT = 10_000_000n
-
-/** Total supply in readable units for a standard fair launch (10M, 7 decimals). */
-export const FAIR_LAUNCH_TOTAL_BASIS = 10_000_000n
-
-/** Fixed protocol creation fee charged atomically on `launch_fair` (`7 XLM -> treasury`). */
-export const LAUNCH_CREATION_FEE_XLM = 7
-
-/** Fixed creation fee in XLM stroops (`7 * 10^7`). */
-export const LAUNCH_CREATION_FEE_STROOPS = 70_000_000n
-
-/** Minimum initial curve buy required by Launchpad v4.1 (`launch_fair`: 2 XLM). */
-export const MIN_SEED_XLM = 2
-
-/** Minimum initial curve buy in XLM stroops (2 * 10^7). */
-export const MIN_SEED_XLM_STROOPS = 20_000_000n
-
-/** Decimals of every token deployed by this launchpad (native Stellar convention). */
-export const FAIR_LAUNCH_DECIMALS = 7
-
-/** Fair-Flywheel v4.2 allocation breakdown in basis points (sum = 10,000 bps). */
-export const CURVE_ALLOCATION_BPS = 4_200n // 42.0% -> 4,200,000 tokens
-export const DEX_ALLOCATION_BPS = 2_800n // 28.0% -> 2,800,000 tokens
-export const BURN_VAULT_ALLOCATION_BPS = 2_950n // 29.5% -> 2,950,000 tokens
-export const CREATOR_ALLOCATION_BPS = 50n // 0.5%  -> 50,000 tokens (15d vesting)
-
-/** Combined non-creator community/protocol pool (99.5% = 9,950 bps). */
-export const POOL_ALLOCATION_BPS = 9_950n
-
-/** Exact Fair-Flywheel v4.2 base-unit allocations (7 decimals). */
-export const FAIR_INITIAL_SUPPLY_BASE = FAIR_LAUNCH_TOTAL_BASIS * STROOPS_PER_UNIT
-export const CURVE_TOKENS_ALLOC_BASE = 4_200_000n * STROOPS_PER_UNIT
-export const DEX_TOKENS_ALLOC_BASE = 2_800_000n * STROOPS_PER_UNIT
-export const BURN_VAULT_TOKENS_ALLOC_BASE = 2_950_000n * STROOPS_PER_UNIT
-export const CREATOR_VESTING_ALLOC_BASE = 50_000n * STROOPS_PER_UNIT
-
-/** Virtual Bonding Curve constants (1:1 parity with `contracts/launchpad/src/contract.rs` v4.2). */
-export const CURVE_VIRTUAL_XLM_START_STROOPS = 2_000n * STROOPS_PER_UNIT
-export const CURVE_REAL_XLM_GOAL_STROOPS = 1_000n * STROOPS_PER_UNIT
-export const CURVE_VIRTUAL_TOKEN_START_BASE = 12_600_000n * STROOPS_PER_UNIT
-
-/** Curve Fee Model (1:1 parity with Rust v4.2 contract). */
-export const TREASURY_FEE_BPS = 50n // 0.50% -> Developer Treasury
-export const POOL_FLOOR_FEE_BPS = 30n // 0.30% -> LP/Buyback Vault on all buys (flat 0.80% total)
-export const SELL_FLOOR_EARLY_BPS = 200n // 2.00% -> LP/Buyback Vault on early curve sells (<50% goal)
-export const SELL_FLOOR_LATE_BPS = 100n // 1.00% -> LP/Buyback Vault on late curve sells (>=50% goal)
-export const BASE_CURVE_FEE_BPS = TREASURY_FEE_BPS + POOL_FLOOR_FEE_BPS // 80 bps (0.80%)
-export const WHALE_FREE_SHARE_BPS = 10_000n // v4.2: zero buy whale surcharge
-export const MAX_WHALE_SURCHARGE_BPS = 0n
+/**
+ * Protocol Monetization Model (100% AstroGate Developers Treasury, Fair-Flywheel v4.3):
+ * 1. Fair launch deployment: 7 XLM fixed creation fee (`LAUNCH_CREATION_FEE_XLM`) straight to Treasury.
+ * 2. Curve buys: flat 0.80% (0.50% Treasury + 0.30% LP/buyback floor), zero whale penalty.
+ * 3. Curve sells: asymmetric 2.50% (<50% curve) or 1.50% (>=50% curve) feeding LP & post-grad Buyback-and-Burn.
+ * 4. Graduated Soroswap swaps: standard 0.30% LP fee stays in 7-year time-locked LP.
+ */
+export const PROTOCOL_DEPLOY_FEE_XLM = 7
+export const DEVELOPER_TRADING_FEE_BPS = TREASURY_FEE_BPS
+export const DEVELOPER_GRADUATION_FEE_XLM = 0
 
 /** Milestone Proof-of-Burn Stage 2 trigger on graduated Soroswap pair. */
 export const MILESTONE_2_PAIR_XLM = 1_800
@@ -78,40 +121,11 @@ export const MIN_SHOUT_BURN = 50
 export const HYPE_SHOUT_BURN = 500
 export const KING_SHOUT_BURN = 5_000
 
-/**
- * Stellar Canonical Burn Address (Blackhole / Dead Account):
- * 32-byte zero Ed25519 public key (`GAAAA...WHF`).
- * No private key exists. All LP tokens sent here are permanently locked.
- */
-export const STELLAR_BURN_ADDRESS =
-  'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
-
-/**
- * Protocol Monetization Model (100% AstroGate Developers Treasury):
- * 1. Fair launch deployment: 0 deploy fee on testnet; $1.11 USD modeled for mainnet.
- * 2. Curve trading fee: 0.50% (50 bps) to Developer Treasury + 0.30% (30 bps) to pool floor
- *    + progressive anti-whale surcharge (>2% of vXLM, up to +5.00%) 100% into pool floor.
- * 3. Graduated Soroswap swaps: standard 0.30% LP fee stays in permanently burned LP.
- */
-export const PROTOCOL_DEPLOY_FEE_USD = 1.11
-export const DEVELOPER_TRADING_FEE_BPS = TREASURY_FEE_BPS
-export const DEVELOPER_GRADUATION_FEE_XLM = 0
-
 /** Ensure a fallback XLM/USD price is finite and positive; else use the default. */
 export function sanitizeXlmUsdPrice(xlmUsdPrice: number): number {
   return Number.isFinite(xlmUsdPrice) && xlmUsdPrice > 0
     ? xlmUsdPrice
     : DEFAULT_XLM_USD_PRICE
-}
-
-/**
- * Computes how many XLM correspond to $1.11 USD at current live XLM price.
- */
-export function calculateDeployFeeInXlm(
-  xlmUsdPrice: number = DEFAULT_XLM_USD_PRICE,
-): number {
-  const safePrice = sanitizeXlmUsdPrice(xlmUsdPrice)
-  return Math.round((PROTOCOL_DEPLOY_FEE_USD / safePrice) * 100) / 100
 }
 
 /**
@@ -196,10 +210,8 @@ export function costToBuyPoolShareXlm(
 
 /**
  * Real XLM vault target in readable units for a Virtual Bonding Curve to graduate to Soroswap DEX.
- * Calibrated to 1,000 real XLM on top of 3,000 vXLM (`M = 1/3`), eliminating early monopoly
- * while keeping graduation achievable on Stellar with 0.00% graduation price cliff.
+ * Calibrated to 1,000 real XLM (`GRADUATION_TARGET_XLM` re-exported from `curve-math.ts`).
  */
-export const GRADUATION_TARGET_XLM = 1_000
 
 /** Soroswap pair swap fee (30 bps = 0.30%). */
 export const SOROSWAP_SWAP_FEE_PERCENT = 0.3
@@ -224,8 +236,8 @@ export type GraduationStatus = {
 }
 
 /**
- * Post-graduation creator vesting enforced on-chain by Launchpad v4.2 (`claim_creator_vesting`):
- * 0.5% (50,000 tokens) unlocks strictly in 5 tranches of 20% (10,000 tokens) every 3 days (15d total),
+ * Post-graduation creator vesting enforced on-chain by Launchpad v4.3 (`claim_creator_vesting`):
+ * 0.3% (30,000 tokens) unlocks strictly in 5 tranches of 20% (6,000 tokens) every 3 days (15d total),
  * alongside 100% of creator's paid launch_fair seed buy unlocked at graduation.
  */
 export const CREATOR_GRADUATION_LOCK_DAYS = 15
@@ -246,218 +258,40 @@ export const CREATOR_VESTING_SCHEDULE: VestingPhase[] = [
     phase: 1,
     day: 3,
     percent: 20,
-    tokensAmount: 10_000,
-    label: 'Phase 1 (Day 3): 20% (10K tokens) after 72h DEX consolidation',
+    tokensAmount: 6_000,
+    label: 'Phase 1 (Day 3): 20% (6K tokens) after 72h DEX consolidation',
   },
   {
     phase: 2,
     day: 6,
     percent: 20,
-    tokensAmount: 10_000,
-    label: 'Phase 2 (Day 6): 20% (10K tokens)',
+    tokensAmount: 6_000,
+    label: 'Phase 2 (Day 6): 20% (6K tokens)',
   },
   {
     phase: 3,
     day: 9,
     percent: 20,
-    tokensAmount: 10_000,
-    label: 'Phase 3 (Day 9): 20% (10K tokens)',
+    tokensAmount: 6_000,
+    label: 'Phase 3 (Day 9): 20% (6K tokens)',
   },
   {
     phase: 4,
     day: 12,
     percent: 20,
-    tokensAmount: 10_000,
-    label: 'Phase 4 (Day 12): 20% (10K tokens)',
+    tokensAmount: 6_000,
+    label: 'Phase 4 (Day 12): 20% (6K tokens)',
   },
   {
     phase: 5,
     day: 15,
     percent: 20,
-    tokensAmount: 10_000,
-    label: 'Phase 5 (Day 15): 20% (10K tokens) — Final 100% unlock',
+    tokensAmount: 6_000,
+    label: 'Phase 5 (Day 15): 20% (6K tokens) — Final 100% unlock',
   },
 ]
 
-export type LocalBuyQuote = {
-  total_xlm_charged: bigint
-  net_xlm_to_curve: bigint
-  treasury_fee: bigint
-  floor_bonus: bigint
-  tokens_out: bigint
-  will_graduate: boolean
-  total_fee_bps: bigint
-}
-
-export type LocalSellQuote = {
-  gross_xlm_out: bigint
-  net_xlm_out: bigint
-  treasury_fee: bigint
-  floor_bonus: bigint
-  total_fee_bps: bigint
-}
-
-function divCeil(a: bigint, b: bigint): bigint {
-  return (a + b - 1n) / b
-}
-
-/** Flat 0.80% buy fee on all Fair-Flywheel v4.2 curve purchases (zero whale penalty). */
-export function curveFeeBpsForOrder(
-  _virtualXlmStroops?: bigint,
-  _orderXlmStroops?: bigint,
-): { treasuryBps: bigint; floorBps: bigint; totalBps: bigint } {
-  return {
-    treasuryBps: TREASURY_FEE_BPS,
-    floorBps: POOL_FLOOR_FEE_BPS,
-    totalBps: BASE_CURVE_FEE_BPS,
-  }
-}
-
-/** Asymmetric anti-sniper curve sell fee: 2.50% (<50% goal) or 1.50% (>=50% goal). */
-export function curveSellFeeBps(curveXlmNet: bigint): {
-  treasuryBps: bigint
-  floorBps: bigint
-  totalBps: bigint
-} {
-  const floorBps =
-    curveXlmNet < CURVE_REAL_XLM_GOAL_STROOPS / 2n
-      ? SELL_FLOOR_EARLY_BPS
-      : SELL_FLOOR_LATE_BPS
-  return {
-    treasuryBps: TREASURY_FEE_BPS,
-    floorBps,
-    totalBps: TREASURY_FEE_BPS + floorBps,
-  }
-}
-
-export function curveVirtualReserves(
-  curveXlmNet: bigint,
-  tokensSold: bigint,
-): {
-  virtualXlm: bigint
-  virtualTokens: bigint
-  remainingCurveTokens: bigint
-  remainingToGoalXlm: bigint
-} {
-  const safeNet = curveXlmNet < 0n ? 0n : curveXlmNet
-  const safeSold = tokensSold < 0n ? 0n : tokensSold
-  return {
-    virtualXlm: CURVE_VIRTUAL_XLM_START_STROOPS + safeNet,
-    virtualTokens: CURVE_VIRTUAL_TOKEN_START_BASE - safeSold,
-    remainingCurveTokens:
-      CURVE_TOKENS_ALLOC_BASE > safeSold
-        ? CURVE_TOKENS_ALLOC_BASE - safeSold
-        : 0n,
-    remainingToGoalXlm:
-      CURVE_REAL_XLM_GOAL_STROOPS > safeNet
-        ? CURVE_REAL_XLM_GOAL_STROOPS - safeNet
-        : 0n,
-  }
-}
-
-/**
- * Exact 1:1 TypeScript port of Launchpad v4 `compute_buy_quote`.
- */
-export function localCurveQuoteBuy(
-  curveXlmNet: bigint,
-  tokensSold: bigint,
-  maxXlmIn: bigint,
-): LocalBuyQuote | null {
-  if (maxXlmIn <= 0n) return null
-  const { virtualXlm, virtualTokens, remainingCurveTokens, remainingToGoalXlm } =
-    curveVirtualReserves(curveXlmNet, tokensSold)
-  if (remainingToGoalXlm <= 0n || remainingCurveTokens <= 0n) return null
-
-  const { treasuryBps, floorBps, totalBps } = curveFeeBpsForOrder(
-    virtualXlm,
-    maxXlmIn,
-  )
-  const treasuryFeeFull = (maxXlmIn * treasuryBps) / 10_000n
-  const floorBonusFull = (maxXlmIn * floorBps) / 10_000n
-  const netFull = maxXlmIn - treasuryFeeFull - floorBonusFull
-
-  if (netFull >= remainingToGoalXlm) {
-    const netXlmToCurve = remainingToGoalXlm
-    const {
-      treasuryBps: ctBps,
-      floorBps: cfBps,
-      totalBps: ctotalBps,
-    } = curveFeeBpsForOrder(virtualXlm, netXlmToCurve)
-    const maxFeeRoom = maxXlmIn - netXlmToCurve
-    const denom = 10_000n - ctotalBps
-    const idealGross = divCeil(netXlmToCurve * 10_000n, denom)
-    const rawFee = idealGross - netXlmToCurve
-    const idealFee = rawFee < maxFeeRoom ? rawFee : maxFeeRoom
-    const totalXlmCharged = netXlmToCurve + idealFee
-    const treasuryFee = (idealFee * ctBps) / (ctBps + cfBps)
-    const floorBonus = idealFee - treasuryFee
-
-    return {
-      total_xlm_charged: totalXlmCharged,
-      net_xlm_to_curve: netXlmToCurve,
-      treasury_fee: treasuryFee,
-      floor_bonus: floorBonus,
-      tokens_out: remainingCurveTokens,
-      will_graduate: true,
-      total_fee_bps: ctotalBps,
-    }
-  }
-
-  if (netFull <= 0n) return null
-  const kCur = virtualXlm * virtualTokens
-  const newVXlm = virtualXlm + netFull
-  const newVTok = divCeil(kCur, newVXlm)
-  const tokensOut = virtualTokens - newVTok
-  if (tokensOut <= 0n || tokensOut > remainingCurveTokens) return null
-
-  return {
-    total_xlm_charged: maxXlmIn,
-    net_xlm_to_curve: netFull,
-    treasury_fee: treasuryFeeFull,
-    floor_bonus: floorBonusFull,
-    tokens_out: tokensOut,
-    will_graduate: false,
-    total_fee_bps: totalBps,
-  }
-}
-
-/**
- * Exact 1:1 TypeScript port of Launchpad v4 `compute_sell_quote`.
- */
-export function localCurveQuoteSell(
-  curveXlmNet: bigint,
-  tokensSold: bigint,
-  tokenAmount: bigint,
-): LocalSellQuote | null {
-  if (tokenAmount <= 0n || curveXlmNet <= 0n || tokensSold <= 0n) return null
-  if (tokenAmount > tokensSold) return null
-  const { virtualXlm, virtualTokens } = curveVirtualReserves(
-    curveXlmNet,
-    tokensSold,
-  )
-  const kCur = virtualXlm * virtualTokens
-  const newVTok = virtualTokens + tokenAmount
-  let newVXlm = divCeil(kCur, newVTok)
-  if (newVXlm < CURVE_VIRTUAL_XLM_START_STROOPS) {
-    newVXlm = CURVE_VIRTUAL_XLM_START_STROOPS
-  }
-  const grossXlmOut = virtualXlm - newVXlm
-  if (grossXlmOut <= 0n || grossXlmOut > curveXlmNet) return null
-
-  const { treasuryBps, floorBps, totalBps } = curveSellFeeBps(curveXlmNet)
-  const treasuryFee = (grossXlmOut * treasuryBps) / 10_000n
-  const floorBonus = (grossXlmOut * floorBps) / 10_000n
-  const netXlmOut = grossXlmOut - treasuryFee - floorBonus
-  if (netXlmOut <= 0n) return null
-
-  return {
-    gross_xlm_out: grossXlmOut,
-    net_xlm_out: netXlmOut,
-    treasury_fee: treasuryFee,
-    floor_bonus: floorBonus,
-    total_fee_bps: totalBps,
-  }
-}
+/* Curve math functions re-exported from ./curve-math */
 
 /**
  * Exact XLM cost (stroops) on the Virtual Curve to purchase `targetSharePercent` of the 10M total supply,
@@ -495,9 +329,7 @@ export function curveSafeOrderXlmStroops(
 }
 
 /**
- * Default balanced initial buy on the Fair-Flywheel v4.1 Virtual Curve:
- * 10 XLM (~$1.55 USD) puts ~79.7K tokens in the creator's wallet at the fair floor price
- * (`~1,235 stroops/token`), keeping 99.2% of supply democratized.
+ * Default balanced initial buy on the Fair-Flywheel v4.3 Virtual Curve (`1,000 vXLM -> 1,000 real XLM`).
  */
 export const DEFAULT_OPTIMIZED_SEED_XLM = 10
 
@@ -512,23 +344,23 @@ export const SEED_LIQUIDITY_PRESETS: SeedPreset[] = [
   {
     xlm: 5,
     label: '5 XLM',
-    desc: 'Light Seed — ~$0.78 USD, ultra-low cost for micro-memes',
+    desc: 'Light Seed — ultra-low cost for micro-memes',
   },
   {
     xlm: 10,
     label: '10 XLM',
-    desc: 'Recommended ⭐ — ~$1.55 USD, optimal balance & natural anti-sniper depth',
+    desc: 'Recommended ⭐ — optimal balance & natural anti-sniper depth',
     isRecommended: true,
   },
   {
     xlm: 20,
     label: '20 XLM',
-    desc: 'Deep — ~$3.10 USD, deeper pool for community launches',
+    desc: 'Deep — deeper initial curve backing for community launches',
   },
   {
     xlm: 50,
     label: '50 XLM',
-    desc: 'Whale — For DAOs and established projects',
+    desc: 'Whale — for DAOs and established projects',
   },
 ]
 

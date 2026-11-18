@@ -94,12 +94,22 @@ impl Token {
         Self::extend_ttl(e);
     }
 
-    /// Extiende el TTL de la instancia del contrato (metadata, cap y owner).
+    /// Extiende el TTL de la instancia del contrato (metadata, cap y owner),
+    /// refresca la entrada persistente de `total_supply` en OpenZeppelin, y
+    /// refresca el balance persistente del Launchpad gate (Burn Vault / Vesting) si existe.
     /// Cualquier usuario o keeper puede invocarlo para mantener vivo el contrato.
     pub fn extend_ttl(e: &Env) {
         e.storage()
             .instance()
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_BUMP_AMOUNT);
+        let _ = <Self as FungibleTotalSupply>::total_supply(e);
+        if let Some(gate) = e
+            .storage()
+            .instance()
+            .get::<TokenDataKey, Address>(&TokenDataKey::LaunchpadGate)
+        {
+            let _ = Base::balance(e, &gate);
+        }
     }
 
     /// Locks P2P transfers during the Fair-Flywheel bonding curve phase (only transfers
@@ -175,6 +185,11 @@ impl FungibleToken for Token {
     fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, amount: i128) {
         Self::assert_transfer_allowed(e, &from, &to);
         Self::ContractType::transfer_from(e, &spender, &from, &to, amount);
+        Self::extend_ttl(e);
+    }
+
+    fn approve(e: &Env, owner: Address, spender: Address, amount: i128, live_until_ledger: u32) {
+        Self::ContractType::approve(e, &owner, &spender, amount, live_until_ledger);
         Self::extend_ttl(e);
     }
 }

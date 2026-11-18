@@ -5,6 +5,7 @@ import {
   isRetryableRpcError,
   NETWORK_NAME,
   NETWORK_PASSPHRASE,
+  networkStorageKey,
   RPC_POOL,
   RPC_URL,
   SOROSWAP_FACTORY,
@@ -19,6 +20,7 @@ describe('network configuration', () => {
     expect(RPC_POOL.length).toBeGreaterThanOrEqual(1)
     expect(SOROSWAP_FACTORY.startsWith('C')).toBe(true)
     expect(SOROSWAP_ROUTER.startsWith('C')).toBe(true)
+    expect(networkStorageKey('astrogate.activity.v1')).toBe('astrogate.activity.v1')
   })
 
   it('performs RPC health check and parses sequence', async () => {

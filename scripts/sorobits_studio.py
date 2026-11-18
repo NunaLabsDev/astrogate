@@ -952,7 +952,7 @@ def main() -> int:
         draw_starfield(m)
         md = ImageDraw.Draw(m)
         md.rectangle([36, 36, 1164, 594], fill=(11, 16, 36), outline=(56, 189, 248), width=2)
-        md.text((70, 64), "FAIR-FLYWHEEL v4.2  ·  SOROSWAP DEX  ·  LIVE FEED", fill=(125, 211, 252), font=font(20))
+        md.text((70, 64), "FAIR-FLYWHEEL v4.3  ·  SOROSWAP DEX  ·  LIVE FEED", fill=(125, 211, 252), font=font(20))
         md.text((70, 98), "CURVE & KING ARENA", fill=(248, 250, 252), font=font(50))
         md.text((70, 162), "0.80% Flat Buys · 100% LP Burned · Burn-to-Chat Shouts", fill=(250, 204, 21), font=font(22))
         market_picks = [GENESIS_8[1], GENESIS_8[2], GENESIS_8[5], GENESIS_8[6]]
@@ -990,6 +990,147 @@ def main() -> int:
         w_path = os.path.join(out_dir, "wallet-quests-card.png")
         w.save(w_path)
         print(f"WALLET QUESTS CARD SAVED: {w_path} ({w.size[0]}x{w.size[1]})")
+
+        # 5. community-hero-card.png (1200x630)
+        cm = Image.new("RGB", (1200, 630), (7, 13, 30))
+        draw_starfield(cm)
+        cmd = ImageDraw.Draw(cm)
+        cmd.rectangle([36, 36, 1164, 594], fill=(10, 18, 40), outline=(56, 189, 248), width=2)
+        cmd.text((70, 64), "OFFICIAL HANGOUT  ·  STELLAR SOROBAN  ·  NUNALABS", fill=(125, 211, 252), font=font(20))
+        cmd.text((70, 98), "ASTROGATΞ COMMUNITY", fill=(248, 250, 252), font=font(50))
+        cmd.text((70, 162), "Human Chat · Live $TICKER Lookups · Zero Trade Spam", fill=(250, 204, 21), font=font(22))
+        comm_cards = [
+            (GENESIS_8[0], "1-TAP MINI APP", "CloudStorage Vault", (56, 189, 248)),
+            (GENESIS_8[1], "FAIR LAUNCHPAD", "7 XLM · 100% LP Burn", (167, 139, 250)),
+            (GENESIS_8[3], "SOROBITS NFTs", "100% On-Chain SVG", (52, 211, 153)),
+            (GENESIS_8[7], "SMART BOT", "/market · /king · /ask", (250, 204, 21)),
+        ]
+        for idx, (sp, label, sub, border_rgb) in enumerate(comm_cards):
+            tx = 72 + idx * 270
+            ty = 224
+            sprite = render_pil(compose_indices(sp), FACTIONS[sp.faction], scale=6)  # 192x192
+            cmd.rectangle([tx - 3, ty - 3, tx + 195, ty + 195], outline=border_rgb, width=2)
+            cm.paste(sprite, (tx, ty))
+            cmd.text((tx, ty + 206), label, fill=border_rgb, font=font(20))
+            cmd.text((tx, ty + 234), sub, fill=(203, 213, 225), font=font(17))
+        cmd.text((70, 540), "Built by NunaLabs · Paste CA… / GA… / $TICKER or tap Mini App", fill=(110, 231, 183), font=font(20))
+        cm_path = os.path.join(out_dir, "community-hero-card.png")
+        cm.save(cm_path)
+        print(f"COMMUNITY HERO CARD SAVED: {cm_path} ({cm.size[0]}x{cm.size[1]})")
+
+        # 6. feed-hero-card.png (1200x630)
+        fd = Image.new("RGB", (1200, 630), (6, 16, 22))
+        draw_starfield(fd)
+        fdd = ImageDraw.Draw(fd)
+        fdd.rectangle([36, 36, 1164, 594], fill=(8, 22, 30), outline=(16, 185, 129), width=2)
+        fdd.text((70, 64), "24/7 ON-CHAIN TELEMETRY  ·  ANTI-DUST FILTERED  ·  STELLAR", fill=(110, 231, 183), font=font(20))
+        fdd.text((70, 98), "ASTROGATΞ LIVE FEED", fill=(248, 250, 252), font=font(50))
+        fdd.text((70, 162), "Launches · >=2 XLM Trades · 80%+ Push · Graduations · Burns", fill=(52, 211, 153), font=font(22))
+        feed_cards = [
+            (GENESIS_8[1], "FAIR LAUNCHES", "New v4.3 Tokens", (56, 189, 248)),
+            (GENESIS_8[5], "WHALE & PUSH", ">=2 XLM & >=80%", (16, 185, 129)),
+            (GENESIS_8[3], "DEX GRADUATE", "100% LP Burned", (250, 204, 21)),
+            (GENESIS_8[2], "KING & SHOUTS", "Burn-to-Chat + SBIT", (251, 113, 133)),
+        ]
+        for idx, (sp, label, sub, border_rgb) in enumerate(feed_cards):
+            tx = 72 + idx * 270
+            ty = 224
+            sprite = render_pil(compose_indices(sp), FACTIONS[sp.faction], scale=6)  # 192x192
+            fdd.rectangle([tx - 3, ty - 3, tx + 195, ty + 195], outline=border_rgb, width=2)
+            fd.paste(sprite, (tx, ty))
+            fdd.text((tx, ty + 206), label, fill=border_rgb, font=font(20))
+            fdd.text((tx, ty + 234), sub, fill=(203, 213, 225), font=font(17))
+        fdd.text((70, 540), "Built by NunaLabs · Pure Alerts Channel · Chat in @AstroGateCommunity", fill=(125, 211, 252), font=font(20))
+        fd_path = os.path.join(out_dir, "feed-hero-card.png")
+        fd.save(fd_path)
+        print(f"FEED HERO CARD SAVED: {fd_path} ({fd.size[0]}x{fd.size[1]})")
+
+        # 7-9. Circular-safe 512x512 chat avatars (distinct color rings + badges)
+        def make_circle_avatar(
+            bg_rgb: tuple[int, int, int],
+            ring_rgb: tuple[int, int, int],
+            glow_rgb: tuple[int, int, int],
+            badge_text: str,
+            badge_bg: tuple[int, int, int],
+            badge_fg: tuple[int, int, int],
+            sprite_spec: GenesisSpec,
+            is_rocket: bool = False,
+            out_name: str = "avatar.png",
+        ) -> None:
+            av = Image.new("RGB", (512, 512), bg_rgb)
+            ad = ImageDraw.Draw(av)
+            # Subtle radial backdrop & orbital rings strictly inside circular crop (r <= 238)
+            ad.ellipse([18, 18, 494, 494], outline=glow_rgb, width=10)
+            ad.ellipse([30, 30, 482, 482], outline=ring_rgb, width=6)
+            if is_rocket:
+                # Crisp scaled-up pixel rocket + radar ring centered inside safe circle
+                ad.ellipse([104, 72, 408, 376], outline=(12, 92, 74), width=4)
+                px = 24
+                ox, oy = 256 - 6 * px, 98
+                rocket_pixels = [
+                    (5, 0, (244, 63, 94)), (6, 0, (244, 63, 94)),
+                    (4, 1, (226, 232, 240)), (5, 1, (248, 250, 252)), (6, 1, (248, 250, 252)), (7, 1, (203, 213, 225)),
+                    (4, 2, (226, 232, 240)), (5, 2, (56, 189, 248)), (6, 2, (16, 185, 129)), (7, 2, (203, 213, 225)),
+                    (4, 3, (226, 232, 240)), (5, 3, (248, 250, 252)), (6, 3, (248, 250, 252)), (7, 3, (203, 213, 225)),
+                    (3, 4, (56, 189, 248)), (4, 4, (226, 232, 240)), (5, 4, (248, 250, 252)), (6, 4, (248, 250, 252)), (7, 4, (203, 213, 225)), (8, 4, (14, 165, 233)),
+                    (2, 5, (56, 189, 248)), (3, 5, (56, 189, 248)), (4, 5, (226, 232, 240)), (5, 5, (248, 250, 252)), (6, 5, (248, 250, 252)), (7, 5, (203, 213, 225)), (8, 5, (14, 165, 233)), (9, 5, (14, 165, 233)),
+                    (2, 6, (14, 165, 233)), (3, 6, (56, 189, 248)), (4, 6, (226, 232, 240)), (5, 6, (248, 250, 252)), (6, 6, (248, 250, 252)), (7, 6, (203, 213, 225)), (8, 6, (14, 165, 233)), (9, 6, (2, 132, 199)),
+                    (4, 7, (250, 204, 21)), (5, 7, (251, 146, 60)), (6, 7, (251, 146, 60)), (7, 7, (250, 204, 21)),
+                    (5, 8, (249, 115, 22)), (6, 8, (244, 63, 94)),
+                    (5, 9, (244, 63, 94)), (6, 9, (244, 63, 94)),
+                ]
+                for gx, gy, col in rocket_pixels:
+                    ad.rectangle([ox + gx * px, oy + gy * px, ox + (gx + 1) * px - 1, oy + (gy + 1) * px - 1], fill=col)
+                # Live radar dot top-right inside circle
+                ad.ellipse([336, 96, 382, 142], fill=(16, 185, 129), outline=(236, 253, 245), width=4)
+            else:
+                sp_img = render_pil(compose_indices(sprite_spec), FACTIONS[sprite_spec.faction], scale=8)  # 256x256
+                av.paste(sp_img, (128, 86))
+
+            # Bold pill badge safely inside bottom arc of circle
+            pill_w, pill_h = 196, 56
+            px0 = (512 - pill_w) // 2
+            py0 = 374
+            ad.rounded_rectangle([px0, py0, px0 + pill_w, py0 + pill_h], radius=24, fill=badge_bg, outline=ring_rgb, width=3)
+            bf = font(30)
+            bbox = ad.textbbox((0, 0), badge_text, font=bf)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            ad.text(((512 - tw) // 2, py0 + (pill_h - th) // 2 - 4), badge_text, fill=badge_fg, font=bf)
+            out_p = os.path.join(out_dir, out_name)
+            av.save(out_p)
+            print(f"AVATAR SAVED: {out_p} (512x512)")
+
+        make_circle_avatar(
+            bg_rgb=(7, 14, 34),
+            ring_rgb=(56, 189, 248),
+            glow_rgb=(14, 60, 110),
+            badge_text="APP",
+            badge_bg=(10, 28, 62),
+            badge_fg=(224, 242, 254),
+            sprite_spec=GENESIS_8[0],
+            out_name="astrogate-bot-avatar.png",
+        )
+        make_circle_avatar(
+            bg_rgb=(15, 9, 36),
+            ring_rgb=(167, 139, 250),
+            glow_rgb=(65, 32, 120),
+            badge_text="CHAT",
+            badge_bg=(38, 20, 82),
+            badge_fg=(243, 232, 255),
+            sprite_spec=GENESIS_8[7],
+            out_name="astrogate-community-avatar.png",
+        )
+        make_circle_avatar(
+            bg_rgb=(5, 22, 24),
+            ring_rgb=(16, 185, 129),
+            glow_rgb=(10, 78, 64),
+            badge_text="LIVE",
+            badge_bg=(8, 48, 42),
+            badge_fg=(209, 250, 229),
+            sprite_spec=GENESIS_8[3],
+            is_rocket=True,
+            out_name="astrogate-feed-avatar.png",
+        )
         return 0
 
     if len(sys.argv) >= 2 and sys.argv[1] == "--emit-pngs":
@@ -1017,7 +1158,7 @@ def main() -> int:
         emit_rust_assets(out_rust)
         return 0
 
-    out_dir = sys.argv[1] if len(sys.argv) > 1 else "/Users/munay/.gemini/antigravity-cli/brain/03319e50-29ff-4b90-8d62-0bf06dea860b/scratch"
+    out_dir = sys.argv[1] if len(sys.argv) > 1 else "./sorobits_output"
     os.makedirs(out_dir, exist_ok=True)
 
     errs = [e for fname, fpal in FACTIONS.items() for e in audit_palette(fname, fpal)]

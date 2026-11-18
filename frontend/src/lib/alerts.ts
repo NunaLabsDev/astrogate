@@ -35,14 +35,19 @@ function cleanString(value: unknown): string | undefined {
 }
 
 /**
- * Reads optional notification endpoints from Vite env variables.
- * Never throws and requires zero configuration for standalone testnet deployments.
+ * Reads optional HTTPS webhook notification endpoint from Vite env variables.
+ * Never reads Telegram bot tokens from public `VITE_*` browser env to prevent credential leakage.
  */
 export function readAlertConfig(
   env: Record<string, unknown> = import.meta.env as Record<string, unknown>,
 ): AlertTransportConfig {
-  const telegramBotToken = cleanString(env.VITE_TELEGRAM_BOT_TOKEN)
-  const telegramChatId = cleanString(env.VITE_TELEGRAM_CHAT_ID)
+  const isBrowserEnv = env === (import.meta.env as Record<string, unknown>)
+  const telegramBotToken = isBrowserEnv
+    ? undefined
+    : cleanString(env.VITE_TELEGRAM_BOT_TOKEN)
+  const telegramChatId = isBrowserEnv
+    ? undefined
+    : cleanString(env.VITE_TELEGRAM_CHAT_ID)
   const rawWebhook = cleanString(env.VITE_ALERT_WEBHOOK_URL)
   const webhookUrl =
     rawWebhook && rawWebhook.startsWith('https://') ? rawWebhook : undefined
@@ -64,7 +69,7 @@ export function formatLaunchAlertMessage(payload: LaunchAlertPayload): string {
   const formattedCap = Number(FAIR_LAUNCH_TOTAL_BASIS).toLocaleString('en-US')
   const lines = [
     `🚀 New AstroGate Fair Launch: $${payload.symbol} (${payload.name})`,
-    `Supply: ${formattedCap} fixed · 42% Curve / 28% DEX / 29.5% Burn Vault / 0.5% 15d Vesting`,
+    `Supply: ${formattedCap} fixed · 66% Curve / 33% DEX (7Y LP Lock) / 0.3% 15d Vesting / 0.7% Dev`,
     `Seed Pool: ${payload.seedXlm} XLM`,
     `Token: ${payload.tokenId}`,
     `Creator: ${payload.creator}`,

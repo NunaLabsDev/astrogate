@@ -1,8 +1,8 @@
 # Sorobits (`SBIT`) — Arquitectura de Colección NFT 100% On-Chain
 
 > **Estudio / Marca:** Built by NunaLabs · Colección oficial de **AstroGate** sobre **Stellar / Soroban**
-> **Estado:** Fase 1 implementada y desplegada en **Stellar Testnet** (`CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT`)
-> **WASM Hash (optimizado, 55,007 B):** `d1324c3620cd877b5c16bc0af5a46cef7c35360a9c68e3de2e19685c58a5463f`
+> **Estado:** Fase 1 implementada y desplegada en **Stellar Testnet** (`CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`)
+> **WASM Hash (optimizado, 74,229 B):** `c668ebba24880a46202e6746009a95a62d1893207f678db3422d8194154f17fd`
 > **Red objetivo:** Stellar Testnet primero (sin fondos reales ni mainnet durante MVP; ver `GEMINI.md` / `AGENTS.md`).
 
 ---
@@ -114,7 +114,7 @@ Al invocar `token_uri(token_id)` o `raw_bitmap(token_id)`:
 - [x] Implementar `Genome` de 256 bits + telemetría epigenética básica.
 - [x] Crear script encoder ([sorobits_studio.py](../scripts/sorobits_studio.py) `--emit-rust`) para convertir los 8 Genesis `AGQ01`–`AGQ08` y 25 capas a constantes RLE (`2,222 B`).
 - [x] Suite completa `cargo test -p astro-sorobits-contract` (11/11 tests y medición real de `budget()` CPU/memoria).
-- [x] Despliegue en **Stellar Testnet** (`CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT`) + mint Genesis `#0` (`AGQ01 Pioneer`) + generación de bindings TS (`npm run bindings`).
+- [x] Despliegue en **Stellar Testnet** (`CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`) + mint Genesis `#0` (`AGQ01 Pioneer`) + generación de bindings TS (`npm run bindings`).
 
 ### Fase 2 — Ecosistema y Evolución (Contratos Satélite + App)
 - [ ] `QuestMinter`: verificación automática de logros on-chain del Launchpad y reclamo directo desde Mini App / `@AstroGateSorobanBot`.

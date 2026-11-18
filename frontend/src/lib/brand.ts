@@ -8,6 +8,8 @@
  *
  * Genesis/Flagship Meme Token: ASTRO ($ASTRO), deployed and verified on Soroswap testnet.
  */
+import { NETWORK_NAME } from './network'
+
 export const BRAND = {
   name: 'AstroGate',
   shortName: 'AstroGate',
@@ -17,9 +19,9 @@ export const BRAND = {
   taglineEn: 'Open the Floodgates',
   hero: 'Fair Meme Launchpad + AMM on Stellar',
   description:
-    'Launch fair meme tokens in seconds, burn 100% LP permanently to the dead address, and trade live on Stellar testnet — 100% on-chain, zero rug-pulls.',
+    `Launch fair meme tokens in seconds, burn 100% LP permanently to the dead address, and trade live on Stellar ${NETWORK_NAME} — 100% on-chain, zero rug-pulls.`,
   manifestDescription:
-    'AstroGate — Fair meme launchpad & instant AMM trading on Stellar testnet.',
+    `AstroGate — Fair meme launchpad & instant AMM trading on Stellar ${NETWORK_NAME}.`,
   provenance:
     'Union of stellar-core Floodgate (src/overlay/Floodgate.cpp) and Astro meme',
 } as const

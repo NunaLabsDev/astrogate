@@ -32,8 +32,8 @@ const REQUIRED_ORIGINS = [
   'https://web.telegram.org',
 ]
 
-/** Origen eliminado del código (lib/xlm.ts ya no consulta CryptoCompare). */
-const RETIRED_ORIGINS = ['cryptocompare']
+/** Orígenes eliminados del código (lib/xlm.ts ya no consulta CryptoCompare; Pinata sustituido por logos SHA-256 en Worker). */
+const RETIRED_ORIGINS = ['cryptocompare', 'pinata']
 
 /** Cabeceras de seguridad compartidas que deben coincidir en todos los entornos. */
 const SHARED_SECURITY_HEADERS = [
@@ -76,6 +76,8 @@ function extractFromHeadersFile(text) {
 
 function extractFromNginx(text) {
   const map = new Map()
+  const mismatches = []
+  const securitySet = new Set(SHARED_SECURITY_HEADERS)
   const regex = /add_header\s+([\w-]+)\s+"([^"]+)"/gi
   let match
   while ((match = regex.exec(text)) !== null) {
@@ -83,7 +85,12 @@ function extractFromNginx(text) {
     const val = normalize(match[2])
     if (!map.has(key)) {
       map.set(key, val)
+    } else if (securitySet.has(key) && map.get(key) !== val) {
+      mismatches.push(`${key}: "${map.get(key)}" !== "${val}"`)
     }
+  }
+  if (mismatches.length > 0) {
+    throw new Error(`nginx.conf tiene cabeceras de seguridad inconsistentes entre bloques: ${mismatches.join('; ')}`)
   }
   return map
 }

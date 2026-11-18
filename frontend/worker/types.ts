@@ -2,16 +2,48 @@ export interface AssetsBinding {
   fetch: (request: Request | string, init?: RequestInit) => Promise<Response>
 }
 
+export interface KVNamespaceLike {
+  get: (key: string) => Promise<string | null>
+  put: (
+    key: string,
+    value: string,
+    options?: { expirationTtl?: number },
+  ) => Promise<void>
+}
+
+export interface AiBinding {
+  run: (
+    model: string,
+    inputs: Record<string, unknown>,
+  ) => Promise<{ response?: string; result?: { response?: string } } | Record<string, unknown>>
+}
+
 export interface Env {
   ASSETS: AssetsBinding
+  ASTRO_KV?: KVNamespaceLike
+  AI?: AiBinding
   TELEGRAM_BOT_TOKEN?: string
   TELEGRAM_WEBHOOK_SECRET?: string
   TELEGRAM_COMMUNITY_CHAT_ID?: string
   TELEGRAM_FEED_CHAT_ID?: string
+  TELEGRAM_BOT_USERNAME?: string
   TELEGRAM_ADMIN_IDS?: string
+  TELEGRAM_FOLDER_URL?: string
+  TELEGRAM_MAIN_APP_ENABLED?: string
+  TELEGRAM_AI_ENABLED?: string
   APP_BASE_URL?: string
+  STELLAR_NETWORK?: 'testnet' | 'mainnet'
+  NETWORK_PASSPHRASE?: string
   STELLAR_RPC_URL?: string
   HORIZON_URL?: string
+  LAUNCHPAD_CONTRACT_ID?: string
+  SOROBITS_CONTRACT_ID?: string
+  ASTRO_TOKEN_ID?: string
+  ASTRO_PAIR_ID?: string
+  XLM_SAC?: string
+  SOROSWAP_FACTORY?: string
+  SOROSWAP_ROUTER?: string
+  DEVELOPER_TREASURY_ADDRESS?: string
 }
 
 export type BotLang = 'es' | 'en'
@@ -28,15 +60,33 @@ export interface TelegramUser {
 export interface TelegramChat {
   id: number
   type: 'private' | 'group' | 'supergroup' | 'channel'
+  title?: string
+  username?: string
 }
 
 export interface TelegramMessage {
   message_id: number
+  message_thread_id?: number
   from?: TelegramUser
   chat: TelegramChat
   text?: string
   caption?: string
   photo?: unknown[]
+  reply_to_message?: TelegramMessage
+  new_chat_members?: TelegramUser[]
+}
+
+export interface TelegramChatMemberUpdated {
+  chat: TelegramChat
+  from: TelegramUser
+  new_chat_member?: {
+    user: TelegramUser
+    status: string
+  }
+  old_chat_member?: {
+    user: TelegramUser
+    status: string
+  }
 }
 
 export interface TelegramCallbackQuery {
@@ -56,8 +106,10 @@ export interface TelegramInlineQuery {
 export interface TelegramUpdate {
   update_id: number
   message?: TelegramMessage
+  edited_message?: TelegramMessage
   callback_query?: TelegramCallbackQuery
   inline_query?: TelegramInlineQuery
+  chat_member?: TelegramChatMemberUpdated
 }
 
 export interface InlineKeyboardButton {

@@ -1,100 +1,60 @@
-# AstroGate Protocol (llms.txt)
-> The Decentralized Fair-Launch & AMM Platform on Stellar/Soroban.
+# AstroGate Protocol (`llms.txt`)
+> Decentralized Fair-Flywheel Token Launchpad, Soroswap AMM Interface, Sorobits SEP-50 NFTs & Telegram Mini App on Stellar / Soroban.
 
-AstroGate is a Web3 token launchpad and automated market maker (AMM) operating directly on Stellar Soroban. It provides 100% on-chain, verifiable Fair-Flywheel token launches (7 XLM protocol creation fee to Treasury, 45% Virtual Bonding Curve `1,250 vXLM -> 1,000 XLM` [3.24x] with progressive anti-whale floor fee, 25% Soroswap DEX Reserve with 0% base graduation cliff & mandatory LP burn, 29.7% Milestone Proof-of-Burn Vault [`1.485M` at grad + `1.485M` at `1,800 XLM`], 0.3% 15-day post-grad creator vesting, 3-tier Burn-to-Chat + King Shout [`50 / 500 / 5,000+`], and immediate ownership renunciation).
+AstroGate operates with zero user backend: wallet signatures (`@creit.tech/stellar-wallets-kit` or client-side AES-GCM vault) authorize all writes directly against Stellar Soroban RPC & Horizon.
 
-## Core Network & Contracts (Testnet)
+## Fair-Flywheel v4.3 Tokenomics
+- Standard Supply: `10,000,000` tokens (`7` decimals, `1 XLM = 10,000,000` stroops), hard-capped via OpenZeppelin `Capped`, ownership renounced atomically on launch.
+- Creation Fee: `7 XLM` fixed protocol fee + `>= 2 XLM` initial creator curve buy (locked until graduation or 7-day stalled fallback).
+- Allocation:
+  - `66.0%` (`6,600,000`) Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range; flat `0.80%` buy fee, asymmetric `2.50% -> 1.50%` sell fee). P2P transfers locked until graduation.
+  - `33.0%` (`3,300,000`) Soroswap DEX Pool Reserve + `>= 1,000 XLM` at graduation (`0%` price cliff), with `100%` of LP tokens time-locked inside the Launchpad contract for `7 years` (`reclaim_expired_lp` thereafter).
+  - `0.3%` (`30,000`) 15-day post-graduation creator vesting (`5 × 6,000` every 3 days).
+  - `0.7%` (`70,000`) Developer / Protocol Ecosystem allocation transferred to treasury upon graduation.
+- Organic Deflation (zero idle burn vault): `60%` of surplus curve floor fees dedicated to DEX Buyback & Burn (`trigger_buyback_burn`) + 3-tier Burn-to-Chat (`>= 50` Chat / `>= 500` Hype / `>= 5,000` King via `burn_shout`).
+
+## Core Network & Contracts (Stellar Testnet)
 - Network: Stellar Testnet (`Test SDF Network ; September 2015`)
-- RPC Endpoint: https://soroban-testnet.stellar.org
-- Fallback RPC Endpoint: https://rpc-testnet.stellar.org
-- Horizon API: https://horizon-testnet.stellar.org
-- Soroswap Factory: CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY
-- Soroswap Router: CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD
-- Native XLM SAC: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-- Genesis ASTRO Token: CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE
-- ASTRO/XLM AMM Pair: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
-- LP Burn Address: GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF
-- Developer Treasury (Testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE
-- Token WASM Hash (v4.2): 465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d
-- Launchpad Contract (v4.2): CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5
-- Launchpad WASM Hash (v4.2): 47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc
+- RPC Endpoint: `https://soroban-testnet.stellar.org` (fallback `https://rpc-testnet.stellar.org`)
+- Horizon API: `https://horizon-testnet.stellar.org`
+- Launchpad Contract (v4.3): `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+- Launchpad WASM Hash (v4.3): `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7`
+- Token WASM Hash (v4.2): `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6`
+- Genesis ASTRO Token: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
+- ASTRO/XLM Pair: `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP`
+- Sorobits NFT Contract (SEP-50): `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`
+- Soroswap Factory: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
+- Soroswap Router: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`
+- Native XLM SAC: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
+- LP Burn Address: `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`
 
-## AI Agent Integration & SDK
-Developers and autonomous AI agents can interact with the protocol programmatically using the `@astrogate/sdk` modules located at `src/sdk/index.ts`:
+## Repository & Machine Specs
+- GitHub Repository: `https://github.com/NunaLabsDev/astrogate`
+- Full LLM & Auditor Context: `/llms-full.txt`
+- OpenAPI 3.1 Spec: `/openapi.json`
+- Remote MCP Endpoint: `POST /mcp` (local stdio: `cd frontend && npm run mcp`)
+- AI Coding Agent Onboarding: `/AGENTS.md` (and `/CLAUDE.md`)
+- Architecture overview: `/ARCHITECTURE.md`
+- Security audit guide & invariants: `/AUDIT_GUIDE.md`
+- Trust model & security policy: `/SECURITY.md`
+- Trademark & anti-phishing policy: `/TRADEMARK.md`
+- Contracts (Rust / Soroban):
+  - `/contracts/launchpad/src/contract.rs` (Bonding Curve, Graduation, Anti-MEV Buyback, Vesting, Burn-to-Chat, Admin Governance)
+  - `/contracts/token/src/contract.rs` (SEP-41 Capped Burnable Token + Curve Transfer Lock + TTL extension)
+  - `/contracts/sorobits/src/contract.rs` & `/contracts/sorobits/src/engine.rs` (SEP-50 RLE Pixel Art + 256-bit Genomes)
+- Frontend & Crypto Vault:
+  - `/frontend/src/lib/network.ts` (`NETWORK_PRESETS`, multi-RPC failover)
+  - `/frontend/src/lib/hot-wallet/` (PBKDF2-SHA256 210k + AES-GCM-256 with publicKey AAD + RAM zeroing)
+  - `/frontend/src/lib/tokenomics.ts`, `/frontend/src/lib/token.ts`, `/frontend/src/lib/soroswap.ts`
+- Cloudflare Worker & Telegram Bot:
+  - `/frontend/worker/index.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`
+  - Automated broadcasts route exclusively to `@AstroGateFeed` (community chat stays command-only and spam-free).
 
-### 1. Query Active Market
-```typescript
-import { getMarketTokens } from './src/sdk'
-
-// Fetch top tokens with real-time pricing and liquidity
-const tokens = await getMarketTokens({ maxTokens: 20 })
-// Returns: Array<{ id, name, symbol, decimals, pairId, priceXlm, reserveToken, reserveXlm, graduationPercent, isGraduated }>
-```
-
-### 2. Quote AMM Swap
-```typescript
-import { quoteSwap } from './src/sdk'
-
-// Quote buying 10 XLM worth of a token
-const buyQuote = await quoteSwap({
-  tokenId: 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
-  amountIn: 100_000_000n, // 10 XLM (7 decimals)
-  direction: 'buy',
-  slippagePercent: 2,
-})
-// Returns: { direction, amountIn, amountOutEstimated, amountOutMinimum, priceImpactPercent }
-```
-
-### 3. Verify Anti-Rug Status
-```typescript
-import { verifyAntiRug } from './src/sdk'
-
-const audit = await verifyAntiRug(tokenId)
-// audit.isAntiRugVerified === true if 100% LP burned to GAAAA...WHF and ownership renounced
-```
-
-## Function Calling / Tool Definitions for LLM Agents
-```json
-[
-  {
-    "name": "get_market_tokens",
-    "description": "Returns list of active tokens, liquidity reserves, and live XLM/USD prices on AstroGate",
-    "parameters": {
-      "type": "object",
-      "properties": {
-        "maxTokens": { "type": "number", "description": "Maximum number of tokens to return (default 20)" }
-      }
-    }
-  },
-  {
-    "name": "quote_swap",
-    "description": "Calculates exact AMM swap output and price impact between XLM and any launchpad token",
-    "parameters": {
-      "type": "object",
-      "required": ["tokenId", "amountIn", "direction"],
-      "properties": {
-        "tokenId": { "type": "string", "description": "Stellar contract address of token" },
-        "amountIn": { "type": "string", "description": "Amount in stroops / base units (7 decimals)" },
-        "direction": { "type": "string", "enum": ["buy", "sell"], "description": "buy = XLM->Token, sell = Token->XLM" },
-        "slippagePercent": { "type": "number", "description": "Max slippage percentage (default 2)" }
-      }
-    }
-  },
-  {
-    "name": "verify_anti_rug",
-    "description": "Audits whether a token has 100% LP permanently burned to GAAAA...WHF and ownership renounced",
-    "parameters": {
-      "type": "object",
-      "required": ["tokenId"],
-      "properties": {
-        "tokenId": { "type": "string", "description": "Stellar contract address of token" }
-      }
-    }
-  }
-]
-```
-
-## Security & Architectural Guarantees
-- No Backend Auth: Identity is verified exclusively via ED25519 cryptographic signatures from Stellar wallets.
-- Atomic Settling: Token balances and LP shares are stored in Soroban ledger state with TTL extension.
-- High Availability Multi-RPC: Read-only operations and event discovery failover automatically across the RPC pool.
+## SDK Integration (`frontend/src/sdk/index.ts`)
+Read-only and quoting functions for autonomous agents:
+- `getMarketTokens({ maxTokens })`
+- `getTokenDetails(tokenId)`
+- `quoteSwap({ tokenId, amountIn, direction, slippagePercent })`
+- `verifyAntiRug(tokenId)`
+- `fetchTokenEvents(tokenId, { maxEvents })`
+- `checkRpcHealth()`

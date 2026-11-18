@@ -2075,7 +2075,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "010000000001009c0ce7697ceb5707640f082d3040455c695728bbc1064f327e"
+                      "bytes": "01000000000100e279f2499f2f09bc6f418d1d0342a33831191a76ef0afacba6"
                     }
                   },
                   {
@@ -2159,7 +2159,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "0101020100020178aa46ba6e2d9bed8222debced2aa59a99c350a413dc5d9a8b"
+                      "bytes": "0101020100020117db5357a344d4b2fb57caab295e44a533cc0774991f601a1d"
                     }
                   },
                   {
@@ -2243,7 +2243,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "0102010002030159849bd589da96ca06a13a77a6e5d5bed348ef83d6248ceed6"
+                      "bytes": "0102010002030187ccd09a47b8646ffa618d36d5191582cd336abce34b554844"
                     }
                   },
                   {
@@ -2327,7 +2327,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "010303000004016d8a7c7e86119c877b669d417255a3b7076e938c54ad5a2d11"
+                      "bytes": "010303000004012c315f4a72e5fd8ee0a2fb58b91dd7ff70e63cfd8f6db2c337"
                     }
                   },
                   {
@@ -2411,7 +2411,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "010101020100007a618bbb872fd403035889d1da07a99aa272f4a42cb3cc023c"
+                      "bytes": "01010102010000d4586d0f0aed7b10fa9f55cbfa2532cf5bfbfb9cfc4cdbc859"
                     }
                   },
                   {
@@ -2495,7 +2495,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "01040301030500efe6248e3787f6c406cd670b366b3c5fdd2821413317fd87a9"
+                      "bytes": "010403010305004df595ba2f94a340ea74cf42c62a0862d05eab53dea463b311"
                     }
                   },
                   {
@@ -2579,7 +2579,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "0102020104070008968c1e7dfdd6eeb925039fe8881494adbdb3720cde3f42f5"
+                      "bytes": "0102020104070059131ec40af0741440cb9e17d3da416ad9fedf7d329ad16e31"
                     }
                   },
                   {
@@ -2663,7 +2663,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "0105040201060299f83c6876d1d79a6529f81c51fa451f471ef78f55d7156018"
+                      "bytes": "01050402010602a25e47d105d009c734d000105b48361a35196b5044d2c97be4"
                     }
                   },
                   {
@@ -2973,6 +2973,18 @@
                       },
                       "val": {
                         "u32": 8
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "Treasury"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     }
                   ]

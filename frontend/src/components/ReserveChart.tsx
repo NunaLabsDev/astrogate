@@ -107,25 +107,24 @@ export function ReserveChart({
   }, [])
 
   const pairId = pool?.pairId ?? null
+  const tradeScope = pairId || null
 
   const trades = useMemo(() => {
-    return (events ?? []).filter(
-      (e) =>
-        e.kind === 'transfer' &&
-        pairId &&
-        (e.from === pairId || e.to === pairId),
-    )
-  }, [events, pairId])
+    return (events ?? []).filter((e) => {
+      const role = classifyTokenEvent(e, tradeScope)
+      return role === 'buy' || role === 'sell'
+    })
+  }, [events, tradeScope])
 
   const buyCount = useMemo(
     () =>
-      trades.filter((e) => classifyTokenEvent(e, pairId) === 'buy').length,
-    [trades, pairId],
+      trades.filter((e) => classifyTokenEvent(e, tradeScope) === 'buy').length,
+    [trades, tradeScope],
   )
   const sellCount = useMemo(
     () =>
-      trades.filter((e) => classifyTokenEvent(e, pairId) === 'sell').length,
-    [trades, pairId],
+      trades.filter((e) => classifyTokenEvent(e, tradeScope) === 'sell').length,
+    [trades, tradeScope],
   )
 
   const grad = graduationProgressForListing({

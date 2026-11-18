@@ -10,6 +10,7 @@ import {
   CREATOR_VESTING_SCHEDULE,
   CURVE_TOKENS_ALLOC_BASE,
   DEFAULT_OPTIMIZED_SEED_XLM,
+  DEV_TOKENS_ALLOC_BASE,
   DEX_TOKENS_ALLOC_BASE,
   FAIR_INITIAL_SUPPLY_BASE,
   GRADUATION_TARGET_XLM,
@@ -25,22 +26,24 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (Fair-Flywheel v4.2: 42 / 28 / 29.5 / 0.5)', () => {
-  it('reparte 42% curva, 28% DEX, 29.5% quema, 0.5% vesting sobre 10M', () => {
+describe('allocation math (Fair-Flywheel v4.3: 66 / 33 / 0.3 / 0.7)', () => {
+  it('reparte 66% curva, 33% DEX, 0.3% vesting creador, 0.7% dev ecosystem sobre 10M (0% burn vault)', () => {
+    expect(BURN_VAULT_TOKENS_ALLOC_BASE).toBe(0n)
     expect(
       CURVE_TOKENS_ALLOC_BASE +
         DEX_TOKENS_ALLOC_BASE +
         BURN_VAULT_TOKENS_ALLOC_BASE +
-        CREATOR_VESTING_ALLOC_BASE,
+        CREATOR_VESTING_ALLOC_BASE +
+        DEV_TOKENS_ALLOC_BASE,
     ).toBe(FAIR_INITIAL_SUPPLY_BASE)
     expect(poolAllocationBase(FAIR_INITIAL_SUPPLY_BASE)).toBe(
-      9_950_000n * STROOPS_PER_UNIT,
+      9_900_000n * STROOPS_PER_UNIT,
     )
     expect(STELLAR_BURN_ADDRESS).toHaveLength(56)
     expect(CREATOR_VESTING_SCHEDULE).toHaveLength(5)
     expect(
       CREATOR_VESTING_SCHEDULE.reduce((sum, p) => sum + p.tokensAmount, 0),
-    ).toBe(50_000)
+    ).toBe(30_000)
   })
 
   it('devuelve 0 sobre supplies inválidos', () => {
@@ -48,7 +51,7 @@ describe('allocation math (Fair-Flywheel v4.2: 42 / 28 / 29.5 / 0.5)', () => {
   })
 })
 
-describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.2)', () => {
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.3)', () => {
   it('aplica fee plano 80 bps (0.50% treasury + 0.30% floor) en compras chicas y grandes', () => {
     const q = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
     expect(q).not.toBeNull()
@@ -56,9 +59,9 @@ describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.2)',
     expect(q!.treasury_fee).toBe(500_000n)
     expect(q!.floor_bonus).toBe(300_000n)
     expect(q!.will_graduate).toBe(false)
-    // At 2,000 vXLM / 12.6M vTok, 10 XLM buys ~62.2K tokens
-    expect(q!.tokens_out).toBeGreaterThan(60_000n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBeLessThan(65_000n * STROOPS_PER_UNIT)
+    // At 1,000 vXLM / 13.2M vTok, 10 XLM (9.92 net) buys ~129.6K tokens
+    expect(q!.tokens_out).toBeGreaterThan(125_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBeLessThan(135_000n * STROOPS_PER_UNIT)
 
     const qLarge = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
     expect(qLarge).not.toBeNull()
@@ -78,23 +81,23 @@ describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.2)',
 
     const lateSell = localCurveQuoteSell(
       600n * STROOPS_PER_UNIT,
-      2_800_000n * STROOPS_PER_UNIT,
+      4_500_000n * STROOPS_PER_UNIT,
       100_000n * STROOPS_PER_UNIT,
     )
     expect(lateSell).not.toBeNull()
     expect(lateSell!.total_fee_bps).toBe(150n)
   })
 
-  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (4.2M)', () => {
+  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (6.6M)', () => {
     const q = localCurveQuoteBuy(
       950n * STROOPS_PER_UNIT,
-      4_000_000n * STROOPS_PER_UNIT,
+      6_250_000n * STROOPS_PER_UNIT,
       100n * STROOPS_PER_UNIT,
     )
     expect(q).not.toBeNull()
     expect(q!.will_graduate).toBe(true)
     expect(q!.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBe(200_000n * STROOPS_PER_UNIT)
+    expect(q!.tokens_out).toBe(350_000n * STROOPS_PER_UNIT)
     expect(q!.total_xlm_charged).toBeLessThan(100n * STROOPS_PER_UNIT)
   })
 

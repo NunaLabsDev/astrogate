@@ -1,20 +1,33 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ASTROGATE_QUEST_BADGES,
   computePilotPerks,
   computeQuestSummary,
+  type QuestProgressSummary,
 } from '../../worker/quests'
 import { explorerContractUrl, explorerAccountUrl } from '../lib/explorer'
-import { shortAddress } from '../lib/format'
+import { errorMessage, shortAddress } from '../lib/format'
+import { formatUsdPrice } from '../lib/soroswap'
+import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
+import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { SOROBITS_CONTRACT_ID, SOROBITS_WASM_HASH } from '../lib/network'
 import {
+  claimPioneerOnChain,
+  claimQuestBadgeOnChain,
+  fetchCapsuleQuota,
+  fetchClaimedArchetypes,
   fetchSorobitById,
   fetchSorobitsByOwner,
   fetchSorobitsSummary,
+  forgeAscendOnChain,
+  hasClaimedPioneer,
+  mintCapsuleOnChain,
+  syncEpigeneticsOnChain,
 } from '../lib/sorobits'
-import { shareToTelegram, telegramMiniAppUrl } from '../lib/telegram'
+import { notifyTelegramPulse, shareToTelegram, telegramMiniAppUrl } from '../lib/telegram'
+import { toast } from '../lib/toast'
 import { useActivity } from '../store/activity'
 import { useCreatedTokens } from '../store/creations'
 import { useWallet } from '../store/wallet'
@@ -41,14 +54,23 @@ const GENESIS_LORE: Record<string, { era: string; core: string }> = {
 }
 
 export function SorobitsPage() {
-  const { publicKey, openWalletModal } = useWallet()
+  const { publicKey, openWalletModal, requireSignerOrPrompt } = useWallet()
+  const queryClient = useQueryClient()
   const createdTokens = useCreatedTokens((s) => s.tokens)
   const activityEntries = useActivity((s) => s.entries)
+  const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
 
   const [selectedTokenId, setSelectedTokenId] = useState(0)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const [animatedMode, setAnimatedMode] = useState(true)
   const [showRawJson, setShowRawJson] = useState(false)
   const [lookupInput, setLookupInput] = useState('')
+  const [claimingPioneer, setClaimingPioneer] = useState(false)
+  const [mintingCapsule, setMintingCapsule] = useState(false)
+  const [claimingArchetype, setClaimingArchetype] = useState<number | null>(null)
+  const [syncingTokenId, setSyncingTokenId] = useState<number | null>(null)
+  const [forging, setForging] = useState(false)
+  const [forgeSelection, setForgeSelection] = useState<[string, string]>(['', ''])
 
   const inspectedAddress = useMemo(() => {
     const clean = lookupInput.trim().toUpperCase()
@@ -78,7 +100,48 @@ export function SorobitsPage() {
     retry: 1,
   })
 
-  const questProgress = useMemo(() => {
+  const pioneerClaimed = useQuery({
+    queryKey: ['sorobits-pioneer-claimed', SOROBITS_CONTRACT_ID, inspectedAddress],
+    queryFn: () => hasClaimedPioneer(inspectedAddress as string),
+    enabled: Boolean(inspectedAddress),
+    staleTime: 30_000,
+    retry: 1,
+  })
+
+  const claimedArchetypes = useQuery({
+    queryKey: ['sorobits-claimed-archetypes', SOROBITS_CONTRACT_ID, inspectedAddress],
+    queryFn: () => fetchClaimedArchetypes(inspectedAddress as string),
+    enabled: Boolean(inspectedAddress),
+    staleTime: 30_000,
+    retry: 1,
+  })
+
+  const capsuleQuota = useQuery({
+    queryKey: ['sorobits-capsule-quota', SOROBITS_CONTRACT_ID, inspectedAddress],
+    queryFn: () => fetchCapsuleQuota(inspectedAddress as string),
+    enabled: Boolean(inspectedAddress),
+    staleTime: 30_000,
+    retry: 1,
+  })
+
+  const remoteQuests = useQuery({
+    queryKey: ['sorobits-remote-quests', inspectedAddress],
+    queryFn: async (): Promise<QuestProgressSummary | null> => {
+      try {
+        const res = await fetch(`/api/v1/quests/${inspectedAddress}`)
+        if (!res.ok) return null
+        const data = (await res.json()) as { ok?: boolean } & QuestProgressSummary
+        return data.ok && data.unlocked ? data : null
+      } catch {
+        return null
+      }
+    },
+    enabled: Boolean(inspectedAddress) && typeof window !== 'undefined',
+    staleTime: 30_000,
+    retry: false,
+  })
+
+  const localQuestProgress = useMemo(() => {
     const accountEntries = inspectedAddress
       ? activityEntries.filter(
           (entry) =>
@@ -114,6 +177,149 @@ export function SorobitsPage() {
     })
   }, [inspectedAddress, activityEntries, createdTokens])
 
+  const questProgress = useMemo(() => {
+    const remote = remoteQuests.data
+    if (!remote) return localQuestProgress
+    return computeQuestSummary({
+      accountId: remote.accountId,
+      funded: remote.funded || localQuestProgress.funded,
+      launchedCount: Math.max(remote.launchedCount, localQuestProgress.launchedCount),
+      shoutCount: Math.max(remote.shoutCount, localQuestProgress.shoutCount),
+      graduatedCount: Math.max(remote.graduatedCount, localQuestProgress.graduatedCount),
+      swapCount: Math.max(remote.swapCount, localQuestProgress.swapCount),
+      assetCount: Math.max(remote.assetCount, localQuestProgress.assetCount),
+      ecosystemTokenCount: remote.unlocked.og ? 1 : undefined,
+      kingBurnCount: Math.max(remote.kingBurnCount, localQuestProgress.kingBurnCount),
+    })
+  }, [remoteQuests.data, localQuestProgress])
+
+  async function invalidateSorobitsQueries() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['sorobits-summary'] }),
+      queryClient.invalidateQueries({ queryKey: ['sorobits-owner'] }),
+      queryClient.invalidateQueries({ queryKey: ['sorobits-pioneer-claimed'] }),
+      queryClient.invalidateQueries({ queryKey: ['sorobits-claimed-archetypes'] }),
+      queryClient.invalidateQueries({ queryKey: ['sorobits-capsule-quota'] }),
+      queryClient.invalidateQueries({ queryKey: ['sorobits-token'] }),
+    ])
+  }
+
+  async function onClaimPioneer() {
+    const signer = requireSignerOrPrompt()
+    if (!signer) return
+    setClaimingPioneer(true)
+    try {
+      const { tokenId, hash } = await claimPioneerOnChain(signer)
+      if (hash) void notifyTelegramPulse(hash)
+      toast.success(`Claimed AGQ01 Soulbound Pioneer #${tokenId}!`)
+      await invalidateSorobitsQueries()
+      setSelectedTokenId(tokenId)
+      setInspectorOpen(true)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setClaimingPioneer(false)
+    }
+  }
+
+  async function onMintCapsule() {
+    const signer = requireSignerOrPrompt()
+    if (!signer) return
+    setMintingCapsule(true)
+    try {
+      const { tokenId, hash } = await mintCapsuleOnChain(signer)
+      if (hash) void notifyTelegramPulse(hash)
+      toast.success(`🎲 Opened Mystery Sorobit Capsule #${tokenId} (7 XLM)!`)
+      await invalidateSorobitsQueries()
+      setSelectedTokenId(tokenId)
+      setInspectorOpen(true)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setMintingCapsule(false)
+    }
+  }
+
+  async function onClaimQuestBadge(archetypeId: number, assetCode: string) {
+    const signer = requireSignerOrPrompt()
+    if (!signer) return
+    setClaimingArchetype(archetypeId)
+    try {
+      const { tokenId, hash } = await claimQuestBadgeOnChain(signer, archetypeId)
+      if (hash) void notifyTelegramPulse(hash)
+      toast.success(`Claimed ${assetCode} Sorobit #${tokenId} on-chain!`)
+      await invalidateSorobitsQueries()
+      setSelectedTokenId(tokenId)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setClaimingArchetype(null)
+    }
+  }
+
+  async function onSyncEpigenetics(tokenId: number) {
+    const signer = requireSignerOrPrompt()
+    if (!signer) return
+    setSyncingTokenId(tokenId)
+    try {
+      const { xpScore, rankTier, hash } = await syncEpigeneticsOnChain(
+        signer,
+        tokenId,
+      )
+      if (hash) void notifyTelegramPulse(hash)
+      toast.success(`Synced Sorobit #${tokenId}: Tier ${rankTier} · ${xpScore} XP`)
+      await invalidateSorobitsQueries()
+      setSelectedTokenId(tokenId)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setSyncingTokenId(null)
+    }
+  }
+
+  const tradeableOwned = useMemo(
+    () => (ownedTokens.data ?? []).filter((item) => !item.soulbound),
+    [ownedTokens.data],
+  )
+
+  const resolvedForgeIds = useMemo((): [number | null, number | null] => {
+    if (tradeableOwned.length < 2) return [null, null]
+    const idA = forgeSelection[0]
+      ? Number(forgeSelection[0])
+      : tradeableOwned[0].tokenId
+    const fallbackB =
+      tradeableOwned.find((t) => t.tokenId !== idA)?.tokenId ?? null
+    const idB = forgeSelection[1] ? Number(forgeSelection[1]) : fallbackB
+    return [idA, idB]
+  }, [forgeSelection, tradeableOwned])
+
+  async function onForgeAscend() {
+    const [burnIdA, burnIdB] = resolvedForgeIds
+    if (burnIdA === null || burnIdB === null || burnIdA === burnIdB) {
+      toast.error('Select two distinct tradeable Sorobits to forge.')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) return
+    setForging(true)
+    try {
+      const { tokenId, hash } = await forgeAscendOnChain(signer, burnIdA, burnIdB)
+      if (hash) void notifyTelegramPulse(hash)
+      toast.success(`⚒️ Forged Ascended Sorobit #${tokenId} (burned #${burnIdA} & #${burnIdB})!`)
+      setForgeSelection(['', ''])
+      await invalidateSorobitsQueries()
+      setSelectedTokenId(tokenId)
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setForging(false)
+    }
+  }
+
+  const claimedSet = useMemo(
+    () => new Set(claimedArchetypes.data ?? []),
+    [claimedArchetypes.data],
+  )
   const perks = useMemo(() => computePilotPerks(questProgress), [questProgress])
   const totalSupply = summary.data?.totalSupply ?? 0
   const activeItem = inspectedToken.data ?? summary.data?.genesis0 ?? null
@@ -132,7 +338,7 @@ export function SorobitsPage() {
               Sorobits (<span className="font-mono text-sky-300">SBIT</span>)
             </h1>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Native <span className="font-semibold text-white">32×32</span> genomic pixel-art NFTs stored and rendered directly inside Stellar Soroban smart contracts — zero Pinata, zero IPFS, sealed Season-1 artwork by <span className="text-sky-300 font-medium">NunaLabs</span>.
+              Collect pixel pilots 100% stored on Stellar Soroban: claim <span className="font-semibold text-white">1 free Pilot Avatar</span>, open <span className="font-semibold text-amber-300">7 XLM Mystery Capsules</span> unlocked as you trade, and forge <span className="font-semibold text-sky-300">2 → 1 Gen+1</span> rarities.
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1">
               <a
@@ -190,17 +396,27 @@ export function SorobitsPage() {
         </div>
       </section>
 
-      {/* Live On-Chain Inspector */}
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/55 p-4 sm:p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Technical Live Ledger Inspector (collapsed by default for progressive disclosure) */}
+      <details
+        open={inspectorOpen}
+        onToggle={(e) => setInspectorOpen(e.currentTarget.open)}
+        className="group rounded-2xl border border-slate-800 bg-slate-900/55 p-4 sm:p-6"
+      >
+        <summary className="flex cursor-pointer select-none flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-white">
-              🔬 Live Ledger Token Inspector
+            <h2 className="text-sm sm:text-base font-semibold text-white">
+              🔬 Live Ledger Inspector &amp; On-Chain SVG Lab (Advanced)
             </h2>
             <p className="text-xs text-slate-400">
-              Reads <code>token_uri(id)</code>, <code>animated_svg(id)</code> &amp; <code>get_sorobit(id)</code> live from Soroban Testnet RPC.
+              Reads <code>token_uri(id)</code>, <code>animated_svg(id)</code> &amp; raw 256-bit DNA directly from Soroban RPC.
             </p>
           </div>
+          <span className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] font-mono text-slate-300">
+            #{selectedTokenId} · {inspectorOpen ? 'Hide ▲' : 'Inspect ▼'}
+          </span>
+        </summary>
+
+        <div className="mt-4 pt-4 border-t border-slate-800/80">
           <div className="flex flex-wrap items-center gap-2">
             {Array.from({ length: Math.min(Math.max(totalSupply, 1), 8) }, (_, idx) => (
               <button
@@ -228,88 +444,88 @@ export function SorobitsPage() {
               {animatedMode ? '⚡ SCP 5s Pulse ON' : '🖼 Static SVG'}
             </button>
           </div>
-        </div>
 
-        {activeItem ? (
-          <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr]">
-            <div className="flex flex-col items-center rounded-xl border border-slate-800 bg-slate-950 p-4">
-              <img
-                src={animatedMode ? activeItem.animatedDataUrl : activeItem.imageDataUrl}
-                alt={activeItem.name}
-                className="h-44 w-44 rounded-xl border border-slate-700 bg-slate-950"
-                style={{ imageRendering: 'pixelated' }}
-              />
-              <span className="mt-2.5 rounded-full bg-indigo-500/15 px-2.5 py-0.5 font-mono text-[11px] text-indigo-300">
-                {activeItem.svgMarkup.length.toLocaleString()} bytes on-chain SVG
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 className="text-lg font-bold text-white">{activeItem.name}</h3>
-                  <p className="font-mono text-xs text-slate-400">
-                    Owner:{' '}
-                    <a
-                      href={explorerAccountUrl(activeItem.owner)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sky-300 hover:underline"
-                    >
-                      {shortAddress(activeItem.owner)} ↗
-                    </a>
-                    {' · '}Born Ledger #{activeItem.bornLedger.toLocaleString()} ·{' '}
-                    {activeItem.soulbound ? '🔒 Soulbound' : '♻️ Tradeable'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowRawJson((v) => !v)}
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-sky-400/50"
-                >
-                  {showRawJson ? 'Hide Raw SVG' : 'Inspect On-Chain SVG'}
-                </button>
+          {activeItem ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-[220px_1fr]">
+              <div className="flex flex-col items-center rounded-xl border border-slate-800 bg-slate-950 p-4">
+                <img
+                  src={animatedMode ? activeItem.animatedDataUrl : activeItem.imageDataUrl}
+                  alt={activeItem.name}
+                  className="h-44 w-44 rounded-xl border border-slate-700 bg-slate-950"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+                <span className="mt-2.5 rounded-full bg-indigo-500/15 px-2.5 py-0.5 font-mono text-[11px] text-indigo-300">
+                  {activeItem.svgMarkup.length.toLocaleString()} bytes on-chain SVG
+                </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                {activeItem.attributes.map((attr) => (
-                  <div
-                    key={attr.trait_type}
-                    className="rounded-lg border border-slate-800 bg-slate-950/75 px-2.5 py-2"
-                  >
-                    <p className="text-[10px] uppercase tracking-wider text-slate-500">
-                      {attr.trait_type}
-                    </p>
-                    <p className="truncate font-mono text-xs font-semibold text-slate-100">
-                      {String(attr.value)}
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-lg font-bold text-white">{activeItem.name}</h3>
+                    <p className="font-mono text-xs text-slate-400">
+                      Owner:{' '}
+                      <a
+                        href={explorerAccountUrl(activeItem.owner)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sky-300 hover:underline"
+                      >
+                        {shortAddress(activeItem.owner)} ↗
+                      </a>
+                      {' · '}Born Ledger #{activeItem.bornLedger.toLocaleString()} ·{' '}
+                      {activeItem.soulbound ? '🔒 Soulbound' : '♻️ Tradeable'}
                     </p>
                   </div>
-                ))}
+                  <button
+                    type="button"
+                    onClick={() => setShowRawJson((v) => !v)}
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-sky-400/50"
+                  >
+                    {showRawJson ? 'Hide Raw SVG' : 'Inspect On-Chain SVG'}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {activeItem.attributes.map((attr) => (
+                    <div
+                      key={attr.trait_type}
+                      className="rounded-lg border border-slate-800 bg-slate-950/75 px-2.5 py-2"
+                    >
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                        {attr.trait_type}
+                      </p>
+                      <p className="truncate font-mono text-xs font-semibold text-slate-100">
+                        {String(attr.value)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                {showRawJson ? (
+                  <pre className="max-h-40 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] text-emerald-300">
+                    {activeItem.svgMarkup}
+                  </pre>
+                ) : null}
               </div>
-
-              {showRawJson ? (
-                <pre className="max-h-40 overflow-auto rounded-xl border border-slate-800 bg-slate-950 p-3 font-mono text-[11px] text-emerald-300">
-                  {activeItem.svgMarkup}
-                </pre>
-              ) : null}
             </div>
-          </div>
-        ) : (
-          <p className="mt-4 text-xs text-slate-400">
-            Loading live Sorobits token data from Stellar Soroban Testnet RPC…
-          </p>
-        )}
-      </section>
+          ) : (
+            <p className="mt-4 text-xs text-slate-400">
+              Loading live Sorobits token data from Stellar Soroban Testnet RPC…
+            </p>
+          )}
+        </div>
+      </details>
 
-      {/* Wallet / Address Lookup */}
+      {/* Wallet / Address Lookup + Progressive 3-Step Journey */}
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              🪪 Pilot Wallet &amp; Held Sorobits
+              🪪 Your Sorobits Journey
             </h2>
             <p className="text-xs text-slate-400">
-              Connect a wallet or paste any public <code>G…</code> Stellar Testnet address to check Sorobits &amp; Quest perks.
+              Start with your free Pilot, unlock 7 XLM Mystery Capsules as you trade, and evolve rarer Sorobits over time.
             </p>
           </div>
           {!publicKey ? (
@@ -321,6 +537,108 @@ export function SorobitsPage() {
               Connect Wallet
             </button>
           ) : null}
+        </div>
+
+        {/* Beginner-friendly 3-Step Onboarding Cards */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-emerald-500/30 bg-slate-950/70 p-3.5 flex flex-col justify-between gap-2.5">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-mono">
+                <span className="font-bold text-emerald-300">STEP 1 · FREE</span>
+                <span className="text-slate-400">0 XLM · Soulbound</span>
+              </div>
+              <p className="text-sm font-bold text-white">🌊 Claim Pilot Avatar</p>
+              <p className="text-xs text-slate-400 leading-snug">
+                Your permanent pilot passport (<code className="text-sky-300">AGQ01</code>). Grows XP as you explore AstroGate.
+              </p>
+            </div>
+            {publicKey ? (
+              pioneerClaimed.data ? (
+                <span className="inline-flex items-center justify-center rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-bold text-emerald-300">
+                  ✓ Pilot Active
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={claimingPioneer}
+                  onClick={() => void onClaimPioneer()}
+                  className="w-full rounded-xl bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
+                >
+                  {claimingPioneer ? 'Claiming…' : '🎁 Claim Free Pilot (0 XLM)'}
+                </button>
+              )
+            ) : (
+              <button
+                type="button"
+                onClick={() => openWalletModal('connect')}
+                className="w-full rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/25 transition"
+              >
+                Connect Wallet to Claim
+              </button>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-amber-500/30 bg-slate-950/70 p-3.5 flex flex-col justify-between gap-2.5">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-mono">
+                <span className="font-bold text-amber-300">STEP 2 · CAPSULE</span>
+                <span className="text-slate-400">
+                  7 XLM (≈ ${formatUsdPrice(7 * xlmUsd)} USDC) · {capsuleQuota.data ? `${capsuleQuota.data.minted}/${capsuleQuota.data.maxAllowed}` : '2 Base'} Slots
+                </span>
+              </div>
+              <p className="text-sm font-bold text-white">🎲 Open Mystery Sorobit</p>
+              <p className="text-xs text-slate-400 leading-snug">
+                Mints a tradeable 256-bit random Sorobit. Earn extra capsule slots by trading or forging!
+              </p>
+            </div>
+            {publicKey ? (
+              <button
+                type="button"
+                disabled={
+                  mintingCapsule ||
+                  Boolean(
+                    capsuleQuota.data &&
+                      capsuleQuota.data.minted >= capsuleQuota.data.maxAllowed,
+                  )
+                }
+                onClick={() => void onMintCapsule()}
+                className="w-full rounded-xl bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition"
+              >
+                {mintingCapsule
+                  ? 'Opening Capsule…'
+                  : capsuleQuota.data &&
+                      capsuleQuota.data.minted >= capsuleQuota.data.maxAllowed
+                    ? 'Slot Cap Reached (Trade or Forge)'
+                    : '🎲 Mint Capsule · 7 XLM'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => openWalletModal('connect')}
+                className="w-full rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/25 transition"
+              >
+                Connect Wallet to Mint
+              </button>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-sky-500/30 bg-slate-950/70 p-3.5 flex flex-col justify-between gap-2.5">
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[11px] font-mono">
+                <span className="font-bold text-sky-300">STEP 3 · EVOLVE</span>
+                <span className="text-slate-400">2 → 1 Gen+1</span>
+              </div>
+              <p className="text-sm font-bold text-white">⚒️ Sync XP &amp; Forge</p>
+              <p className="text-xs text-slate-400 leading-snug">
+                Sync Launchpad XP onto your Sorobits anytime, or fuse 2 tradeable Sorobits into a rarer Gen+1 hero.
+              </p>
+            </div>
+            <span className="inline-flex items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-200">
+              {tradeableOwned.length >= 2
+                ? `🔥 Ready (${tradeableOwned.length} Forgeable)`
+                : `${ownedTokens.data?.length ?? 0} Held · Earn More Below`}
+            </span>
+          </div>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -372,33 +690,126 @@ export function SorobitsPage() {
             </div>
 
             {ownedTokens.data && ownedTokens.data.length > 0 ? (
-              <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-                {ownedTokens.data.map((item) => (
-                  <button
-                    key={item.tokenId}
-                    type="button"
-                    onClick={() => setSelectedTokenId(item.tokenId)}
-                    className="flex items-center gap-3 rounded-xl border border-sky-500/30 bg-slate-950 p-3 text-left hover:border-sky-400 transition"
-                  >
-                    <img
-                      src={item.animatedDataUrl}
-                      alt={item.name}
-                      className="h-14 w-14 shrink-0 rounded-lg border border-slate-700"
-                      style={{ imageRendering: 'pixelated' }}
-                    />
-                    <div className="min-w-0 text-xs">
-                      <p className="truncate font-semibold text-white">{item.name}</p>
-                      <p className="font-mono text-[11px] text-slate-400">
-                        {item.soulbound ? 'Soulbound' : 'Tradeable'} · XP {item.xpScore}
-                      </p>
+              <div className="space-y-3">
+                <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+                  {ownedTokens.data.map((item) => (
+                    <div
+                      key={item.tokenId}
+                      className="flex items-center justify-between gap-2 rounded-xl border border-sky-500/30 bg-slate-950 p-3 hover:border-sky-400 transition"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTokenId(item.tokenId)
+                          setInspectorOpen(true)
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                      >
+                        <img
+                          src={item.animatedDataUrl}
+                          alt={item.name}
+                          className="h-14 w-14 shrink-0 rounded-lg border border-slate-700"
+                          style={{ imageRendering: 'pixelated' }}
+                        />
+                        <div className="min-w-0 text-xs">
+                          <p className="truncate font-semibold text-white">{item.name}</p>
+                          <p className="font-mono text-[11px] text-slate-400">
+                            {item.soulbound ? 'Soulbound' : `Gen ${item.generation}`} · T{item.rankTier} · XP {item.xpScore}
+                          </p>
+                        </div>
+                      </button>
+                      {publicKey && inspectedAddress === publicKey ? (
+                        <button
+                          type="button"
+                          disabled={syncingTokenId === item.tokenId}
+                          onClick={() => void onSyncEpigenetics(item.tokenId)}
+                          className="shrink-0 rounded-lg border border-indigo-500/40 bg-indigo-500/15 px-2.5 py-1.5 text-[11px] font-semibold text-indigo-200 hover:bg-indigo-500/25 disabled:opacity-50 transition"
+                          title="Sync on-chain XP & TTL rank tier from Launchpad activity"
+                        >
+                          {syncingTokenId === item.tokenId ? 'Syncing…' : '⚡ Sync XP'}
+                        </button>
+                      ) : null}
                     </div>
-                  </button>
-                ))}
+                  ))}
+                </div>
+
+                {publicKey &&
+                inspectedAddress === publicKey &&
+                tradeableOwned.length >= 2 ? (
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-950/15 p-3.5 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-amber-200">
+                          ⚒️ Deflationary Forge (2 → 1 Ascended Gen+1)
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          Permanently burns 2 tradeable Sorobits on-chain to mint 1 Gen+1 Ascended Sorobit (+500 XP &amp; +1 Tier boost).
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        aria-label="First Sorobit to burn"
+                        value={String(resolvedForgeIds[0] ?? '')}
+                        onChange={(e) =>
+                          setForgeSelection([e.target.value, forgeSelection[1]])
+                        }
+                        className="min-w-[140px] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-slate-100"
+                      >
+                        {tradeableOwned.map((t) => (
+                          <option key={t.tokenId} value={String(t.tokenId)}>
+                            #{t.tokenId} · {t.name} (G{t.generation})
+                          </option>
+                        ))}
+                      </select>
+                      <span className="font-mono text-xs text-amber-300">+</span>
+                      <select
+                        aria-label="Second Sorobit to burn"
+                        value={String(resolvedForgeIds[1] ?? '')}
+                        onChange={(e) =>
+                          setForgeSelection([forgeSelection[0], e.target.value])
+                        }
+                        className="min-w-[140px] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono text-xs text-slate-100"
+                      >
+                        {tradeableOwned.map((t) => (
+                          <option key={t.tokenId} value={String(t.tokenId)}>
+                            #{t.tokenId} · {t.name} (G{t.generation})
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        disabled={
+                          forging ||
+                          resolvedForgeIds[0] === null ||
+                          resolvedForgeIds[1] === null ||
+                          resolvedForgeIds[0] === resolvedForgeIds[1]
+                        }
+                        onClick={() => void onForgeAscend()}
+                        className="rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition"
+                      >
+                        {forging ? 'Forging…' : '🔥 Burn 2 & Forge Gen+1'}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             ) : (
-              <p className="text-xs text-slate-400">
-                No minted Sorobits (`SBIT`) held by {shortAddress(inspectedAddress)} yet — complete Season-1 Quests below or inspect Genesis #0 above.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-slate-400">
+                  No minted Sorobits (<code className="font-mono text-sky-300">SBIT</code>) held by {shortAddress(inspectedAddress)} yet — claim your free AGQ01 Pioneer below or inspect Genesis #0 above.
+                </p>
+                {publicKey && inspectedAddress === publicKey && !pioneerClaimed.data ? (
+                  <button
+                    type="button"
+                    disabled={claimingPioneer}
+                    onClick={() => void onClaimPioneer()}
+                    className="rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
+                  >
+                    {claimingPioneer ? 'Claiming…' : '🌊 Claim AGQ01 Pioneer On-Chain'}
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
         ) : null}
@@ -409,7 +820,7 @@ export function SorobitsPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="text-lg font-semibold text-white">
-              🏆 Season-1 Genesis Archetypes (`AGQ01`–`AGQ08`)
+              🏆 Season-1 Genesis Archetypes (<code className="font-mono text-sky-300">AGQ01</code>–<code className="font-mono text-sky-300">AGQ08</code>)
             </h2>
             <p className="text-xs text-slate-400">
               8 Edition-0 icons honoring Stellar history from 2014 Ledger-1 to Golden Soroban &amp; ZK Prisms.
@@ -424,14 +835,20 @@ export function SorobitsPage() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {ASTROGATE_QUEST_BADGES.map((badge) => {
+          {ASTROGATE_QUEST_BADGES.map((badge, idx) => {
+            const archetypeId = idx + 1
             const lore = GENESIS_LORE[badge.assetCode]
             const unlocked = Boolean(inspectedAddress && questProgress.unlocked[badge.id])
+            const claimedOnChain = claimedSet.has(archetypeId)
+            const canClaimOnChain =
+              unlocked &&
+              !claimedOnChain &&
+              Boolean(publicKey && inspectedAddress === publicKey)
             return (
               <div
                 key={badge.id}
                 className={`flex flex-col justify-between rounded-xl border p-3.5 transition ${
-                  unlocked
+                  claimedOnChain || unlocked
                     ? 'border-emerald-500/40 bg-emerald-950/15'
                     : 'border-slate-800 bg-slate-950/70'
                 }`}
@@ -459,10 +876,23 @@ export function SorobitsPage() {
                     {badge.criteria}
                   </p>
                 </div>
-                <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
-                  <span className={unlocked ? 'text-emerald-300 font-semibold' : 'text-slate-500'}>
-                    {unlocked ? '✅ Quest Unlocked' : '🔒 Season-1 Quest'}
-                  </span>
+                <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 text-[11px]">
+                  {claimedOnChain ? (
+                    <span className="text-emerald-300 font-semibold">🏆 Minted On-Chain</span>
+                  ) : canClaimOnChain ? (
+                    <button
+                      type="button"
+                      disabled={claimingArchetype === archetypeId}
+                      onClick={() => void onClaimQuestBadge(archetypeId, badge.assetCode)}
+                      className="rounded-lg bg-emerald-500 px-2.5 py-1 text-[11px] font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
+                    >
+                      {claimingArchetype === archetypeId ? 'Claiming…' : `Claim ${badge.assetCode}`}
+                    </button>
+                  ) : (
+                    <span className={unlocked ? 'text-emerald-300 font-semibold' : 'text-slate-500'}>
+                      {unlocked ? '✅ Quest Unlocked' : '🔒 Season-1 Quest'}
+                    </span>
+                  )}
                   <span className="font-mono text-slate-500">32×32 RLE</span>
                 </div>
               </div>
@@ -477,7 +907,7 @@ export function SorobitsPage() {
           🎨 7 Semantic Factions &amp; 256-Bit Genome Architecture
         </h2>
         <p className="mt-1 text-xs text-slate-400">
-          Every Sorobit stores an immutable 32-byte genome (`BytesN&lt;32&gt;`) driving dominant traits, latent recessive Forge genes, and a procedural cosmos sky.
+          Every Sorobit stores an immutable 32-byte genome (<code className="font-mono text-indigo-300">BytesN&lt;32&gt;</code>) driving dominant traits, latent recessive Forge genes, and a procedural cosmos sky.
         </p>
 
         <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">

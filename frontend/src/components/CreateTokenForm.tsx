@@ -11,23 +11,23 @@ import {
 } from '../lib/soroswap'
 import {
   allocationOfBps,
-  BURN_VAULT_ALLOCATION_BPS,
   CREATOR_ALLOCATION_BPS,
   CURVE_ALLOCATION_BPS,
   curveCostForTotalSupplyShareXlm,
   CURVE_VIRTUAL_TOKEN_START_BASE,
   CURVE_VIRTUAL_XLM_START_STROOPS,
   DEFAULT_OPTIMIZED_SEED_XLM,
+  DEV_ALLOCATION_BPS,
   DEX_ALLOCATION_BPS,
   FAIR_LAUNCH_DECIMALS,
   FAIR_LAUNCH_TOTAL_BASIS,
   LAUNCH_CREATION_FEE_STROOPS,
   LAUNCH_CREATION_FEE_XLM,
   localCurveQuoteBuy,
+  LP_LOCK_YEARS,
   MIN_SEED_XLM,
   MIN_SEED_XLM_STROOPS,
   SEED_LIQUIDITY_PRESETS,
-  STELLAR_BURN_ADDRESS,
 } from '../lib/tokenomics'
 import { NETWORK_NAME } from '../lib/network'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER } from '../lib/xlm'
@@ -37,13 +37,12 @@ import { explorerTxUrl } from '../lib/explorer'
 import { notifyTokenLaunch } from '../lib/alerts'
 import {
   compressImageFileToWebp,
-  isPinataConfigured,
-  uploadImageToIpfsIfConfigured,
+  uploadTokenLogo,
 } from '../lib/image-upload'
 import { useWallet } from '../store/wallet'
 import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
 import { toast } from '../lib/toast'
-import { triggerTelegramHaptic } from '../lib/telegram'
+import { notifyTelegramPulse, triggerTelegramHaptic } from '../lib/telegram'
 import { recordActivity } from '../store/activity'
 import { TxProgress } from './TxProgress'
 import { TokenArt } from './TokenArt'
@@ -80,7 +79,10 @@ function nowTimestampMs(): number {
 
 /** Honest recovery message if a token launch was interrupted halfway. */
 function incompleteMessageFor(cp: LaunchCheckpoint): string {
-  return `Previous launch attempt recorded for ${cp.symbol} (${cp.tokenId || 'pending broadcast'}). Check transaction status on Stellar Explorer.`
+  const ref =
+    cp.tokenId ||
+    (cp.txHash ? `tx ${shortAddress(cp.txHash)}` : 'pending broadcast')
+  return `Previous launch attempt recorded for ${cp.symbol} (${ref}). Check transaction status on Stellar Explorer.`
 }
 
 export function CreateTokenForm({
@@ -124,9 +126,9 @@ export function CreateTokenForm({
     FAIR_LAUNCH_TOTAL_BASIS,
     DEX_ALLOCATION_BPS,
   )
-  const burnVaultTokensWhole = allocationOfBps(
+  const devTokensWhole = allocationOfBps(
     FAIR_LAUNCH_TOTAL_BASIS,
-    BURN_VAULT_ALLOCATION_BPS,
+    DEV_ALLOCATION_BPS,
   )
   const creatorVestingTokensWhole = allocationOfBps(
     FAIR_LAUNCH_TOTAL_BASIS,
@@ -208,20 +210,13 @@ export function CreateTokenForm({
     try {
       const compressed = await compressImageFileToWebp(file)
       setLocalLogoDataUrl(compressed.dataUrl)
-      try {
-        const ipfsUrl = await uploadImageToIpfsIfConfigured(
-          compressed.blob,
-          `${symbol.trim().toLowerCase() || 'token'}-logo.webp`,
-        )
-        if (ipfsUrl) {
-          setLogoUrl(ipfsUrl)
-          setLogoUploadHint('Compressed 128×128 WebP pinned to IPFS (on-chain ready).')
-        } else {
-          setLogoUploadHint('Compressed 128×128 WebP preview saved locally.')
-        }
-      } catch {
-        setLogoUploadHint('Compressed 128×128 WebP preview saved locally (IPFS upload skipped).')
-      }
+      const immutableUrl = await uploadTokenLogo(compressed.blob, {
+        sha256: compressed.sha256,
+      })
+      setLogoUrl(immutableUrl)
+      setLogoUploadHint(
+        `Content-addressed 128×128 WebP ready (SHA-256 ${compressed.sha256.slice(0, 10)}… · stored on-chain).`,
+      )
     } catch (err) {
       setLogoUploadHint(errorMessage(err))
     } finally {
@@ -276,6 +271,7 @@ export function CreateTokenForm({
     const xlmReserveError = validateXlmReserve(
       xlmBalance.data,
       seedXlm + LAUNCH_CREATION_FEE_STROOPS,
+      publicKey,
     )
     if (xlmReserveError) {
       setError(xlmReserveError)
@@ -407,6 +403,7 @@ export function CreateTokenForm({
         creator: publicKey,
         explorerUrl: finalHash ? explorerTxUrl(finalHash) : undefined,
       })
+      if (finalHash) void notifyTelegramPulse(finalHash)
 
       setName('')
       setSymbol('')
@@ -462,12 +459,12 @@ export function CreateTokenForm({
           <div className="min-w-0">
             <h2 className="text-lg sm:text-xl font-bold text-white whitespace-nowrap">Create &amp; Launch</h2>
             <p className="text-xs text-slate-400 truncate">
-              10M fixed supply · Fair-Flywheel v4.2
+              10M fixed supply · Fair-Flywheel v4.3 ({LP_LOCK_YEARS}Y LP Lock)
             </p>
           </div>
         </div>
         <span className="rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2.5 py-1 text-xs font-semibold text-emerald-300 shrink-0 tabular-nums">
-          ⚡ {LAUNCH_CREATION_FEE_XLM} XLM Fee
+          ⚡ {LAUNCH_CREATION_FEE_XLM} XLM Fee (≈ ${formatUsdPrice(LAUNCH_CREATION_FEE_XLM * xlmUsd)} USDC)
         </span>
       </div>
 
@@ -586,11 +583,7 @@ export function CreateTokenForm({
                       busy || logoUploading ? 'pointer-events-none opacity-50' : ''
                     }`}
                   >
-                    {logoUploading
-                      ? 'Compressing…'
-                      : isPinataConfigured()
-                        ? 'Upload → IPFS'
-                        : 'Upload WebP'}
+                    {logoUploading ? 'Uploading WebP…' : 'Upload WebP'}
                     <input
                       type="file"
                       accept="image/png,image/jpeg,image/webp,image/gif"
@@ -673,7 +666,7 @@ export function CreateTokenForm({
                 {
                   label: 'Single-Transaction Fair Launch',
                   status: 'active',
-                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 42% curve / 28% Soroswap / 29.5% burn vault / 0.5% 15d vesting, P2P locked until graduation, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy locked until grad, and ownership renounced in 1 signature.`,
+                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 66% curve / 33% Soroswap (7Y LP lock) / 0.3% 15d vesting / 0.7% ecosystem, P2P locked until graduation, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy locked until graduation (or 7 days if ungraduated), and ownership renounced in 1 signature.`,
                 },
               ]}
             />
@@ -702,7 +695,7 @@ export function CreateTokenForm({
                   key={preset.xlm}
                   type="button"
                   disabled={busy}
-                  title={preset.desc}
+                  title={`${preset.xlm} XLM (≈ $${(preset.xlm * xlmUsd).toFixed(2)} USD)`}
                   onClick={() => setSeedXlmInput(String(preset.xlm))}
                   className={`py-2 px-2 rounded-xl border text-xs font-mono font-bold transition-all ${
                     active
@@ -734,28 +727,28 @@ export function CreateTokenForm({
           <details className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs sm:text-sm">
             <summary className="cursor-pointer select-none font-medium text-slate-300 flex items-center justify-between gap-2">
               <span>📊 View Fair-Flywheel Split &amp; Launch Price</span>
-              <span className="font-mono text-xs text-emerald-400">42 / 28 / 29.5 / 0.5</span>
+              <span className="font-mono text-xs text-emerald-400">66 / 33 / 0.3 / 0.7</span>
             </summary>
 
             <div className="mt-3 space-y-3 pt-3 border-t border-slate-800/80">
               <div className="grid gap-2.5 sm:grid-cols-2 font-mono text-xs">
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
-                  <p className="text-slate-400 font-sans">42% Curve + 28% DEX</p>
+                  <p className="text-slate-400 font-sans">66% Curve + 33% Soroswap DEX</p>
                   <p className="mt-1 font-bold text-white">
                     {Number(curveTokensWhole).toLocaleString('en-US')} + {Number(dexTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'}
                   </p>
                   <p className="mt-1 text-emerald-300">
-                    Your buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'} (locked until grad)
+                    Your buy {seedXlmStroops > 0n ? formatAmount(seedXlmStroops, XLM_DECIMALS) : '0'} XLM → ~{Math.round(creatorBoughtTokensWhole).toLocaleString('en-US')} ${symbol || 'TOKEN'} (locked until graduation or 7d fallback)
                   </p>
                 </div>
 
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
-                  <p className="text-slate-400 font-sans">29.5% Burn + 0.5% 15d Vesting</p>
+                  <p className="text-slate-400 font-sans">0.3% 15d Vesting + 0.7% Ecosystem</p>
                   <p className="mt-1 font-bold text-amber-300">
-                    {Number(burnVaultTokensWhole).toLocaleString('en-US')} 🔥 + {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳
+                    {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳ + {Number(devTokensWhole).toLocaleString('en-US')} 🛸
                   </p>
                   <p className="mt-1 text-slate-400 truncate">
-                    100% LP burned ({shortAddress(STELLAR_BURN_ADDRESS)})
+                    100% LP time-locked {LP_LOCK_YEARS} years in contract
                   </p>
                 </div>
 

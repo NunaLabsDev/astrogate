@@ -15,11 +15,12 @@ import {
   telegramCloudRemoveItems,
   telegramCloudSetItem,
 } from '../telegram'
-import { defaultVaultStorage } from './storage'
+import { defaultVaultStorage, parseTelegramWalletLinkMeta } from './storage'
 import type {
   EncryptedWalletRecord,
   HotVaultStorageAdapter,
   HotVaultStore,
+  TelegramWalletLinkMeta,
 } from './types'
 
 const CLOUD_META_KEY = 'ag_vault_meta_v1'
@@ -28,6 +29,8 @@ const CLOUD_WALLET_PREFIX = 'ag_vault_w_'
 interface CloudVaultMeta {
   v: 1
   activeId: string
+  primaryId?: string
+  telegramLink?: TelegramWalletLinkMeta | null
   ids: string[]
   updatedAt: number
 }
@@ -36,6 +39,9 @@ function walletCloudKey(id: string): string {
   return `${CLOUD_WALLET_PREFIX}${id}`
 }
 
+const MIN_SAFE_ITERATIONS = 100_000
+const MAX_SAFE_ITERATIONS = 2_000_000
+
 function isValidWalletRecord(raw: unknown): raw is EncryptedWalletRecord {
   if (typeof raw !== 'object' || raw === null) return false
   const w = raw as Partial<EncryptedWalletRecord>
@@ -43,6 +49,11 @@ function isValidWalletRecord(raw: unknown): raw is EncryptedWalletRecord {
     typeof w.meta?.id === 'string' &&
     typeof w.meta?.publicKey === 'string' &&
     w.meta.publicKey.startsWith('G') &&
+    w.crypto?.v === 1 &&
+    w.crypto?.kdf === 'PBKDF2-SHA256' &&
+    typeof w.crypto?.iterations === 'number' &&
+    w.crypto.iterations >= MIN_SAFE_ITERATIONS &&
+    w.crypto.iterations <= MAX_SAFE_ITERATIONS &&
     typeof w.crypto?.ciphertext === 'string' &&
     typeof w.crypto?.iv === 'string' &&
     typeof w.crypto?.salt === 'string'
@@ -61,6 +72,8 @@ function parseCloudMeta(raw: string | undefined): CloudVaultMeta | null {
       return {
         v: 1,
         activeId: parsed.activeId,
+        ...(typeof parsed.primaryId === 'string' ? { primaryId: parsed.primaryId } : {}),
+        telegramLink: parseTelegramWalletLinkMeta(parsed.telegramLink),
         ids: parsed.ids.filter((id): id is string => typeof id === 'string'),
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }
@@ -83,6 +96,8 @@ export async function pushVaultToTelegramCloud(
   const meta: CloudVaultMeta = {
     v: 1,
     activeId: store.activeId,
+    ...(store.primaryId ? { primaryId: store.primaryId } : {}),
+    ...(store.telegramLink ? { telegramLink: store.telegramLink } : {}),
     ids: store.wallets.map((w) => w.meta.id),
     updatedAt: Date.now(),
   }
@@ -146,10 +161,16 @@ export async function loadVaultFromTelegramCloud(): Promise<HotVaultStore | null
   const activeId = wallets.some((w) => w.meta.id === meta.activeId)
     ? meta.activeId
     : wallets[0]!.meta.id
+  const primaryId =
+    meta.primaryId && wallets.some((w) => w.meta.id === meta.primaryId)
+      ? meta.primaryId
+      : activeId
 
   return {
     v: 1,
     activeId,
+    primaryId,
+    telegramLink: meta.telegramLink ?? null,
     wallets,
     failedAttempts: 0,
     lockUntil: 0,
@@ -218,15 +239,38 @@ export async function syncVaultWithTelegramCloud(
     )
   }
 
+  const mergedWallets = Array.from(byPk.values())
+  const primaryId =
+    local.primaryId && mergedWallets.some((w) => w.meta.id === local.primaryId)
+      ? local.primaryId
+      : cloud.primaryId && mergedWallets.some((w) => w.meta.id === cloud.primaryId)
+        ? cloud.primaryId
+        : local.activeId
+
+  const localLink = local.telegramLink ?? null
+  const cloudLink = cloud.telegramLink ?? null
+  const pickedLink =
+    localLink && cloudLink
+      ? localLink.linkedAt >= cloudLink.linkedAt
+        ? localLink
+        : cloudLink
+      : localLink ?? cloudLink
+
   const merged: HotVaultStore = {
     v: 1,
     activeId: local.activeId,
-    wallets: Array.from(byPk.values()),
+    primaryId,
+    telegramLink: pickedLink,
+    wallets: mergedWallets,
     failedAttempts: local.failedAttempts,
     lockUntil: local.lockUntil,
   }
   adapter.save(merged)
-  if (merged.wallets.length !== cloud.wallets.length) {
+  if (
+    merged.wallets.length !== cloud.wallets.length ||
+    merged.primaryId !== cloud.primaryId ||
+    (merged.telegramLink?.linkedAt ?? 0) !== (cloud.telegramLink?.linkedAt ?? 0)
+  ) {
     await pushVaultToTelegramCloud(merged)
   }
   return { synced: true, restoredFromCloud: addedFromCloud, store: merged }

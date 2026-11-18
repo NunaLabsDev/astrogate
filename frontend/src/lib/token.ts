@@ -9,6 +9,7 @@ import type {
 } from '../contracts/launchpad/types'
 import {
   executeWithRpcFailover,
+  isRetryableRpcError,
   LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
   RPC_URL,
@@ -216,7 +217,12 @@ export async function fetchCurveState(
       })
       return tx.result ?? null
     })
-  } catch {
+  } catch (err) {
+    // Propagate transient RPC/network errors so React Query retries instead of
+    // silently misclassifying an active bonding curve as an unseeded pool.
+    if (isRetryableRpcError(err)) {
+      throw err
+    }
     return null
   }
 }
@@ -355,6 +361,29 @@ export async function claimCreatorVesting(params: {
   return { claimed: unwrap.unwrap(), hash }
 }
 
+/** Refunds the remaining curve XLM vault in 1 tx if ungraduated for >= 7 days with 0 external holders (creator only). */
+export async function refundStalledLaunch(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ refunded: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  const tx = await launchpadClient(signer).refund_stalled_launch({
+    creator: signer.address,
+    token: tokenId,
+  })
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Stalled refund error: ${JSON.stringify(err)}`)
+  }
+  return { refunded: unwrap.unwrap(), hash }
+}
+
 /** Permissionlessly triggers Stage 2 Milestone Burn (1,475,000 tokens) at >= 1,800 XLM pair depth. */
 export async function triggerMilestoneBurn(params: {
   tokenId: string
@@ -431,12 +460,14 @@ export async function extendTokenTtl(params: {
     const sentLp = await lpTx.signAndSend({ force: true })
     lastHash = sentLp.sendTransactionResponse?.hash ?? lastHash
   } catch (err) {
-    lastError = err
-    if (!lastHash) {
-      throw lastError instanceof Error
-        ? lastError
-        : new Error('Could not extend contract TTL on-chain.')
+    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+    if (msg.includes('cancel') || msg.includes('reject') || msg.includes('declined')) {
+      throw err
     }
+    lastError = err
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Could not extend Launchpad registry TTL on-chain.')
   }
 
   return { hash: lastHash }

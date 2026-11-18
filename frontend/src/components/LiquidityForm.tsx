@@ -3,6 +3,9 @@ import { useQueryClient } from '@tanstack/react-query'
 import { addLiquidity } from '../lib/soroswap'
 import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
 import { explorerContractUrl } from '../lib/explorer'
+import { NETWORK_NAME } from '../lib/network'
+import { getTelegramWebApp, telegramMiniAppUrl } from '../lib/telegram'
+import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
 import { useXlmBalance } from '../hooks/useXlmBalance'
@@ -29,7 +32,7 @@ export function LiquidityForm({
   token: LaunchpadToken
   onAdded?: () => void
 }) {
-  const { publicKey, getSigner } = useWallet()
+  const { publicKey, mode, requireSignerOrPrompt } = useWallet()
   const queryClient = useQueryClient()
   const balance = useTokenBalance(publicKey, token.id)
   const pool = useSoroswapPool(token.id)
@@ -95,9 +98,9 @@ export function LiquidityForm({
       setError('Connect your wallet or activate demo mode to add liquidity.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
     const tokenDesired = parseAmount(amountToken, token.decimals)
@@ -110,7 +113,7 @@ export function LiquidityForm({
       setError('Insufficient token balance.')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data, xlmDesired)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, xlmDesired, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
@@ -197,7 +200,7 @@ export function LiquidityForm({
         Add Liquidity · {shortAddress(token.id)}
       </h2>
       <p className="mt-1 text-sm text-slate-400">
-        Seed the token/XLM pair on Soroswap. Your wallet signs each step on testnet.
+        Seed the token/XLM pair on Soroswap. Your wallet signs each step on {NETWORK_NAME}.
       </p>
       <p className="mt-2 text-xs text-emerald-300">
         🔥 You own LP tokens: every trade yields a 0.30% swap fee accrued directly to pool reserves.
@@ -320,7 +323,7 @@ export function LiquidityForm({
           ) : null}
         </div>
 
-        <div className="sm:col-span-2">
+        <div className="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
           <button
             type="submit"
             disabled={busy || !publicKey}
@@ -328,6 +331,9 @@ export function LiquidityForm({
           >
             {busy ? 'Adding liquidity…' : 'Create Pair + Deposit Liquidity'}
           </button>
+          <span className="text-xs text-slate-400">
+            Protected by 2% deposit slippage tolerance.
+          </span>
         </div>
       </form>
 
@@ -370,8 +376,8 @@ export function LiquidityForm({
           </p>
           <div className="pt-1">
             <ShareButton
-              text={`🚀 Live liquidity active on AstroGate 🌊🚀 (Stellar testnet)!`}
-              url={explorerContractUrl(lp.pair)}
+              text={`🚀 Live liquidity active on AstroGate 🌊🚀 (Stellar ${NETWORK_NAME})!`}
+              url={getTelegramWebApp() ? telegramMiniAppUrl(token.id) : explorerContractUrl(lp.pair)}
             />
           </div>
         </div>

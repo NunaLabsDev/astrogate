@@ -1,6 +1,16 @@
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit'
 import type { Signer } from '@stellar/stellar-sdk/contract'
 import { isValidStellarAddress } from './address'
+import { NETWORK_PASSPHRASE } from './network'
+
+function assertNetworkPassphrase(provided?: string): string {
+  if (provided && provided !== NETWORK_PASSPHRASE) {
+    throw new Error(
+      'Transaction network passphrase does not match active AstroGate network.',
+    )
+  }
+  return NETWORK_PASSPHRASE
+}
 
 /**
  * Envoltorio de la wallet (SEP-43) como `Signer` del SDK de Stellar.
@@ -15,12 +25,12 @@ export function walletSigner(address: string): Signer {
     address,
     signTransaction: (xdr, opts) =>
       StellarWalletsKit.signTransaction(xdr, {
-        networkPassphrase: opts?.networkPassphrase,
+        networkPassphrase: assertNetworkPassphrase(opts?.networkPassphrase),
         address: signerAddress(address, opts?.address),
       }),
     signAuthEntry: (authEntry, opts) =>
       StellarWalletsKit.signAuthEntry(authEntry, {
-        networkPassphrase: opts?.networkPassphrase,
+        networkPassphrase: assertNetworkPassphrase(opts?.networkPassphrase),
         address: signerAddress(address, opts?.address),
       }),
   }

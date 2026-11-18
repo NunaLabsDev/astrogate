@@ -5,7 +5,7 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 ## Scope
 
 - `contracts/token/`: SEP-41 fungible token built on OpenZeppelin Stellar (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`), with 90-day TTL extension (`extend_ttl`) across state-changing operations.
-- `contracts/launchpad/` (v4.2 Fair-Flywheel): Bonding-curve & atomic graduation launchpad contract (`CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_launch`, `get_curve`, `get_creation_fee`), Virtual Bonding Curve (`buy_curve` flat `0.80%`, `sell_curve` asymmetric `2.50%`/`1.50%`, `quote_buy`, `quote_sell`), P2P curve transfer lock until graduation (closes pre-grad `PairAlreadySeeded` DoS), creator initial seed lock until graduation (+7d stalled fallback), permissionless Soroswap DEX Buyback-and-Burn (`trigger_buyback_burn`), Milestone Proof-of-Burn (`trigger_milestone_burn` at `>= 1,800 XLM`), 15-day post-graduation creator vesting (`claim_creator_vesting`), empty-curve dust sweep (`sweep_empty_curve_fees`), and 3-tier Burn-to-Chat with 24h King Shout decay (`burn_shout`, `get_shouts`, `get_king_shout`). Enforces `7 XLM` fixed creation fee to treasury, 10M fixed supply (`42%` Curve `2,000 vXLM -> 1,000 XLM` · `28%` Soroswap DEX · `29.5%` Proof-of-Burn Vault · `0.5%` 15d vesting), deploys token, renounces ownership immediately, burns 100% LP on graduation, and executes real `token.burn()` calls on milestone/buyback/shout burns.
+- `contracts/launchpad/` (v4.3 Fair-Flywheel): Bonding-curve & atomic graduation launchpad contract (`CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`) with persistent 90-day on-chain registry (`launch_fair`, `launch_token`, `get_launches`, `get_market_page`, `get_launch`, `get_curve`, `get_pilot`, `get_creation_fee`, `set_creation_fee`, `refund_stalled_launch`, `reclaim_expired_lp`), Virtual Bonding Curve (`buy_curve` flat `0.80%`, `sell_curve` asymmetric `2.50%`/`1.50%`, `quote_buy`, `quote_sell`), P2P curve transfer lock until graduation (closes pre-grad `PairAlreadySeeded` DoS), creator initial seed lock until graduation (+7d stalled fallback & refund), permissionless Soroswap DEX Buyback-and-Burn (`trigger_buyback_burn`), 15-day post-graduation creator vesting (`claim_creator_vesting`), 7-year contract LP time-lock (`reclaim_expired_lp`), empty-curve dust sweep (`sweep_empty_curve_fees`), and 3-tier Burn-to-Chat with 24h King Shout decay (`burn_shout`, `get_shouts`, `get_king_shout`). Enforces configurable protocol creation fee (default `7 XLM`) to treasury, 10M fixed supply (`66%` Curve `1,000 vXLM -> 1,000 XLM` · `33%` Soroswap DEX · `0.3%` 15d vesting · `0.7%` Dev Ecosystem), deploys token, renounces ownership immediately, locks 100% LP for 7 years in-contract on graduation, and executes real `token.burn()` calls on buyback/shout burns.
 - `frontend/`: Static SPA (Vite + React 19 + TypeScript) deployed on Cloudflare Pages (`https://astrogate.pages.dev`, with Cloudflare Worker mirror `astrogate-stellar`); identity is the connected wallet and state is read directly from Soroban RPC and Horizon.
 - External AMM integration with **Soroswap** (Factory and Router deployed on Stellar Testnet).
 
@@ -31,19 +31,22 @@ AstroGate is a decentralized token launchpad and AMM studio built **exclusively 
 
 ## Known Limitations
 
-- **Unaudited Code**: Neither the smart contracts nor the frontend have undergone an external third-party security audit. Do not deploy to mainnet without a formal audit.
-- **No Off-Chain Indexer**: Visible on-chain activity depends on the Soroban RPC event retention window; the testnet Soroswap pair contract does not emit `swap` events, so historical price charts rely on local browser snapshots (`IndexedDB` / `localStorage`).
-- **On-Chain Metadata Limits**: `LaunchRecord.meta` is capped at `512` bytes UTF-8 (`https://` external image URLs only; raw binary images or `data:` URLs are rejected). Users may still enrich local views via `localStorage` (`astrogate.token.meta.<id>`).
-- **Demo Mode Keys**: Testnet keys live in `localStorage` by design for one-click onboarding.
-- **Credential Rotation**: A historical local test credential (`scripts/opencode-env/service.json`) in early git commit history was purged from the working tree and replaced by an uncredentialed template; the underlying service password must be rotated and never reused.
+- **Unaudited by External Third Party**: Smart contracts, Hot Vault cryptography, and Worker endpoints have undergone internal security reviews and automated test suites (`cargo test`, Vitest), **but no formal third-party audit has been completed yet**. Do not deploy to mainnet without an independent audit.
+- **No Off-Chain Indexer**: Visible on-chain activity depends on the Soroban RPC event retention window (~7 days); historical Soroswap swap charts rely on local browser snapshots (`IndexedDB` / `localStorage`) unless an external indexer is attached.
+- **On-Chain Metadata Limits**: `LaunchRecord.meta` is capped at `512` bytes UTF-8 (`https://` external image URLs only; raw binary images or `data:` URLs are rejected).
+- **Demo Mode Keys**: Testnet demo keys live in `localStorage` by design for one-click onboarding (`selectDemo` blocked on mainnet builds).
 
-## Reporting a Vulnerability
+## Reporting a Vulnerability (Private Disclosure)
 
-Do not open a public issue with exploitable details. Open a private **GitHub Security Advisory** on the repository and include:
+Do **not** open a public GitHub issue with exploitable details. Submit a private report via **GitHub Security Advisories** at:
 
-1. Affected commit or branch,
-2. Impact and affected components (smart contract, frontend, wallet integration, demo mode),
-3. Reproduction steps on Stellar Testnet,
-4. Evidence (transaction hash, sanitized logs without secrets).
+- `https://github.com/NunaLabsDev/astrogate/security/advisories/new`
 
-Never include secret seeds, API tokens, or personal data.
+Structured template fields live in [`.github/VULNERABILITY_REPORT.yml`](./.github/VULNERABILITY_REPORT.yml). Please include:
+
+1. Affected commit, contract, or file path,
+2. Impact and broken invariant (see [`AUDIT_GUIDE.md`](./AUDIT_GUIDE.md)),
+3. Reproducible steps or failing unit test on Stellar Testnet,
+4. Sanitized evidence (tx hash, logs without secret seeds or PII).
+
+Never include secret seeds (`S...`), API tokens, or personal data.

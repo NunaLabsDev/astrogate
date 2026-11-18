@@ -1,8 +1,10 @@
 /**
  * Regenera los bindings TypeScript de los contratos que usa el frontend.
  *
- * Pasos: generar con el CLI del JS SDK -> aplanar la estructura que crea ->
- * parchear para las opciones estrictas de TypeScript del frontend.
+ * - Para los contratos propios (`AstroToken`, `AstroLaunchpad`, `Sorobits`), usa
+ *   directamente los WASM compilados en `../target/wasm32v1-none/release/` para
+ *   incluir siempre la interfaz exacta más reciente (offline y determinista).
+ * - Para Soroswap / XLM SAC lee los IDs de `testnet` desde `src/lib/network.ts`.
  *
  * Uso: npm run bindings
  */
@@ -14,11 +16,11 @@ import { patchBindings } from './patch-bindings.mjs'
 
 const network = readFileSync('src/lib/network.ts', 'utf8')
 
-/** Lee una constante `export const X = '...'` de src/lib/network.ts. */
-function constant(name) {
-  const value = network.match(new RegExp(`${name} =\\s*'([^']+)'`))?.[1]
+/** Lee una propiedad `key: '...'` dentro de `src/lib/network.ts`. */
+function presetValue(key) {
+  const value = network.match(new RegExp(`${key}:\\s*'([^']+)'`))?.[1]
   if (!value) {
-    console.error(`No se encontró ${name} en src/lib/network.ts`)
+    console.error(`No se encontró ${key} en src/lib/network.ts`)
     process.exit(1)
   }
   return value
@@ -26,27 +28,27 @@ function constant(name) {
 
 const CONTRACTS = [
   {
-    wasmHash: constant('ASTRO_WASM_HASH'),
+    wasm: '../target/wasm32v1-none/release/astro_token.wasm',
     name: 'AstroToken',
     out: 'src/contracts',
   },
   {
-    id: constant('LAUNCHPAD_CONTRACT_ID'),
+    wasm: '../target/wasm32v1-none/release/astro_launchpad_contract.wasm',
     name: 'AstroLaunchpad',
     out: 'src/contracts/launchpad',
   },
   {
-    id: constant('SOROBITS_CONTRACT_ID'),
+    wasm: '../target/wasm32v1-none/release/astro_sorobits_contract.wasm',
     name: 'Sorobits',
     out: 'src/contracts/sorobits',
   },
   {
-    id: constant('SOROSWAP_ROUTER'),
+    id: presetValue('soroswapRouter'),
     name: 'SoroswapRouter',
     out: 'src/contracts/soroswap-router',
   },
   {
-    id: constant('SOROSWAP_FACTORY'),
+    id: presetValue('soroswapFactory'),
     name: 'SoroswapFactory',
     out: 'src/contracts/soroswap-factory',
   },
@@ -58,24 +60,22 @@ const CONTRACTS = [
     out: 'src/contracts/soroswap-pair',
   },
   {
-    id: constant('XLM_SAC'),
+    id: presetValue('xlmSac'),
     name: 'XlmSac',
     out: 'src/contracts/xlm-sac',
   },
 ]
 
 for (const contract of CONTRACTS) {
-  const targetLabel = contract.wasmHash ?? contract.id
+  const targetLabel = contract.wasm ?? contract.id
   console.log(`\n== ${contract.name} (${targetLabel}) ==`)
-  const targetArgs = contract.wasmHash
-    ? ['--wasm-hash', contract.wasmHash]
-    : ['--contract-id', contract.id]
+  const targetArgs = contract.wasm
+    ? ['--wasm', contract.wasm]
+    : ['--contract-id', contract.id, '--network', 'testnet']
   execFileSync(
     './node_modules/.bin/stellar-contract-bindings-typescript',
     [
       ...targetArgs,
-      '--network',
-      'testnet',
       '--output-dir',
       contract.out,
       '--contract-name',

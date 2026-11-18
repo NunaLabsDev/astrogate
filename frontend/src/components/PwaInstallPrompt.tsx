@@ -85,7 +85,7 @@ export function PwaInstallPrompt() {
     <aside
       role="region"
       aria-label={`Install ${BRAND.name}`}
-      className="fixed inset-x-4 bottom-4 z-[90] mx-auto max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl shadow-slate-950/60 sm:left-auto sm:right-4 sm:mx-0"
+      className="fixed inset-x-4 bottom-20 sm:bottom-4 z-[90] mx-auto max-w-md rounded-xl border border-slate-700 bg-slate-900 p-4 shadow-2xl shadow-slate-950/60 sm:left-auto sm:right-4 sm:mx-0"
     >
       <div className="flex items-start gap-3">
         <span aria-hidden="true" className="text-2xl">

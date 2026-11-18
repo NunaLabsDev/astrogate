@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  computeStellarMinReserveStroops,
   DEFAULT_XLM_USD_PRICE,
   fetchXlmBalance,
   fetchXlmBalanceRaw,
@@ -93,5 +94,19 @@ describe('validateXlmReserve', () => {
     expect(validateXlmReserve(5, 4_0000000n)).toBeNull()
     expect(validateXlmReserve(5, 4_5000000n)).toContain('need at least 5.5 XLM')
     expect(validateXlmReserve(5, 6_0000000n)).toContain('Insufficient XLM balance')
+  })
+
+  it('calcula reserva exacta con subentries, sponsorships y selling liabilities', () => {
+    // 2 base + 6 subentries = 8 * 0.5 = 4.0 XLM + 0.5 XLM liabilities = 4.5 XLM
+    const minRes = computeStellarMinReserveStroops({
+      subentry_count: 6,
+      num_sponsoring: 0,
+      num_sponsored: 0,
+      selling_liabilities: '0.5',
+    })
+    expect(minRes).toBe(45_000_000n)
+    // Con 4.5 XLM base + 0.5 XLM headroom = 5.0 XLM buffer -> gastar 1 XLM requiere 6 XLM
+    expect(validateXlmReserve(5.5, 10_000_000n, minRes)).toContain('need at least 6 XLM')
+    expect(validateXlmReserve(6.0, 10_000_000n, minRes)).toBeNull()
   })
 })

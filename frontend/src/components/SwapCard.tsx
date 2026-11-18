@@ -40,7 +40,7 @@ import { buyCurveToken, sellCurveToken, type LaunchpadToken } from '../lib/token
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { toast } from '../lib/toast'
-import { triggerTelegramHaptic } from '../lib/telegram'
+import { notifyTelegramPulse, triggerTelegramHaptic } from '../lib/telegram'
 import { TxProgress } from './TxProgress'
 
 const inputClass = FORM_INPUT_CLASS
@@ -179,6 +179,7 @@ export function SwapCard({
             : quoted,
           isBuy ? effectivePool.reserveXlm : effectivePool.reserveToken,
           isBuy ? effectivePool.reserveToken : effectivePool.reserveXlm,
+          isBondingCurve ? 0 : SOROSWAP_SWAP_FEE_PERCENT,
         )
       : null
 
@@ -246,15 +247,23 @@ export function SwapCard({
       setError('Amount is too large. Please enter a smaller trade amount.')
       return
     }
-    if (inputBalanceBase !== undefined && amountIn > inputBalanceBase) {
-      setError(
-        isBuy
-          ? 'Insufficient XLM balance for this purchase.'
-          : `Insufficient ${tokenSymbol} balance for this sale.`,
-      )
+    const effectiveSpentXlm = isBuy ? effectiveAmountIn : 0n
+    if (isBuy && xlmBalance.data !== undefined) {
+      const balStroops = BigInt(Math.round(xlmBalance.data * 1e7))
+      if (effectiveSpentXlm > balStroops) {
+        setError('Insufficient XLM balance for this purchase.')
+        return
+      }
+    }
+    if (!isBuy && inputBalanceBase !== undefined && amountIn > inputBalanceBase) {
+      setError(`Insufficient ${tokenSymbol} balance for this sale.`)
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data, isBuy ? amountIn : 0n)
+    const xlmReserveError = validateXlmReserve(
+      xlmBalance.data,
+      effectiveSpentXlm,
+      publicKey,
+    )
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
@@ -354,7 +363,7 @@ export function SwapCard({
           : 'Swap completed',
         {
           message: didGraduate
-            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} · LP burned & 1.485M burned!`
+            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} · Soroswap pool live & LP locked 7 years!`
             : `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol}`,
           hash,
         },
@@ -391,6 +400,7 @@ export function SwapCard({
         graduationPercent: postGrad.percent,
         explorerUrl: hash ? explorerTxUrl(hash) : undefined,
       })
+      if (hash) void notifyTelegramPulse(hash)
       onSwapped?.()
       triggerTelegramHaptic('success')
       await Promise.all([
@@ -713,15 +723,20 @@ export function SwapCard({
                     </span>
                   </div>
 
-                  {impact !== null && impact >= 3 ? (
+                  {impact !== null && impact >= 0.1 ? (
                     <p className={`text-xs ${impactClass(impact)}`}>
-                      Price move: ~{impact.toFixed(1)}% with this order size.
+                      Price move: ~{impact.toFixed(impact >= 1 ? 1 : 2)}% with this order size.
                     </p>
                   ) : null}
 
                   {isBondingCurve && curveBuyQuote?.will_graduate ? (
-                    <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200">
-                      🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!
+                    <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200 space-y-0.5">
+                      <div>🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!</div>
+                      {effectiveAmountIn < amountIn ? (
+                        <div className="font-mono text-[11px] text-emerald-300">
+                          Actual XLM charged: {formatAmount(effectiveAmountIn, XLM_DECIMALS)} XLM (excess unspent)
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
                 </>
@@ -788,8 +803,8 @@ export function SwapCard({
             <span className="text-emerald-400 font-medium">
               {isBondingCurve
                 ? isBuy
-                  ? '0.80% flat buy fee · zero whale penalty'
-                  : `${(Number(curveFeeBps) / 100).toFixed(2)}% sell fee → LP & buyback`
+                  ? '0.80% flat buy (0.50% Treasury + 0.30% LP floor)'
+                  : `${(Number(curveFeeBps) / 100).toFixed(2)}% sell (0.50% Treasury + LP/buyback; drops to 1.50% ≥50%)`
                 : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% DEX LP fee · 0% protocol fee`}
             </span>
           </div>

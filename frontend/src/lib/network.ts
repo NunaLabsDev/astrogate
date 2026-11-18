@@ -1,22 +1,110 @@
 /**
- * Network configuration. Defaults to public Stellar testnet; supports environment overrides.
+ * Network configuration. Defaults to public Stellar testnet; supports strict
+ * `testnet` | `mainnet` switching via `VITE_STELLAR_NETWORK` and environment overrides.
  *
  * NOTE (RPC and Failover Architecture):
  * - Transaction submission is pinned to `RPC_URL` to avoid sequence/ledger desync.
  * - Read-only queries, health checks, and event polling use `RPC_POOL` and `executeWithRpcFailover`
  *   with exponential backoff against rate limits (HTTP 429) and transient downtime.
  */
-export const NETWORK_NAME =
-  (import.meta.env.VITE_STELLAR_NETWORK as string | undefined) || 'testnet'
+export type StellarNetworkName = 'testnet' | 'mainnet'
 
-export const NETWORK_PASSPHRASE =
-  NETWORK_NAME === 'mainnet'
-    ? 'Public Global Stellar Network ; September 2015'
-    : 'Test SDF Network ; September 2015'
+function resolveNetworkName(raw?: string): StellarNetworkName {
+  const clean = raw?.trim().toLowerCase()
+  if (!clean) return 'testnet'
+  if (clean === 'testnet' || clean === 'mainnet') return clean
+  throw new Error(
+    `Invalid VITE_STELLAR_NETWORK="${raw}". Expected "testnet" or "mainnet".`,
+  )
+}
+
+export const NETWORK_NAME: StellarNetworkName = resolveNetworkName(
+  import.meta.env.VITE_STELLAR_NETWORK as string | undefined,
+)
+
+const NETWORK_PRESETS: Record<
+  StellarNetworkName,
+  {
+    passphrase: string
+    rpcUrl: string
+    fallbackRpcUrl: string
+    horizonUrl: string
+    soroswapFactory: string
+    soroswapRouter: string
+    xlmSac: string
+    astroTokenId: string
+    astroWasmHash: string
+    launchpadContractId: string
+    launchpadWasmHash: string
+    sorobitsContractId: string
+    sorobitsWasmHash: string
+    treasuryAddress: string
+  }
+> = {
+  testnet: {
+    passphrase: 'Test SDF Network ; September 2015',
+    rpcUrl: 'https://soroban-testnet.stellar.org',
+    fallbackRpcUrl: 'https://rpc-testnet.stellar.org',
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+    soroswapFactory: 'CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY',
+    soroswapRouter: 'CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD',
+    xlmSac: 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC',
+    astroTokenId: 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+    astroWasmHash:
+      'bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6',
+    launchpadContractId:
+      'CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK',
+    launchpadWasmHash:
+      '9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7',
+    sorobitsContractId:
+      'CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3',
+    sorobitsWasmHash:
+      'c668ebba24880a46202e6746009a95a62d1893207f678db3422d8194154f17fd',
+    treasuryAddress: 'GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE',
+  },
+  mainnet: {
+    passphrase: 'Public Global Stellar Network ; September 2015',
+    rpcUrl: 'https://soroban-rpc.mainnet.stellar.org',
+    fallbackRpcUrl: 'https://mainnet.sorobanrpc.com',
+    horizonUrl: 'https://horizon.stellar.org',
+    // Mainnet Soroswap / AstroGate contract IDs must be supplied via VITE_* env vars at build time.
+    soroswapFactory:
+      (import.meta.env.VITE_SOROSWAP_FACTORY as string | undefined)?.trim() ||
+      '',
+    soroswapRouter:
+      (import.meta.env.VITE_SOROSWAP_ROUTER as string | undefined)?.trim() || '',
+    xlmSac:
+      (import.meta.env.VITE_XLM_SAC as string | undefined)?.trim() ||
+      'CAS3J7GYLGXMF6TDJBBYYSE3HQ6BBSMLNUQ34T6TZMYMW2EVH34XOWMA',
+    astroTokenId:
+      (import.meta.env.VITE_ASTRO_TOKEN_ID as string | undefined)?.trim() || '',
+    astroWasmHash:
+      (import.meta.env.VITE_ASTRO_WASM_HASH as string | undefined)?.trim() || '',
+    launchpadContractId:
+      (import.meta.env.VITE_LAUNCHPAD_CONTRACT_ID as string | undefined)?.trim() ||
+      '',
+    launchpadWasmHash:
+      (import.meta.env.VITE_LAUNCHPAD_WASM_HASH as string | undefined)?.trim() ||
+      '',
+    sorobitsContractId:
+      (import.meta.env.VITE_SOROBITS_CONTRACT_ID as string | undefined)?.trim() ||
+      '',
+    sorobitsWasmHash:
+      (import.meta.env.VITE_SOROBITS_WASM_HASH as string | undefined)?.trim() ||
+      '',
+    treasuryAddress:
+      (import.meta.env.VITE_DEVELOPER_TREASURY_ADDRESS as string | undefined)?.trim() ||
+      '',
+  },
+}
+
+const activePreset = NETWORK_PRESETS[NETWORK_NAME]
+
+export const NETWORK_PASSPHRASE = activePreset.passphrase
 
 export const RPC_URL =
-  (import.meta.env.VITE_SOROBAN_RPC_URL as string | undefined) ||
-  'https://soroban-testnet.stellar.org'
+  (import.meta.env.VITE_SOROBAN_RPC_URL as string | undefined)?.trim() ||
+  activePreset.rpcUrl
 
 /**
  * High-availability RPC failover pool for read-only simulations and event queries.
@@ -25,67 +113,74 @@ export const RPC_URL =
 export const RPC_POOL: string[] = Array.from(
   new Set(
     [
-      import.meta.env.VITE_SOROBAN_RPC_URL,
+      (import.meta.env.VITE_SOROBAN_RPC_URL as string | undefined)?.trim(),
       RPC_URL,
-      NETWORK_NAME === 'mainnet'
-        ? 'https://soroban-rpc.mainnet.stellar.org'
-        : 'https://rpc-testnet.stellar.org',
+      activePreset.fallbackRpcUrl,
     ].filter(Boolean) as string[],
   ),
 )
 
 export const HORIZON_URL =
-  (import.meta.env.VITE_HORIZON_URL as string | undefined) ||
-  'https://horizon-testnet.stellar.org'
+  (import.meta.env.VITE_HORIZON_URL as string | undefined)?.trim() ||
+  activePreset.horizonUrl
 
-/** Soroswap deployed on testnet (canonical AMM contracts). */
-export const SOROSWAP_FACTORY = 'CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY'
-export const SOROSWAP_ROUTER = 'CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD'
-export const XLM_SAC = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'
+/** Soroswap canonical AMM contracts for active network. */
+export const SOROSWAP_FACTORY = activePreset.soroswapFactory
+export const SOROSWAP_ROUTER = activePreset.soroswapRouter
+export const XLM_SAC = activePreset.xlmSac
 
-/** Flagship genesis meme token deployed on testnet (ASTRO). */
-export const ASTRO_TOKEN_ID = 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE'
+/** Flagship genesis meme token (ASTRO on testnet; configurable on mainnet). */
+export const ASTRO_TOKEN_ID = activePreset.astroTokenId
 
 /**
- * SHA-256 hash of the token contract bytecode already deployed on testnet.
- * The launchpad deploys new instances with this hash without re-uploading the binary.
+ * SHA-256 hash of the token contract bytecode deployed on the active network.
  */
-export const ASTRO_WASM_HASH =
-  '465288c836c13bfaf22aa3a1af3d7ef251d3500ba6af9beb06046bfe486ca23d'
+export const ASTRO_WASM_HASH = activePreset.astroWasmHash
 
 /**
- * Fair-Flywheel Launchpad v4.2 deployed on testnet (10M fixed supply, 42/28/29.5/0.5,
- * 2,000 vXLM -> 1,000 real XLM goal [2.25x], flat 0.80% buys, 2.50%->1.50% anti-sniper sells,
- * 7 XLM creation fee -> treasury, seed lock until grad, Soroswap buyback-burn,
- * P2P curve transfer lock, 15d post-grad vesting, 50/500/5,000 decaying King Shout).
+ * Fair-Flywheel Launchpad v4.3 contract ID for active network.
  */
-export const LAUNCHPAD_CONTRACT_ID =
-  'CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5'
+export const LAUNCHPAD_CONTRACT_ID = activePreset.launchpadContractId
 
 /**
- * SHA-256 hash of the launchpad v4.2 contract bytecode deployed on testnet.
+ * SHA-256 hash of the launchpad v4.3 contract bytecode.
  */
-export const LAUNCHPAD_WASM_HASH =
-  '47309c0845ff41a14e883cc02e421a6bf3ec80a3da8c38f4fe1300768ba104dc'
+export const LAUNCHPAD_WASM_HASH = activePreset.launchpadWasmHash
 
 /**
- * Sorobits (SBIT) 100% On-Chain 32x32 Genomic SEP-50 NFT contract on Stellar Testnet.
+ * Sorobits (SBIT) 100% On-Chain 32x32 Genomic SEP-50 NFT contract.
  */
-export const SOROBITS_CONTRACT_ID =
-  'CABTTF2UFJQKQT5PZECGSE5EDIAXH7ET6TSGLZVAPJCN7WC4N7DHIBAT'
+export const SOROBITS_CONTRACT_ID = activePreset.sorobitsContractId
 
 /**
- * SHA-256 hash of the Sorobits SEP-50 contract bytecode deployed on testnet.
+ * SHA-256 hash of the Sorobits SEP-50 contract bytecode.
  */
-export const SOROBITS_WASM_HASH =
-  'd1324c3620cd877b5c16bc0af5a46cef7c35360a9c68e3de2e19685c58a5463f'
+export const SOROBITS_WASM_HASH = activePreset.sorobitsWasmHash
 
 /**
- * Official AstroGate Developers Treasury address on Stellar Testnet.
+ * Official AstroGate Developers Treasury address.
  */
 export const DEVELOPER_TREASURY_ADDRESS =
-  (import.meta.env.VITE_DEVELOPER_TREASURY_ADDRESS as string | undefined) ||
-  'GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE'
+  (import.meta.env.VITE_DEVELOPER_TREASURY_ADDRESS as string | undefined)?.trim() ||
+  activePreset.treasuryAddress
+
+/**
+ * Standard Soroban inclusion fee (stroops) used as headroom on mainnet and testnet
+ * to prevent surge-pricing transaction drops.
+ */
+export const DEFAULT_SOROBAN_INCLUSION_FEE =
+  NETWORK_NAME === 'mainnet' ? '10000' : '1000'
+
+/**
+ * Scopes persistent storage keys by Stellar network so testnet and mainnet
+ * state never collide on the same origin while keeping existing testnet keys intact.
+ */
+export function networkStorageKey(baseKey: string): string {
+  if (NETWORK_NAME === 'testnet') return baseKey
+  return baseKey.startsWith('astrogate.')
+    ? baseKey.replace(/^astrogate\./, `astrogate.${NETWORK_NAME}.`)
+    : `${NETWORK_NAME}.${baseKey}`
+}
 
 /**
  * Standard event polling ledger window (~14h on testnet, 5s ledgers).

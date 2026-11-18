@@ -352,17 +352,30 @@ export function shareToTelegram(text: string, url: string): void {
   }
 }
 
+export const DEFAULT_WORKER_PULSE_URL = '/api/telegram/pulse'
+
+function resolvePulseUrl(): string {
+  return (
+    (import.meta.env.VITE_TELEGRAM_PULSE_URL as string | undefined)?.trim() ||
+    DEFAULT_WORKER_PULSE_URL
+  )
+}
+
 /**
  * Non-blocking ping to the Cloudflare Worker event bridge so verified on-chain
- * Burn-to-Chat shouts mirror immediately to AstroGate Community & Live Feed.
+ * launches, swaps, graduations, shouts & Sorobits mints mirror immediately to `@AstroGateFeed`.
  */
 export async function notifyTelegramPulse(txHash: string): Promise<void> {
   const clean = txHash.trim().toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(clean) || typeof fetch !== 'function') return
+  const pulseUrl = resolvePulseUrl()
+  const initData = getTelegramWebApp()?.initData
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (initData) headers['X-Telegram-Init-Data'] = initData
   try {
-    await fetch('/api/telegram/pulse', {
+    await fetch(pulseUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ txHash: clean }),
       signal:
         typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal

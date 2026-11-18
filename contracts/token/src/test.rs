@@ -476,3 +476,49 @@ fn unlock_transfers_requires_gate_auth() {
     assert!(client.try_unlock_transfers().is_err());
     assert!(!client.is_transfers_unlocked());
 }
+
+#[test]
+fn transfer_from_blocked_while_burn_from_allowed_during_curve_lock() {
+    let e = Env::default();
+    let launchpad = Address::generate(&e);
+    let alice = Address::generate(&e);
+    let bob = Address::generate(&e);
+    let spender = Address::generate(&e);
+    let client = create_client(&e, &launchpad);
+
+    e.mock_all_auths();
+    client.lock_until_graduated(&launchpad);
+    client.renounce_ownership();
+
+    client.transfer(&launchpad, &alice, &300);
+    client.approve(&alice, &spender, &200, &(e.ledger().sequence() + 1_000));
+    assert_eq!(client.allowance(&alice, &spender), 200);
+
+    // P2P transfer_from must fail while curve is locked
+    assert!(client
+        .try_transfer_from(&spender, &alice, &bob, &50)
+        .is_err());
+
+    // burn_from remains allowed during lock (consistent with FungibleBurnable)
+    client.burn_from(&spender, &alice, &50);
+    assert_eq!(client.balance(&alice), 250);
+    assert_eq!(client.total_supply(), 950);
+
+    // Unlock allows transfer_from
+    client.unlock_transfers();
+    client.transfer_from(&spender, &alice, &bob, &50);
+    assert_eq!(client.balance(&bob), 50);
+}
+
+#[test]
+#[should_panic(expected = "transfers gate already configured")]
+fn lock_until_graduated_cannot_be_reconfigured() {
+    let e = Env::default();
+    let launchpad = Address::generate(&e);
+    let other = Address::generate(&e);
+    let client = create_client(&e, &launchpad);
+
+    e.mock_all_auths();
+    client.lock_until_graduated(&launchpad);
+    client.lock_until_graduated(&other);
+}

@@ -28,11 +28,11 @@ export interface SellQuote {
  */
 export interface CurveState {
   /**
-   * 0 = pre-grad, 1 = Milestone 1 burned at grad, 2 = Milestone 2 burned at 1,800 XLM DEX depth.
+   * Burn stage (`0` pre-grad; `2` graduated in v4.3 with zero idle burn vault).
    */
   burn_milestone_stage: number;
   /**
-   * Tokens reserved in the Milestone Proof-of-Burn Vault (`2,950,000` -> `1,475,000` -> `0`).
+   * Legacy Proof-of-Burn vault balance (`0` in Fair-Flywheel v4.3).
    */
   burn_vault_remaining: bigint;
   /**
@@ -49,7 +49,7 @@ export interface CurveState {
    */
   creator_seed_locked: bigint;
   /**
-   * Total creator bonus allocation locked until post-grad 15-day vesting (`50,000` = 0.5%).
+   * Total creator bonus allocation locked until post-grad 15-day vesting (`30,000` = 0.3%).
    */
   creator_vesting_total: bigint;
   /**
@@ -66,7 +66,7 @@ export interface CurveState {
   real_xlm_vault: bigint;
   token: string;
   /**
-   * Cumulative tokens sold on the bonding curve (`0..=4,200,000`).
+   * Cumulative tokens sold on the bonding curve (`0..=6,600,000`).
    */
   tokens_sold: bigint;
 }
@@ -84,6 +84,19 @@ export interface ShoutEventEvent {
     is_king?: boolean;
     ledger?: number;
   };
+}
+
+/**
+ * Struct: PilotRecord
+ */
+export interface PilotRecord {
+  burns_triggered: number;
+  graduations: number;
+  king_shouts: number;
+  launches: number;
+  shouts: number;
+  trades: number;
+  volume_xlm_stroops: bigint;
 }
 
 /**
@@ -187,7 +200,28 @@ export const LaunchpadError = {
   /**
    * Nothing unlocked or milestone reserve condition not yet met.
    */
-  8 : { message: "MilestoneNotReached" }
+  8 : { message: "MilestoneNotReached" },
+  /**
+   * New launches are temporarily paused by protocol admin.
+   */
+  9 : { message: "LaunchesPaused" },
+  /**
+   * Unauthorized caller or missing pending admin transfer.
+   */
+  10 : { message: "Unauthorized" }
+}
+
+/**
+ * Event: ReclaimLpEvent
+ */
+export interface ReclaimLpEventEvent {
+  name: "ReclaimLpEvent";
+  data: {
+    token: string;
+    pair?: string;
+    recipient?: string;
+    lp_amount?: bigint;
+  };
 }
 
 /**
@@ -209,8 +243,8 @@ export interface CurveTradeEventEvent {
 }
 
 /**
- * Fair-Flywheel v4.2 Launch parameters: fixed 10M supply (`42%` curve / `28%` DEX /
- * `29.5%` Proof-of-Burn Vault / `0.5%` 15-day post-grad vesting) with creator's
+ * Fair-Flywheel v4.3 Launch parameters: fixed 10M supply (`66%` curve / `33%` DEX with
+ * 7-year LP lock / `0.3%` 15-day creator vesting / `0.7%` ecosystem) with creator's
  * initial curve buy (`>= 2 XLM`) locked until graduation.
  */
 export interface FairLaunchParams {
@@ -220,6 +254,14 @@ export interface FairLaunchParams {
   salt: Uint8Array;
   symbol: string;
   xlm_lp_amount: bigint;
+}
+
+/**
+ * Struct: MarketCardRecord
+ */
+export interface MarketCardRecord {
+  curve: Array<CurveState>;
+  record: LaunchRecord;
 }
 
 /**
@@ -276,7 +318,7 @@ export interface TokenGraduatedEventEvent {
     vault_burned?: bigint;
   };
 }
-    export type ContractEvent = ShoutEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | TokenLaunchedEventEvent | TokenGraduatedEventEvent;
+    export type ContractEvent = ShoutEventEvent | ReclaimLpEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | TokenLaunchedEventEvent | TokenGraduatedEventEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
 export type LaunchpadError = { message: string }

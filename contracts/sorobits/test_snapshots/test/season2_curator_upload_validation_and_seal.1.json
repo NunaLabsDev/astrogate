@@ -914,7 +914,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "0205010203050035839061d9ef22cbd00f9082452a6519de33671a1e5ccb9098"
+                      "bytes": "020002020105024e404d17f20b4526c975f8ed8bfe1bc331504da4bcd29f90ab"
                     }
                   },
                   {
@@ -1104,6 +1104,18 @@
                       },
                       "val": {
                         "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "Treasury"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                       }
                     }
                   ]

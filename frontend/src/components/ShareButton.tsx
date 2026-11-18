@@ -37,7 +37,7 @@ export function ShareButton({ text, url, label = 'Share 🎉', compact = false }
       onClick={() => void onShare()}
       className={
         compact
-          ? 'h-7 shrink-0 rounded-lg border border-emerald-800 bg-emerald-900/30 px-2 py-0.5 text-xs font-medium text-emerald-300 hover:border-emerald-600'
+          ? 'min-h-[36px] shrink-0 rounded-lg border border-emerald-800 bg-emerald-900/30 px-2.5 py-1 text-xs font-medium text-emerald-300 hover:border-emerald-600'
           : 'min-h-[44px] rounded-lg border border-emerald-800 bg-emerald-900/30 px-3 py-2 text-xs font-medium text-emerald-300 hover:border-emerald-600'
       }
     >

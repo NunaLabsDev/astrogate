@@ -24,11 +24,16 @@ import {
   tokenClient,
   type CurveState,
 } from './token'
+import type {
+  LaunchRecord,
+  MarketCardRecord,
+} from '../contracts/launchpad/types'
 import { curveVirtualReserves } from './tokenomics'
 import {
   ASTRO_TOKEN_ID,
   EVENT_WINDOW_LEDGERS,
   executeWithRpcFailover,
+  networkStorageKey,
   SOROSWAP_FACTORY,
   XLM_SAC,
 } from './network'
@@ -228,7 +233,7 @@ const METADATA_TTL_MS = 24 * 60 * 60 * 1000
 /** Doble del TTL: al escribir se depuran entradas caducadas para no crecer sin límite. */
 const METADATA_PRUNE_AFTER = METADATA_TTL_MS * 2
 const METADATA_MAX_ENTRIES = 100
-const METADATA_STORAGE_KEY = 'astrogate.token-meta.v1'
+const METADATA_STORAGE_KEY = networkStorageKey('astrogate.token-meta.v1')
 
 export type ImmutableTokenMetadata = {
   name: string
@@ -302,7 +307,6 @@ async function fetchTokenMetadata(
   const cached = getCachedTokenMetadata(tokenId)
   if (cached) return cached
 
-  const client = tokenClient(tokenId)
   const fallback = {
     name: 'Unnamed Token',
     symbol: shortAddress(tokenId),
@@ -310,18 +314,21 @@ async function fetchTokenMetadata(
   }
 
   try {
-    const [nameTx, symbolTx, decimalsTx] = await Promise.all([
-      client.name(),
-      client.symbol(),
-      client.decimals(),
-    ])
-    const decimals =
-      typeof decimalsTx.result === 'number' ? decimalsTx.result : fallback.decimals
-    const meta = {
-      name: nameTx.result || fallback.name,
-      symbol: symbolTx.result || fallback.symbol,
-      decimals,
-    }
+    const meta = await executeWithRpcFailover(async (rpcUrl) => {
+      const client = tokenClient(tokenId, undefined, rpcUrl)
+      const [nameTx, symbolTx, decimalsTx] = await Promise.all([
+        client.name(),
+        client.symbol(),
+        client.decimals(),
+      ])
+      const decimals =
+        typeof decimalsTx.result === 'number' ? decimalsTx.result : fallback.decimals
+      return {
+        name: nameTx.result || fallback.name,
+        symbol: symbolTx.result || fallback.symbol,
+        decimals,
+      }
+    })
     setCachedTokenMetadata(tokenId, meta)
     return meta
   } catch {
@@ -462,6 +469,7 @@ export async function fetchLaunchpadRecord(tokenId: string): Promise<{
   lpMinted: bigint
   meta: string
   ledger: number
+  timestamp: bigint
 } | null> {
   if (!isValidContractAddress(tokenId)) return null
   try {
@@ -496,6 +504,7 @@ export async function fetchLaunchpadRecord(tokenId: string): Promise<{
       lpMinted: record.lp_minted,
       meta: record.meta,
       ledger: record.ledger,
+      timestamp: record.timestamp,
     }
   } catch {
     return null
@@ -504,20 +513,50 @@ export async function fetchLaunchpadRecord(tokenId: string): Promise<{
 
 const REGISTRY_PAGE_SIZE = 20
 
+interface HydratableMarketItem {
+  record: LaunchRecord
+  prefetchedCurve?: CurveState | null
+}
+
 /**
  * Primary discovery source: reads newest launches directly from Launchpad's
  * persistent 90-day registry (immune to Soroban RPC's 24h `getEvents` limit).
+ * Prefers single-call `get_market_page` (records + curves) and falls back cleanly
+ * to `get_launches` + per-token `get_curve` on older contract instances.
  */
 export async function fetchLaunchpadRegistryListings(
   maxTokens = DEFAULT_MAX_TOKENS,
 ): Promise<TokenListing[]> {
   try {
-    const records: Awaited<
-      ReturnType<ReturnType<typeof launchpadClient>['get_launches']>
-    >['result'] = []
+    const items: HydratableMarketItem[] = []
+    let useMarketPage = true
 
     for (let offset = 0; offset < maxTokens; offset += REGISTRY_PAGE_SIZE) {
       const pageLimit = Math.min(REGISTRY_PAGE_SIZE, maxTokens - offset)
+      if (useMarketPage) {
+        try {
+          const marketCards = await executeWithRpcFailover(async (rpcUrl) => {
+            const tx = await launchpadClient(undefined, rpcUrl).get_market_page({
+              offset,
+              limit: pageLimit,
+            })
+            return tx.result as MarketCardRecord[]
+          })
+          if (!Array.isArray(marketCards) || marketCards.length === 0) break
+          for (const card of marketCards) {
+            items.push({
+              record: card.record,
+              prefetchedCurve: card.curve[0] ?? null,
+            })
+          }
+          if (marketCards.length < pageLimit) break
+          continue
+        } catch {
+          if (offset > 0) break
+          useMarketPage = false
+        }
+      }
+
       const page = await executeWithRpcFailover(async (rpcUrl) => {
         const tx = await launchpadClient(undefined, rpcUrl).get_launches({
           offset,
@@ -526,12 +565,15 @@ export async function fetchLaunchpadRegistryListings(
         return tx.result
       })
       if (!Array.isArray(page) || page.length === 0) break
-      records.push(...page)
+      for (const rec of page) {
+        items.push({ record: rec })
+      }
       if (page.length < pageLimit) break
     }
-    if (records.length === 0) return []
+    if (items.length === 0) return []
 
-    const listings = await mapLimit(records, 3, async (rec) => {
+    const listings = await mapLimit(items, 3, async (entry) => {
+      const rec = entry.record
       try {
         setCachedTokenMetadata(rec.token, {
           name: rec.name,
@@ -541,7 +583,10 @@ export async function fetchLaunchpadRegistryListings(
         const enriched = decodeOnChainMeta(rec.token, rec.meta)
         if (enriched) saveLocalTokenMetadata(enriched)
 
-        const curve = await fetchCurveState(rec.token)
+        const curve =
+          entry.prefetchedCurve !== undefined
+            ? entry.prefetchedCurve
+            : await fetchCurveState(rec.token)
         const resolvedPair = rec.pair ?? curve?.pair ?? null
 
         if (resolvedPair) {

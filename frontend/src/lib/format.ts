@@ -195,6 +195,9 @@ export function errorMessage(error: unknown): string {
   ) {
     return 'Milestone condition not yet reached (requires >= 1,800 XLM DEX depth or next 3-day vesting tranche).'
   }
+  if (lower.includes('transfers locked until graduation')) {
+    return 'P2P transfers & DEX LP additions are locked during the bonding curve phase until the token graduates at 1,000 XLM.'
+  }
   if (lower.includes('expired') || lower.includes('deadline')) {
     return 'Transaction timed out (deadline expired). Please try again.'
   }
@@ -248,8 +251,16 @@ export function sanitizeTelegramUrl(input?: string | null): string | null {
   if (!input) return null
   const trimmed = input.trim()
   if (!trimmed) return null
-  if (trimmed.startsWith('https://t.me/') || trimmed.startsWith('http://t.me/')) {
-    return sanitizeHttpUrl(trimmed)
+  if (/^https?:\/\//i.test(trimmed)) {
+    const safe = sanitizeHttpUrl(trimmed)
+    if (!safe) return null
+    const parsed = new URL(safe)
+    const host = parsed.hostname.toLowerCase()
+    if (host === 't.me' || host === 'telegram.me') {
+      parsed.protocol = 'https:'
+      return parsed.href
+    }
+    return null
   }
   if (trimmed.includes(':') || trimmed.includes('/') || trimmed.includes('?') || trimmed.includes('(')) {
     return null
@@ -268,13 +279,16 @@ export function sanitizeTwitterUrl(input?: string | null): string | null {
   if (!input) return null
   const trimmed = input.trim()
   if (!trimmed) return null
-  if (
-    trimmed.startsWith('https://x.com/') ||
-    trimmed.startsWith('https://twitter.com/') ||
-    trimmed.startsWith('http://x.com/') ||
-    trimmed.startsWith('http://twitter.com/')
-  ) {
-    return sanitizeHttpUrl(trimmed)
+  if (/^https?:\/\//i.test(trimmed)) {
+    const safe = sanitizeHttpUrl(trimmed)
+    if (!safe) return null
+    const parsed = new URL(safe)
+    const host = parsed.hostname.toLowerCase()
+    if (host === 'x.com' || host === 'www.x.com' || host === 'twitter.com' || host === 'www.twitter.com') {
+      parsed.protocol = 'https:'
+      return parsed.href
+    }
+    return null
   }
   if (trimmed.includes(':') || trimmed.includes('/') || trimmed.includes('?') || trimmed.includes('(')) {
     return null

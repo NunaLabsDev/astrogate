@@ -1,0 +1,9 @@
+# Force structured templates so secret keys and critical vulnerabilities never leak in public issues
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a Security Vulnerability (Private Advisory)
+    url: https://github.com/NunaLabsDev/astrogate/security/advisories/new
+    about: Critical/High vulnerabilities MUST be reported privately here — never open a public issue for exploitable flaws.
+  - name: 📘 Protocol Architecture, Audits & Public API/MCP
+    url: https://github.com/NunaLabsDev/astrogate/blob/main/AUDIT_GUIDE.md
+    about: Read the Audit Guide, Architecture overview, and verification commands before opening an issue.

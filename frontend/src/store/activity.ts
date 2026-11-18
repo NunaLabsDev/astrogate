@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { shortAddress } from '../lib/format'
+import { networkStorageKey } from '../lib/network'
 import { readStorageJson, writeStorageJson } from '../lib/storage'
 
 export const ACTIVITY_KINDS = [
@@ -42,7 +43,7 @@ export type ActivityInput = Omit<ActivityEntry, 'id' | 'at' | 'status'> & {
   at?: number
 }
 
-const STORAGE_KEY = 'astrogate.activity.v1'
+const STORAGE_KEY = networkStorageKey('astrogate.activity.v1')
 export const MAX_ACTIVITY = 200
 
 const LABELS: Record<ActivityKind, string> = {

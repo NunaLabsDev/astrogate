@@ -1,5 +1,13 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 18 2026, sesión 37 — Fair-Flywheel v4.3 `66/33/0.3/0.7` + 7Y LP Time-Lock + Sorobits `7 XLM` Mystery Capsules)
+Simplificación económica y cierre de desperdicio en Launchpad (**Fair-Flywheel v4.3** sin bóveda artificial de quema + **LP Time-Lock de 7 años** en contrato), actualización del contrato Sorobits SEP-50 (`mint_capsule`, cuota anti-ballena, Pioneer Soulbound) y sincronización total de frontend, Worker, bindings, documentación y repo open-source (`NunaLabsDev/astrogate`). *AI-generated; revisión humana pendiente.*
+- **Contrato Launchpad v4.3 en Testnet**:
+  - **Contract ID**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` (upgraded in-place con WASM `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7`, `54,011 bytes`).
+  - **Modelo `66% / 33% / 0.3% / 0.7%`**: `6,600,000` Curva (`1,000 vXLM -> 1,000 real XLM`, rango `4.00×`, salto `0.00%` en graduación) · `3,300,000` Soroswap DEX (LP bloqueado `7` años dentro del contrato, recuperable vía `reclaim_expired_lp` tras `220,752,000s`) · `30,000` Vesting creador `15d` (`5 × 6,000`) · `70,000` Ecosystem a `treasury` al graduar. Cero bóveda ociosa (`BURN_VAULT = 0`), quema 100% orgánica vía `trigger_buyback_burn` y `burn_shout`.
+- **Contrato Sorobits SEP-50 en Testnet**:
+  - **Contract ID**: `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3` (WASM `c668ebba24880a46202e6746009a95a62d1893207f678db3422d8194154f17fd`), Pioneer `AGQ01` soulbound (`claim_pioneer`), cápsula evolutiva `7 XLM` (`mint_capsule`) con cuota anti-ballena (`get_capsule_quota`) y forja `forge_ascend`.
+
 ## Handoff rápido (Nov 17 2026, sesión 36 — Sorobits (SBIT) SEP-50 On-Chain NFTs, Renovación Visual Telegram/TMA & Persistencia Wallet)
 Implementación completa, auditoría, deploy en Stellar Testnet de la colección **Sorobits (`SBIT`)** 100% on-chain en Soroban (`32×32` pixel-art genómico + SVG nativo), sección `/sorobits` en web/TMA, splash screen NFT, tarjetas visuales en `@AstroGateSorobanBot` / `@AstroGateCommunity` / `@AstroGateFeed`, arreglo de persistencia visual del Vault y Reglas 9 y 10 en `AGENTS.md`. *AI-generated; revisión humana pendiente.*
 - **Contrato Sorobits (`SBIT`, SEP-50) en Stellar Testnet**:
@@ -17,7 +25,7 @@ Implementación completa, auditoría, deploy en Stellar Testnet de la colección
 - **Producción & Verificación (post-edición final)**:
   - **Rust (`cargo test --workspace`)**: `46/46` (`10` launchpad, `11` sorobits, `25` token).
   - **Frontend (`cd frontend && npm run check`)**: `tsc -b` + `vite build`, `oxlint` (`0 warnings`, `0 errors` en `146` archivos), `vitest run` (`28/28` suites / `209/209` tests OK), `smoke:render`, `verify:pwa`, `check:csp`.
-  - **Deploy vivo**: Pages (`https://dd699d51.astrogate.pages.dev` / `https://astrogate.pages.dev`) y Worker (`https://astrogate-stellar.pepepop2000.workers.dev`, Version ID `71f0a43b-260a-4127-ad98-acce3176d12f`).
+  - **Deploy vivo**: Pages (`https://astrogate.pages.dev`) y Worker (`https://astrogate-bot.workers.dev`, Version ID `71f0a43b-260a-4127-ad98-acce3176d12f`).
 - **Para retomar en otra PC (secretos fuera de git) y pendientes**:
   - Copiar manualmente fuera de git `~/.secrets/astrogate/{developer-accounts.env,telegram-bot.env}` y `~/.config/cloudflare/cf-api-token` si se van a ejecutar deploys o comandos on-chain/Bot API desde la otra máquina.
   - **Pendiente manual `@BotFather`**: `/setuserpic` → `@AstroGateSorobanBot` → subir `frontend/public/telegram/astrogate-community-avatar.png` (la Bot API no permite cambiar el avatar propio del bot).
@@ -26,14 +34,14 @@ Implementación completa, auditoría, deploy en Stellar Testnet de la colección
 ## Handoff rápido (Nov 17 2026, sesión 35 — Bot Chat @AstroGateSorobanBot en Cloudflare Workers & Rediseño TMA Zero-CLS)
 Implementación completa del webhook interactivo del bot de Telegram en Cloudflare Workers, configuración de perfil/comandos bilingües y rediseño minimalista Zero-CLS proporcionado para Telegram Mini App (`390×844`). *AI-generated; revisión humana pendiente.*
 - **Bot Chat Interactivo (`frontend/worker/` + `frontend/scripts/configure-telegram-bot.mjs`)**:
-  - Endpoint `POST /telegram/webhook` dentro del Cloudflare Worker `astrogate-stellar` (`https://astrogate-stellar.pepepop2000.workers.dev/telegram/webhook`), autenticado en tiempo constante con `X-Telegram-Bot-Api-Secret-Token` (`SHA-256`) y secretos cifrados en Cloudflare (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
+  - Endpoint `POST /telegram/webhook` dentro del Cloudflare Worker `astrogate-stellar` (`https://astrogate-bot.workers.dev/telegram/webhook`), autenticado en tiempo constante con `X-Telegram-Bot-Api-Secret-Token` (`SHA-256`) y secretos cifrados en Cloudflare (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`).
   - Tarjetas in-place (`editMessageText`), localización automática ES/EN, `/start` con deep-links (`CA…`, `launch`, `market`, `wallet`), `/market` en vivo contra `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5`, inspector automático al pegar `CA…` (Soroban) o `GA…` (Horizon), y alerta de seguridad inmediata si alguien pega una clave privada `S…`.
   - Perfil `@AstroGateSorobanBot` actualizado vía Bot API (`AstroGate 🌊🚀`, descripciones y 7 comandos en EN/ES, `Menu Button` `🌊 AstroGate` → `https://astrogate.pages.dev/`).
 - **Rediseño Minimalista Telegram Mini App & Zero-CLS (`fcebb7d`)**:
   - Safe areas nativas (`safeAreaInset` / `contentSafeAreaInset`, eventos `safeAreaChanged` / `contentSafeAreaChanged` en `telegram.ts`), `100dvh`, inputs `>= 16px` sin auto-zoom iOS y `tabular-nums`.
   - Header único de `62px` + barra de navegación inferior fija (`Market | Launch | Portfolio`) en móvil (`App.tsx`, `WalletButton.tsx`), esqueletos/alturas fijas en `KingOfTheHill`, tarjetas horizontales compactas en `MarketList` (`scrollHeight` de home reducido de `2,910px` a `1,092px`), esqueleto estructural y slots reservados en `TokenPage`, `SwapCard`, `ReserveChart`, `ShareButton` y `CreateTokenForm`.
 - **Producción & Verificación final**:
-  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`b3fb2afd.astrogate.pages.dev`) · **Cloudflare Worker**: `https://astrogate-stellar.pepepop2000.workers.dev` (`e501fc7d-23a6-4fb4-b4af-6276080bd4a1`).
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` · **Cloudflare Worker**: `https://astrogate-bot.workers.dev` (`e501fc7d-23a6-4fb4-b4af-6276080bd4a1`).
   - **Auditoría en vivo Chromium (`390×844` TMA)**: CLS `/` `0.0004`, `/create` `0`, `/portfolio` `0`, `/token/CAI637…` `0.278` (bajó desde `2.82`), `overflowEls = []` y `smallInputs = 0` en todas las rutas.
   - **Tests**: `cargo test --workspace` (`35/35`), `npm run check` (`28` suites / `202` tests Vitest incluyendo `telegram-bot.test.ts`, `oxlint` `0` warnings/errors en `141` archivos, `smoke:render`, `verify:pwa`, `check:csp`).
 
@@ -69,7 +77,7 @@ Calibración óptima para la comunidad Stellar (**Fair-Flywheel v4.1**: `45 / 25
   - `tokenomics.ts` + `CreateTokenForm.tsx` + `SwapCard.tsx`: añadido `curveCostForTotalSupplyShareXlm` (`~137 XLM` reales para 10% del supply en vez de `300 XLM`) y `curveSafeOrderXlmStroops` (`<= 2% vXLM` para evitar recargo anti-ballena).
   - `token-events.ts`: `classifyTokenEvent` y `reconstructSnapshotsFromEvents` ahora reconstruyen trades y velas históricas en curva vía `LAUNCHPAD_CONTRACT_ID` cuando `pairId === ''`.
 - **Deploy público actualizado (v4.1)**:
-  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`https://ba9cdcc8.astrogate.pages.dev`) + **Cloudflare Workers**: `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `cce12b09-7213-444a-b1d7-ad558b85db04`), `HTTP 200` en todas las rutas.
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` + **Cloudflare Workers**: `https://astrogate-bot.workers.dev` (Version ID `cce12b09-7213-444a-b1d7-ad558b85db04`), `HTTP 200` en todas las rutas.
 - **Verificación completa en verde**:
   - Rust: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test --workspace` (`33/33`: `10` launchpad + `23` token).
   - Frontend: `npm run check` (`25` suites / `188` tests Vitest OK, `oxlint` `0` warnings/errors, `smoke:render`, `verify:pwa`, `check:csp`) + `npm-audit-ratchet.mjs` (`0` critical, `30` baseline).
@@ -87,7 +95,7 @@ Implementación completa end-to-end del modelo económico **Fair-Flywheel v4** (
 - **Frontend, SDK y Scripts Testnet actualizados**:
   - Paridad exacta `1:1` con Rust en `frontend/src/lib/tokenomics.ts` (`localCurveQuoteBuy` / `localCurveQuoteSell` / `graduationProgressForListing`), bindings TS regenerados, routing transparente Curva ↔ Soroswap en `SwapCard.tsx`, tarjetas Milestone Burn + Creator Vesting en `TokenPage.tsx`, King Shout + presets `25 / 250 / 1000` en `TokenHypeBar.tsx`, discovery de curvas no graduadas en `discovery.ts` y SDK (`sdk/index.ts`).
 - **Despliegue web público sincronizado (v4)**:
-  - **Cloudflare Pages**: `https://astrogate.pages.dev` (`https://dae30309.astrogate.pages.dev`) + **Cloudflare Workers**: `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `a3326396-d8e7-4940-bf12-1b66fa717a28`), ambos con `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest`.
+  - **Cloudflare Pages**: `https://astrogate.pages.dev` + **Cloudflare Workers**: `https://astrogate-bot.workers.dev` (Version ID `a3326396-d8e7-4940-bf12-1b66fa717a28`), ambos con `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest`.
 - **Verificación completa en verde**:
   - Rust: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` y `cargo test --workspace` (`33/33`: `10` launchpad + `23` astro-token).
   - Frontend: `cd frontend && npm run check` (`tsc -b`, `vite build`, `oxlint` `0` warnings/errors en `125` archivos, `vitest` `25` suites / `187` tests OK, `smoke:render`, `verify:pwa`, `check:csp`) y `npm-audit-ratchet.mjs` (30 dentro del baseline, `0` critical).
@@ -96,8 +104,8 @@ Implementación completa end-to-end del modelo económico **Fair-Flywheel v4** (
 ## Handoff rápido (Nov 16 2026, sesión 30 — Endurecimiento Producción Testnet, Seguridad de Fondos, Limpieza & Deploy Web Público)
 Sincronización final de seguridad, protección de fondos/reservas, aislamiento mainnet/testnet, limpieza general y despliegue web público en Vercel + Cloudflare Workers para uso directo por usuarios reales en Testnet. *AI-generated; revisión humana pendiente.*
 - **Despliegue web público sincronizado (v3 · 10M · min 2 XLM)**:
-  - **Enlace principal minimal (Cloudflare Pages, proyecto `astrogate` en cuenta propia `Pepepop2000@gmail.com`)**: `https://astrogate.pages.dev` (deploy `https://11181a74.astrogate.pages.dev`, con `_headers` nativos CSP/HSTS/X-Frame-Options/PWA). Eliminado el proyecto temporal previo en Vercel (`andelabs-projects`). Verificadas respuestas públicas `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest` y Launchpad v3 `CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ`.
-  - **Espejo Cloudflare Workers (`astrogate-stellar`)**: actualizado en `https://astrogate-stellar.pepepop2000.workers.dev` (Version ID `77ea8d70-1183-498c-9188-f635c10f9a7a`), `HTTP 200` en todas las rutas.
+  - **Enlace principal minimal (Cloudflare Pages, proyecto `astrogate`)**: `https://astrogate.pages.dev` (con `_headers` nativos CSP/HSTS/X-Frame-Options/PWA). Eliminado el proyecto temporal previo en Vercel. Verificadas respuestas públicas `HTTP 200` en `/`, `/create`, `/market`, `/llms.txt`, `/sw.js` y `/manifest.webmanifest` y Launchpad v3 `CBPFVSGFGLNGQPUSZGSTQLEULYXE6WBHRL63BFNBJVZBIYQQ2CIWLNAJ`.
+  - **Espejo Cloudflare Workers (`astrogate-stellar`)**: actualizado en `https://astrogate-bot.workers.dev` (Version ID `77ea8d70-1183-498c-9188-f635c10f9a7a`), `HTTP 200` en todas las rutas.
   - Actualizada la URL canónica (`astrogate.pages.dev`) en `frontend/src/lib/token-metadata.ts`, `frontend/package.json` (`npm run deploy` apunta a Cloudflare Pages `astrogate`), `AGENTS.md`, `GEMINI.md`, `SECURITY.md`, `docs/AI_AGENT_INTEGRATION.md`, `docs/RELEASE_CHECKLIST.md`, e ignorado `.vercel` en `.gitignore`.
 - **Protección uniforme de reserva mínima y gas (`validateXlmReserve` en `frontend/src/lib/xlm.ts`)**:
   - Centralizada la validación de balance XLM (`XLM_FEE_BUFFER = 1 XLM` + XLM gastado) en todos los flujos que firman en red: `SwapCard.tsx`, `CreateTokenForm.tsx`, `LiquidityForm.tsx`, `LiquidityPosition.tsx`, `TransferCard.tsx`, `BurnCard.tsx`, `TokenHypeBar.tsx`, `MintCard.tsx` y `TokenPage.tsx` (`onExtendTtl`), evitando transacciones rechazadas o erosión de la reserva base Stellar.
@@ -214,7 +222,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
 
 ## Próximos pasos recomendados para la Sesión 25
 1. **Re-deploy en Cloudflare Workers**:
-   - Ejecutar `cd frontend && npm run deploy` para publicar la versión Liquid Glass + arte SVG determinista en https://astrogate-stellar.pepepop2000.workers.dev.
+   - Ejecutar `cd frontend && npm run deploy:worker` para publicar la versión Liquid Glass + arte SVG determinista en el Worker configurado.
 2. **Re-deploy de contratos en Testnet (opcional cuando se requiera nuevo wasm hash)**:
    - Desplegar el nuevo wasm de launchpad (`stellar contract deploy`) y actualizar `LAUNCHPAD_CONTRACT_ID` si se desea activar el nuevo límite `MIN_XLM_LP_STROOPS` on-chain.
 3. **WalletConnect / Mobile QR**:
@@ -222,9 +230,9 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
 
 ## Handoff rápido (Nov 10 2026, sesión 23 — Localización completa en inglés, Deploy en Cloudflare Workers y Hardening)
 - **Despliegue en producción testnet (Cloudflare Workers)**:
-  - URL en vivo: **https://astrogate-stellar.pepepop2000.workers.dev**
+  - URL en vivo: **https://astrogate-bot.workers.dev**
   - Desplegado vía Wrangler con assets estáticos + SPA fallback nativo (`wrangler.jsonc`).
-  - Token de API resuelto automáticamente desde `~/.config/cloudflare/cf-api-token` (cuenta `pepepop2000@gmail.com`).
+  - Token de API resuelto automáticamente desde `~/.config/cloudflare/cf-api-token`.
   - Script `"deploy"` en `frontend/package.json` actualizado para auto-cargar el token si no está exportado en el shell.
   - Verificación web online: HTTP 200 en `/`, en subrutas (`/tokens/new`), en `/sw.js` (estampado `astrogate-shell-d91ea7abb93f`) y `/manifest.webmanifest` con cabeceras de seguridad estrictas (CSP, HSTS, X-Frame-Options).
 - **Localización 100% en inglés (cero cadenas en español en UI)**:
@@ -243,7 +251,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
 
 ## Próximos pasos recomendados para la Sesión 24
 1. **Configurar dominio personalizado (opcional)**:
-   - Vincular `astrogate.space` o similar en Cloudflare Routes si se desea reemplazar `astrogate-stellar.pepepop2000.workers.dev`.
+   - Vincular `astrogate.space` o similar en Cloudflare Routes si se desea usar un dominio personalizado.
 2. **Indexer persistente / Histórico de precios (Velas OHLCV)**:
    - Configurar pipeline ligero (SubQuery / Mercury o Cron Worker) para almacenar snapshots de velas OHLCV de los pares en Soroswap (ya que el par no emite eventos `swap` directamente).
 3. **WalletConnect Project ID de producción**:
@@ -365,8 +373,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
   añade de verdad al terminar la liquidez.
 - **Gates**: `npm run check` verde (build + lint + 60 tests + smoke +
   `verify:pwa`).
-- **Git**: rama `ai/market-discovery` sincronizada con `origin`; repo
-  `ruwaq/astro-launchpad`. Se añadió `docs/MAC_SETUP.md` (cuenta, rama,
+- **Git**: rama de desarrollo sincronizada con `origin`. Se añadió `docs/MAC_SETUP.md` (rama,
   prerequisitos de macOS, qué estado es local y no viaja) y el README apunta
   ahí.
 - **Traslado a Mac**: clonar la rama, `npm ci`, `npm run check`. Las cuentas
@@ -404,8 +411,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
   GitHub Actions está **deshabilitado** en el repositorio (`enabled: false`);
   por eso el PR no muestra checks. Habilitarlo es una decisión de repo y no se
   forzó.
-- **Git**: commit local `31e0082` (se publica en esta sesión). Draft PR
-  [#1](https://github.com/ruwaq/astro-launchpad/pull/1), base
+- **Git**: commit local `31e0082` (se publica en esta sesión). Draft PR #1, base
   `floodgate/testnet-base`, `mergeable` y sin checks de CI.
 - **Bloqueado**: Worker real sin `wrangler login`; `origin/main` es el monorepo
   legacy sin ancestro común; indexer/P2 restante requiere credenciales,
@@ -444,8 +450,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
   y no llegó a publicar. `frontend/vercel.json` ahora fuerza `npm ci` (el
   `pnpm-lock.yaml` local está ignorado y es viejo), pero no se usó como
   producción.
-- **Git**: rama `ai/market-discovery` publicada. Draft PR
-  [#1](https://github.com/ruwaq/astro-launchpad/pull/1), base
+- **Git**: rama `ai/market-discovery` publicada. Draft PR #1, base
   `floodgate/testnet-base` y `mergeable`. `origin/main` es el monorepo legacy
   y **no comparte ancestro** con este proyecto; no se ha forzado ni reemplazado
   `main`.
@@ -672,7 +677,7 @@ Rama `ai/audit-hardening`. Auditoría paralela (contratos, AMM, RPC, storage, tr
   (`scripts/fixtures/wallets-kit-stub.ts`). `npm run check` verde pre-commit.
 
 - **Deploy hecho (2026-10-22)**: URL de producción
-  **https://floodgate-stellar.pepepop2000.workers.dev** (Cloudflare Worker con
+  **https://astrogate-bot.workers.dev** (Cloudflare Worker con
   assets estáticos; token API del usuario en `~/.config/cloudflare/cf-api-token`,
   perms de Workers sí / Pages no — por eso es Workers, no Pages).
   - Verificado online: `/` 200 con título "Floodgate 🌊", fallback SPA `=/mercado`

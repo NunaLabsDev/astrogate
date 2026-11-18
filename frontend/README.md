@@ -1,32 +1,40 @@
-# React + TypeScript + Vite
+# AstroGate Frontend, Cloudflare Worker & Verification Scripts
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite SPA, Cloudflare Worker (`@AstroGateSorobanBot`, REST API `/api/v1/*`, MCP `/mcp`), read-only TypeScript SDK, and Stellar Testnet verification scripts for **AstroGate** (`https://github.com/NunaLabsDev/astrogate`).
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Directory Layout
 
-## React Compiler
+- `src/`: React 19 UI, wallet kit & client-side AES-GCM Hot Wallet (`src/lib/hot-wallet/`), 1:1 Fair-Flywheel curve math (`src/lib/curve-math.ts`, `src/lib/tokenomics.ts`), Soroswap & Sorobits RPC clients, and `@astrogate/sdk` (`src/sdk/index.ts`).
+- `worker/`: Cloudflare Worker runtime (`index.ts`), public read-only REST API (`api.ts`), JSON-RPC MCP endpoint (`mcp.ts`), protocol/audit engine (`protocol.ts`), Soroban RPC & event polling (`rpc.ts`, `events.ts`), Sorobits quest verification (`quests.ts`), and Telegram command views (`views.ts`).
+- `scripts/`: Local stdio MCP server (`mcp-server.mjs`), SSR smoke render (`smoke-render.mjs`), PWA & CSP parity checks (`verify-pwa.mjs`, `check-csp.mjs`), npm audit ratchet (`npm-audit-ratchet.mjs`), Soroban contract bindings generator, and live Testnet verification scripts.
+- `public/`: Static assets, `_headers` (CSP & cache policy), `sw.js`, `.well-known/stellar.toml`, `llms.txt`, and `llms-full.txt`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the Oxlint configuration
+## Development & Verification Commands
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci                                        # Install exact lockfile dependencies
+npm run dev                                   # Start local Vite dev server (:5173, includes /docs)
+npx tsc --noEmit -p tsconfig.worker.json      # Typecheck Cloudflare Worker + shared math
+npm run check                                 # Full gate: build + oxlint + vitest + smoke:render + verify:pwa + check:csp
+npm run mcp                                   # Launch local read-only stdio MCP server against Soroban RPC
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+### Live Testnet E2E Checks (No Secrets Required)
+
+```bash
+npm run verify:discovery      # Factory new_pair event parser & live pair discovery
+npm run verify:token-events   # Live SEP-41 transfer/mint/burn event reads
+npm run verify:demo           # 3 disposable Friendbot-funded accounts + end-to-end swap flow
+```
+
+---
+
+## Key Invariants for Contributors
+
+- Keep `src/lib/curve-math.ts` strictly free of Vite (`import.meta.env`) and DOM globals so both browser code and Cloudflare Worker share identical Fair-Flywheel v4.3 integer math.
+- Keep HTTP Security Headers & CSP synchronized across `public/_headers`, `vercel.json`, and `nginx.conf` (enforced by `npm run check:csp`).
+- Never store secrets, `VITE_*` private keys, or user tokens in frontend configuration.

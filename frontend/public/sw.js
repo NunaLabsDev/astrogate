@@ -59,6 +59,12 @@ self.addEventListener('install', (event) => {
   event.waitUntil(precache())
 })
 
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    void self.skipWaiting()
+  }
+})
+
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {

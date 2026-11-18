@@ -7,16 +7,23 @@ import {
   syncVaultWithTelegramCloud,
 } from './telegram-sync'
 import {
+  buildTelegramLinkMessage,
   createHotWalletAccount,
+  exportEncryptedVaultBundle,
   getHotWalletSigner,
+  importEncryptedVaultBundle,
   importHotWalletAccount,
   isHotAccountUnlocked,
   lockHotVault,
   readHotVaultSnapshot,
   removeHotAccount,
   revealHotAccountSecret,
+  saveTelegramWalletLink,
   selectHotAccount,
+  setPrimaryHotAccount,
+  signTelegramWalletLink,
   unlockHotVault,
+  VAULT_BUNDLE_PREFIX,
   wipeHotVault,
 } from './vault'
 
@@ -208,5 +215,106 @@ describe('hot-wallet vault lifecycle', () => {
 
     expect(await clearVaultFromTelegramCloud()).toBe(true)
     expect(cloudMap.size).toBe(0)
+  })
+
+  it('soporta cuenta Primary para @username, firma Ed25519 de vínculo y exportación/importación portátil AGVAULT1', async () => {
+    const sourceAdapter = createMemoryAdapter()
+    const w1 = await createHotWalletAccount({
+      pin: '246810',
+      label: 'Main',
+      adapter: sourceAdapter,
+    })
+    const w2 = await createHotWalletAccount({
+      pin: '246810',
+      label: 'Trading',
+      adapter: sourceAdapter,
+    })
+
+    // Initially primary is the first account
+    expect(readHotVaultSnapshot(sourceAdapter).primaryPublicKey).toBe(
+      w1.activePublicKey,
+    )
+
+    // Switch primary receiving wallet to sub-wallet #2
+    const primaryRes = setPrimaryHotAccount(w2.activeId, sourceAdapter)
+    expect(primaryRes.primaryPublicKey).toBe(w2.activePublicKey)
+
+    // Sign canonical Telegram @username binding proof with Primary wallet
+    const signed = signTelegramWalletLink({
+      network: 'testnet',
+      tgUserId: 778899,
+      username: '@AstroTrader',
+      timestamp: 1_760_000_000,
+      adapter: sourceAdapter,
+    })
+    expect(signed.username).toBe('astrotrader')
+    expect(signed.primaryPublicKey).toBe(w2.activePublicKey)
+    expect(signed.wallets).toEqual([w1.activePublicKey, w2.activePublicKey])
+    expect(signed.message).toBe(
+      buildTelegramLinkMessage({
+        network: 'testnet',
+        tgUserId: 778899,
+        username: 'astrotrader',
+        primaryPublicKey: w2.activePublicKey,
+        wallets: [w1.activePublicKey, w2.activePublicKey],
+        timestamp: 1_760_000_000,
+      }),
+    )
+
+    const sigBytes = Uint8Array.from(
+      signed.signatureHex.match(/.{2}/g)!.map((h) => Number.parseInt(h, 16)),
+    )
+    expect(
+      Keypair.fromPublicKey(w2.activePublicKey).verify(
+        new TextEncoder().encode(signed.message),
+        sigBytes,
+      ),
+    ).toBe(true)
+
+    saveTelegramWalletLink(
+      {
+        tgUserId: 778899,
+        username: 'astrotrader',
+        primaryPublicKey: w2.activePublicKey,
+        linkedAt: 1_760_000_000_000,
+        verifiedTelegram: true,
+      },
+      sourceAdapter,
+    )
+
+    // Export encrypted bundle (Telegram -> Web sync) and ensure secrets never appear in plaintext
+    const bundle = await exportEncryptedVaultBundle({
+      pin: '246810',
+      adapter: sourceAdapter,
+    })
+    expect(bundle.startsWith(VAULT_BUNDLE_PREFIX)).toBe(true)
+    const decodedBundle = Buffer.from(
+      bundle.slice(VAULT_BUNDLE_PREFIX.length),
+      'base64',
+    ).toString('utf8')
+    expect(decodedBundle).not.toContain(w1.revealedSecret)
+    expect(decodedBundle).not.toContain(w2.revealedSecret)
+
+    // Restore onto a clean browser device with PIN
+    lockHotVault()
+    const webAdapter = createMemoryAdapter()
+    await expect(
+      importEncryptedVaultBundle({
+        bundle,
+        pin: '000000',
+        adapter: webAdapter,
+      }),
+    ).rejects.toThrow(/Incorrect wallet PIN/i)
+
+    const restored = await importEncryptedVaultBundle({
+      bundle,
+      pin: '246810',
+      adapter: webAdapter,
+    })
+    expect(restored.importedCount).toBe(2)
+    expect(restored.primaryPublicKey).toBe(w2.activePublicKey)
+    expect(restored.telegramLink?.username).toBe('astrotrader')
+    expect(isHotAccountUnlocked(w1.activePublicKey)).toBe(true)
+    expect(isHotAccountUnlocked(w2.activePublicKey)).toBe(true)
   })
 })

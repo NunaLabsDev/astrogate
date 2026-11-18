@@ -61,7 +61,12 @@ export const SorobitsError = {
   307 : { message: "InvalidRankTier" },
   308 : { message: "RoyaltyTooHigh" },
   309 : { message: "RecordMissing" },
-  310 : { message: "EntropyEmpty" }
+  310 : { message: "EntropyEmpty" },
+  311 : { message: "AlreadyClaimed" },
+  312 : { message: "QuestNotUnlocked" },
+  313 : { message: "ForgeInvalidPair" },
+  314 : { message: "CapsuleQuotaReached" },
+  315 : { message: "PaymentNotConfigured" }
 }
 
 /**

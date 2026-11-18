@@ -1,26 +1,30 @@
-# Guía de Integración para Agentes de IA y Trading Bots en AstroGate
+# AstroGate AI Agent & Auditor Integration Guide
 
 > [!NOTE]
-> AstroGate está diseñado desde sus cimientos como un protocolo **AI-First**. Todo su estado se encuentra disponible on-chain o a través del SDK con tipado estricto en TypeScript y especificaciones legibles por LLMs.
+> AstroGate is designed **AI-First**: protocol state lives on-chain on Stellar/Soroban, typed interfaces exist in `frontend/src/sdk/index.ts`, read-only REST + OpenAPI endpoints live under `/api/v1/*` and `/openapi.json`, MCP tools are exposed via `POST /mcp` and `npm run mcp`, and LLM-readable specs live at `/llms.txt` and `/llms-full.txt`.
 
 ---
 
-## 1. Acceso Rápido para Modelos de Lenguaje (`llms.txt`)
-AstroGate publica una especificación estandarizada en `/llms.txt` accesible tanto para bots web como para agentes que naveguen la plataforma.
+## 1. Key Protocol Entrypoints (`llms.txt`, API, MCP & Contracts)
 
-* **URL en vivo**: `https://astrogate.pages.dev/llms.txt` (o `/public/llms.txt` en local).
-* **Contratos clave**:
-  * Factory: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
-  * Router: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`
-  * SAC XLM: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
-  * Token Base ASTRO: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
-  * Launchpad Fair-Flywheel (v4.2): `CAQWAH6OSK4PWMKRDVWYBVPW4P4ETPAJAMIGDQGWHWFEGX65IMDAH5Y5`
+- **Repository**: `https://github.com/NunaLabsDev/astrogate`
+- **Live Machine Specs**: `https://astrogate.pages.dev/llms.txt` & `https://astrogate.pages.dev/llms-full.txt` (sources: `frontend/public/llms.txt`, `frontend/public/llms-full.txt`)
+- **OpenAPI 3.1 Spec**: `https://astrogate.pages.dev/openapi.json`
+- **Model Context Protocol (MCP)**:
+  - Remote Streamable HTTP JSON-RPC: `POST https://astrogate.pages.dev/mcp`
+  - Zero-Config Local Stdio Server: `cd frontend && npm run mcp` (`frontend/scripts/mcp-server.mjs`)
+- **Audit Handbook & Agent Guide**: [`AGENTS.md`](../AGENTS.md), [`AUDIT_GUIDE.md`](../AUDIT_GUIDE.md), & [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+- **Testnet Contracts**:
+  - **Launchpad (Fair-Flywheel v4.3)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+  - **Flagship Token ($ASTRO)**: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
+  - **Sorobits NFT (SEP-50)**: `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`
+  - **Soroswap Factory**: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
+  - **Soroswap Router**: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`
+  - **Native XLM SAC**: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
 
 ---
 
-## 2. Uso del SDK (@astrogate/sdk)
-
-El SDK exportado en `src/sdk/index.ts` proporciona métodos directos con serialización JSON segura:
+## 2. Using `@astrogate/sdk` (`frontend/src/sdk/index.ts`)
 
 ```typescript
 import {
@@ -28,49 +32,39 @@ import {
   getTokenDetails,
   quoteSwap,
   verifyAntiRug,
-  launchFair,
-  burnShout,
-  getTokenShouts,
-  localQuoteXlmForToken,
-  checkRpcHealth,
-  executeWithRpcFailover,
   fetchTokenEvents,
+  checkRpcHealth,
 } from './src/sdk'
 
-// 1. Verificar salud de la red y latencia RPC (con timeout y validación HTTP)
+// 1. Check Soroban RPC availability & latency
 const health = await checkRpcHealth()
-console.log(`RPC conectado: ${health.ok} (${health.latencyMs} ms)`)
+console.log(`RPC ok=${health.ok} latency=${health.latencyMs}ms`)
 
-// 2. Obtener lista de tokens con reservas
+// 2. Discover active Bonding Curves + graduated Soroswap pools
 const market = await getMarketTokens({ maxTokens: 50 })
 for (const token of market) {
-  console.log(`${token.symbol}: ${token.priceXlm} XLM (Graduación: ${token.graduationPercent}%)`)
+  console.log(`${token.symbol}: ${token.priceXlm} XLM (grad=${token.graduationPercent}%)`)
 }
 
-// 3. Cotizar un swap de 5 XLM por un token con impacto de precio
+// 3. Deterministic quote (bonding curve pre-graduation or Soroswap post-graduation)
 const quote = await quoteSwap({
   tokenId: market[0].id,
-  amountIn: 50_000_000n, // 5 XLM en stroops (7 decimales)
+  amountIn: 50_000_000n, // 5 XLM in stroops (7 decimals)
   direction: 'buy',
   slippagePercent: 2,
 })
-console.log(
-  `Recibes estimado: ${quote.amountOutEstimated} tokens (mínimo: ${quote.amountOutMinimum}, impacto: ${quote.priceImpactPercent}%)`
-)
 
-// 4. Auditar Anti-Rug on-chain (ownership renounced + 100% LP quemado en STELLAR_BURN_ADDRESS)
+// 4. Verify on-chain Anti-Rug invariants (ownership renounced + 100% LP burned to blackhole)
 const audit = await verifyAntiRug(market[0].id)
-console.log(`Es Anti-Rug Verificado: ${audit.isAntiRugVerified} (LP quemado: ${audit.lpBurned})`)
+console.log(`Anti-Rug verified: ${audit.isAntiRugVerified}, LP burned: ${audit.lpBurned}`)
 
-// 5. Historial reciente de órdenes/trades
+// 5. Recent on-chain token activity
 const events = await fetchTokenEvents(market[0].id, { maxEvents: 20 })
 ```
 
 ---
 
-## 3. Schemas de Function Calling para Agentes (OpenAI / Gemini / Anthropic)
-
-Puedes proporcionar estas herramientas a cualquier agente autónomo para que monitoree mercados o ejecute operaciones:
+## 3. Function-Calling Tool Schemas (OpenAI / Gemini / Anthropic / MCP)
 
 ```json
 {
@@ -79,11 +73,11 @@ Puedes proporcionar estas herramientas a cualquier agente autónomo para que mon
       "type": "function",
       "function": {
         "name": "get_market_tokens",
-        "description": "Obtiene los tokens activos en el mercado de AstroGate con reservas y cotizaciones en vivo.",
+        "description": "Lists active AstroGate bonding curves and graduated Soroswap DEX pairs with live reserves.",
         "parameters": {
           "type": "object",
           "properties": {
-            "maxTokens": { "type": "number", "description": "Límite de tokens a consultar" }
+            "maxTokens": { "type": "number", "description": "Maximum tokens to inspect" }
           }
         }
       }
@@ -92,15 +86,15 @@ Puedes proporcionar estas herramientas a cualquier agente autónomo para que mon
       "type": "function",
       "function": {
         "name": "quote_swap",
-        "description": "Calcula la cotización exacta en el AMM de Soroswap con protección de slippage e impacto de precio.",
+        "description": "Computes exact swap output, minimum received after slippage, and price impact.",
         "parameters": {
           "type": "object",
           "required": ["tokenId", "amountIn", "direction"],
           "properties": {
-            "tokenId": { "type": "string" },
-            "amountIn": { "type": "string", "description": "Monto en base units (7 decimales)" },
+            "tokenId": { "type": "string", "description": "Stellar contract C... address" },
+            "amountIn": { "type": "string", "description": "Input amount in 7-decimal base units" },
             "direction": { "type": "string", "enum": ["buy", "sell"] },
-            "slippagePercent": { "type": "number", "description": "Slippage máximo porcentual (default 2)" }
+            "slippagePercent": { "type": "number", "description": "Max slippage % (default 2)" }
           }
         }
       }
@@ -109,12 +103,12 @@ Puedes proporcionar estas herramientas a cualquier agente autónomo para que mon
       "type": "function",
       "function": {
         "name": "verify_anti_rug",
-        "description": "Audita si un token tiene el 100% de LP quemado irreversiblemente en GAAAA...WHF y propiedad renunciada.",
+        "description": "Audits on-chain ownership renunciation and permanent LP burn to GAAAA...WHF.",
         "parameters": {
           "type": "object",
           "required": ["tokenId"],
           "properties": {
-            "tokenId": { "type": "string", "description": "Dirección C... del contrato token" }
+            "tokenId": { "type": "string", "description": "Stellar contract C... address" }
           }
         }
       }
@@ -125,8 +119,10 @@ Puedes proporcionar estas herramientas a cualquier agente autónomo para que mon
 
 ---
 
-## 4. Reglas Críticas para Bots en Stellar/Soroban
-1. **Decimales**: Tanto XLM nativo como los tokens estándar de AstroGate operan con **7 decimales** (`1 XLM = 10,000,000 stroops`).
-2. **Sin Allowance en Soroswap**: El Router de Soroswap opera mediante `transfer` directo en su transacción atómica; no es necesario llamar a `approve` por separado.
-3. **Quema de LP**: Todos los tokens de liquidez de un Fair Launch son enviados a `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF` de forma permanente e irreversible.
-4. **Alta Disponibilidad Multi-RPC**: Las consultas de mercado, eventos y cotizaciones utilizan failover automático y retroceso exponencial contra errores 429 de rate-limiting.
+## 4. Critical Soroban / Stellar Rules for Autonomous Agents
+
+1. **7-Decimal Precision**: Native XLM (`1 XLM = 10^7` stroops) and all AstroGate Fair-Flywheel tokens use **7 decimals**.
+2. **Fair-Flywheel v4.3 Split**: `66%` Curve (`1,000 vXLM -> 1,000 XLM`, `4.00x` curve, `0%` graduation cliff) · `33%` Soroswap DEX (100% LP time-locked 7 years in-contract via `reclaim_expired_lp`) · `0.3%` 15-day creator vesting · `0.7%` Dev Ecosystem (`treasury` at graduation). Zero artificial idle burn vault.
+3. **Curve Transfer Lock**: Pre-graduation P2P transfers (`transfer`, `transfer_from`) intentionally revert until graduation to prevent pre-seeding Soroswap pools (`PairAlreadySeeded` DoS); `burn` / `burn_from` remain enabled for Burn-to-Chat.
+4. **No Soroswap Allowance Needed**: Soroswap Router moves tokens via direct `transfer` inside the atomic transaction.
+5. **Pair Reserve Ordering**: Always read `token_0()`, `token_1()`, and `get_reserves()` directly on the Soroswap Pair contract rather than assuming lexical address sorting.

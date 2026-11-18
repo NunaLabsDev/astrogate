@@ -4,6 +4,7 @@ import { useLpPosition } from '../hooks/useLpPosition'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { validateXlmReserve } from '../lib/xlm'
 import { errorMessage, formatAmount, shortAddress } from '../lib/format'
+import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import {
   lpSharePercent,
   withdrawLiquidity,
@@ -24,7 +25,7 @@ const LP_DECIMALS = 7
  * User's liquidity position in the selected token pair.
  */
 export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
-  const { publicKey, getSigner } = useWallet()
+  const { publicKey, mode, requireSignerOrPrompt } = useWallet()
   const queryClient = useQueryClient()
   const position = useLpPosition(token.id, publicKey)
   const xlmBalance = useXlmBalance(publicKey)
@@ -55,14 +56,14 @@ export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
       setError('No LP tokens available to withdraw.')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
 
@@ -179,6 +180,9 @@ export function LiquidityPosition({ token }: { token: LaunchpadToken }) {
               {formatAmount(preview.tokenAmount, token.decimals)} {token.symbol ?? 'TOKEN'} +{' '}
               {formatAmount(preview.xlmAmount, 7)} XLM
             </span>
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            Protected by 2% withdrawal slippage tolerance.
           </p>
 
           <button

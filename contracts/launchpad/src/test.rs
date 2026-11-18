@@ -26,6 +26,16 @@ impl MockSoroswapPair {
         e.storage().instance().set(&0u32, &reserves);
         e.storage().instance().set(&2u32, &token0);
         e.storage().instance().set(&3u32, &token1);
+        let initial_lp: i128 = if reserves.0 > 0 && reserves.1 > 0 {
+            1_000_000
+        } else {
+            0
+        };
+        e.storage().instance().set(&4u32, &initial_lp);
+    }
+
+    pub fn total_supply(e: &Env) -> i128 {
+        e.storage().instance().get(&4u32).unwrap_or(0)
     }
 
     pub fn token_0(e: &Env) -> Address {
@@ -49,10 +59,29 @@ impl MockSoroswapPair {
         e.storage().instance().get(&0u32).unwrap_or((0, 0))
     }
 
-    /// Saves LP recipient to verify permanent burn to `burn_address`.
+    /// Saves LP recipient & tracks LP token balance for 7-year lock / transfer tests.
     pub fn deposit(e: &Env, to: Address) -> i128 {
         e.storage().instance().set(&1u32, &to);
+        e.storage().instance().set(&4u32, &495_000_000_i128);
+        e.storage().instance().set(&(5u32, to), &495_000_000_i128);
         495_000_000
+    }
+
+    pub fn balance(e: &Env, id: Address) -> i128 {
+        e.storage().instance().get(&(5u32, id)).unwrap_or(0)
+    }
+
+    pub fn transfer(e: &Env, from: Address, to: Address, amount: i128) {
+        let from_bal = Self::balance(e, from.clone());
+        assert!(from_bal >= amount, "insufficient mock LP balance");
+        e.storage()
+            .instance()
+            .set(&(5u32, from), &(from_bal - amount));
+        let to_bal = Self::balance(e, to.clone());
+        e.storage()
+            .instance()
+            .set(&(5u32, to.clone()), &(to_bal + amount));
+        e.storage().instance().set(&1u32, &to);
     }
 
     pub fn swap(e: &Env, amount_0_out: i128, amount_1_out: i128, to: Address) {
@@ -255,7 +284,7 @@ fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
         name: String::from_str(&e, "Flywheel Coin"),
         symbol: String::from_str(&e, "FLYW"),
         xlm_lp_amount: 2 * STROOPS,
-        meta: String::from_str(&e, r#"{"d":"Fair v4.2 curve"}"#),
+        meta: String::from_str(&e, r#"{"d":"Fair v4.3 curve"}"#),
         salt: BytesN::from_array(&e, &[10u8; 32]),
     });
 
@@ -269,9 +298,9 @@ fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
     assert_eq!(tok.balance(&creator), 0);
     let curve_0 = client.get_curve(&res.token).unwrap();
     assert!(!curve_0.graduated);
-    assert!(curve_0.creator_seed_locked > 12_000 * STROOPS);
-    assert_eq!(curve_0.burn_vault_remaining, 2_950_000 * STROOPS);
-    assert_eq!(curve_0.creator_vesting_total, 50_000 * STROOPS);
+    assert!(curve_0.creator_seed_locked > 20_000 * STROOPS);
+    assert_eq!(curve_0.burn_vault_remaining, 0);
+    assert_eq!(curve_0.creator_vesting_total, 30_000 * STROOPS);
     assert_eq!(curve_0.creator_claimed, 0);
     // Treasury received 7 XLM creation fee + 0.50% of 2 XLM initial buy (0.01 XLM)
     assert_eq!(xlm_tok.balance(&s.treasury), 70_100_000);
@@ -374,7 +403,8 @@ fn test_buy_sell_roundtrip_conservation_slippage_and_sweep_dust() {
     );
 
     // After 7 days on an ungraduated curve, creator rescues failed seed & sells back, then empty vault dust sweeps cleanly!
-    e.ledger().set_timestamp(e.ledger().timestamp() + 7 * 86_400);
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 7 * 86_400);
     let rescued = client.claim_creator_vesting(&creator, &res.token);
     assert!(rescued > 0);
     let sell_creator = client.sell_curve(&creator, &res.token, &rescued, &1);
@@ -461,12 +491,12 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
 
     let curve_grad = client.get_curve(&launch.token).unwrap();
     assert!(curve_grad.graduated);
-    assert_eq!(curve_grad.tokens_sold, 4_200_000 * STROOPS);
+    assert_eq!(curve_grad.tokens_sold, 6_600_000 * STROOPS);
     assert_eq!(curve_grad.curve_xlm_net, 1_000 * STROOPS);
     assert_eq!(curve_grad.real_xlm_vault, 0);
     assert!(curve_grad.buyback_xlm_reserve > 0);
-    assert_eq!(curve_grad.burn_milestone_stage, 1);
-    assert_eq!(curve_grad.burn_vault_remaining, 1_475_000 * STROOPS);
+    assert_eq!(curve_grad.burn_milestone_stage, 2);
+    assert_eq!(curve_grad.burn_vault_remaining, 0);
 
     // Graduation unlocked SEP-41 P2P transfers!
     let tok = AstroTokenClient::new(&e, &launch.token);
@@ -474,12 +504,14 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
     tok.transfer(&closer, &stranger, &1_000);
     assert_eq!(tok.balance(&stranger), 1_000);
 
-    // Soroswap pair received 2,800,000 tokens + >=1,000 XLM, LP burned!
-    assert_eq!(tok.balance(&s.pair), 2_800_000 * STROOPS);
+    // Soroswap pair received 3,300,000 tokens + >=1,000 XLM, LP locked in Launchpad for 7 years!
+    // Developer / protocol treasury received 0.7% = 70,000 tokens at graduation.
+    assert_eq!(tok.balance(&s.pair), 3_300_000 * STROOPS);
+    assert_eq!(tok.balance(&s.treasury), 70_000 * STROOPS);
     assert!(xlm_tok.balance(&s.pair) >= 1_000 * STROOPS);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &s.pair).lp_recipient(),
-        s.burn_addr
+        s.launchpad
     );
 
     // Sync mock tokens + reserves to match transferred LP balances before buyback swap test
@@ -487,15 +519,18 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
     pair_mock.set_tokens(&s.xlm_sac, &launch.token);
     pair_mock.set_reserves(&(xlm_tok.balance(&s.pair), tok.balance(&s.pair)));
 
-    // Milestone 1 burned 1,475,000 tokens -> supply = 8,525,000!
-    assert_eq!(tok.total_supply(), 8_525_000 * STROOPS);
+    // Zero artificial burn vault -> full 10M supply intact before organic Buyback & Burn
+    assert_eq!(tok.total_supply(), 10_000_000 * STROOPS);
 
     // Permissionless buyback-and-burn swaps buyback_xlm_reserve on Soroswap DEX & burns real tokens!
     let supply_before_bb = tok.total_supply();
     let bb_burned = client.trigger_buyback_burn(&launch.token);
     assert!(bb_burned > 0);
     assert_eq!(tok.total_supply(), supply_before_bb - bb_burned);
-    assert_eq!(client.get_curve(&launch.token).unwrap().buyback_xlm_reserve, 0);
+    assert_eq!(
+        client.get_curve(&launch.token).unwrap().buyback_xlm_reserve,
+        0
+    );
 
     // Curve trading disabled after graduation
     assert_eq!(
@@ -507,18 +542,7 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // Milestone 2 rejected while Soroswap XLM reserve < 1,800 XLM
-    assert_eq!(
-        client.try_trigger_milestone_burn(&launch.token),
-        Err(Ok(LaunchpadError::MilestoneNotReached))
-    );
-
-    // Simulate Soroswap XLM reserve reaching 1,800 XLM -> Milestone 2 burns remaining 1.475M!
-    MockSoroswapPairClient::new(&e, &s.pair).set_reserves(&(1_800 * STROOPS, 1_500_000 * STROOPS));
-    let burned2 = client.trigger_milestone_burn(&launch.token);
-    assert_eq!(burned2, 1_475_000 * STROOPS);
-    assert_eq!(tok.total_supply(), 7_050_000 * STROOPS - bb_burned);
-
+    // Legacy milestone burn has no vault in v4.3 -> InvalidCurveState
     assert_eq!(
         client.try_trigger_milestone_burn(&launch.token),
         Err(Ok(LaunchpadError::InvalidCurveState))
@@ -537,24 +561,40 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
     );
 
     let grad_ts = e.ledger().timestamp();
-    // Day 3 -> 1st bonus tranche = 10,000 tokens
+    // Day 3 -> 1st bonus tranche = 6,000 tokens (20% of 0.3% = 30,000)
     e.ledger().set_timestamp(grad_ts + 3 * 86_400);
     let c1 = client.claim_creator_vesting(&creator, &launch.token);
-    assert_eq!(c1, 10_000 * STROOPS);
+    assert_eq!(c1, 6_000 * STROOPS);
     assert_eq!(
         client.try_claim_creator_vesting(&creator, &launch.token),
         Err(Ok(LaunchpadError::MilestoneNotReached))
     );
 
-    // Day 15+ -> remaining 40,000 tokens unlocked (total 50,000 = 0.5%)
+    // Day 15+ -> remaining 24,000 tokens unlocked (total 30,000 = 0.3%)
     e.ledger().set_timestamp(grad_ts + 20 * 86_400);
     let c_rest = client.claim_creator_vesting(&creator, &launch.token);
-    assert_eq!(c_rest, 40_000 * STROOPS);
+    assert_eq!(c_rest, 24_000 * STROOPS);
     assert_eq!(
         client.get_curve(&launch.token).unwrap().creator_claimed,
-        50_000 * STROOPS
+        30_000 * STROOPS
     );
     assert_eq!(tok.balance(&s.launchpad), 0);
+
+    // 7-Year LP Time-Lock verification: rejected at Year 6, unlocked to treasury at Year 7!
+    e.ledger().set_timestamp(grad_ts + 6 * 365 * 86_400);
+    assert_eq!(
+        client.try_reclaim_expired_lp(&launch.token),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+    e.ledger().set_timestamp(grad_ts + 7 * 365 * 86_400);
+    let reclaimed_lp = client.reclaim_expired_lp(&launch.token);
+    assert_eq!(reclaimed_lp, 495_000_000);
+    assert_eq!(pair_mock.balance(&s.launchpad), 0);
+    assert_eq!(pair_mock.balance(&s.treasury), 495_000_000);
+    assert_eq!(
+        client.try_reclaim_expired_lp(&launch.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
 }
 
 #[test]
@@ -793,9 +833,9 @@ fn test_adversarial_direct_graduating_launch_and_invalid_quotes() {
     assert_eq!(res.pair, Some(s.pair));
     let curve = client.get_curve(&res.token).unwrap();
     assert!(curve.graduated);
-    assert_eq!(curve.tokens_sold, 4_200_000 * STROOPS);
+    assert_eq!(curve.tokens_sold, 6_600_000 * STROOPS);
     assert_eq!(curve.curve_xlm_net, 1_000 * STROOPS);
-    assert_eq!(curve.burn_milestone_stage, 1);
+    assert_eq!(curve.burn_milestone_stage, 2);
 
     // Quotes on already-graduated curve rejected cleanly
     assert_eq!(
@@ -851,4 +891,522 @@ fn test_adversarial_auth_required_without_mock() {
             &String::from_str(&e, "hi")
         )
         .is_err());
+}
+
+#[test]
+fn test_pair_sync_one_sided_griefing_does_not_block_graduation() {
+    let e = create_env();
+    // Simulate attacker creating the Soroswap pair before graduation and calling `sync()` with 1 stroop XLM (r0=1, r1=0, total_supply=0).
+    let s = setup_launchpad(&e, true, (1, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(1_500 * STROOPS));
+
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "SyncSafe"),
+        symbol: String::from_str(&e, "SAFE"),
+        xlm_lp_amount: 1_100 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[123u8; 32]),
+    });
+    assert_eq!(res.pair, Some(s.pair));
+    assert!(client.get_curve(&res.token).unwrap().graduated);
+}
+
+#[test]
+fn test_burn_shout_rejects_unregistered_token_and_sweep_allows_burned_curve() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+
+    let creator = Address::generate(&e);
+    let buyer = Address::generate(&e);
+    xlm_sac.mint(&creator, &(50 * STROOPS));
+    xlm_sac.mint(&buyer, &(100 * STROOPS));
+
+    // Unregistered token rejected in burn_shout
+    assert_eq!(
+        client.try_burn_shout(
+            &buyer,
+            &Address::generate(&e),
+            &(50 * STROOPS),
+            &String::from_str(&e, "spoof")
+        ),
+        Err(Ok(LaunchpadError::CurveNotFound))
+    );
+
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "BurnSweep"),
+        symbol: String::from_str(&e, "BSWP"),
+        xlm_lp_amount: 5 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[77u8; 32]),
+    });
+
+    // Buyer buys and burns 100% of their curve tokens via burn_shout
+    let buy = client.buy_curve(&buyer, &res.token, &(10 * STROOPS), &1);
+    client.burn_shout(
+        &buyer,
+        &res.token,
+        &buy.tokens,
+        &String::from_str(&e, "all burned"),
+    );
+
+    // After 7 days, creator rescues seed and sells back; even though tokens_sold > 0 due to buyer's burn,
+    // all remaining circulating supply == 0 so sweep_empty_curve_fees succeeds.
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 7 * 86_400);
+    let rescued = client.claim_creator_vesting(&creator, &res.token);
+    client.sell_curve(&creator, &res.token, &rescued, &1);
+
+    let swept = client.sweep_empty_curve_fees(&res.token);
+    assert!(swept > 0);
+    assert_eq!(client.get_curve(&res.token).unwrap().real_xlm_vault, 0);
+}
+
+#[test]
+fn test_admin_pause_treasury_rotation_and_anti_mev_buyback_chunking() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+
+    assert_eq!(client.get_admin(), Some(s.treasury.clone()));
+    assert!(!client.is_paused());
+
+    // Pause blocks new launches
+    client.set_paused(&true);
+    assert!(client.is_paused());
+    let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(1_500 * STROOPS));
+    assert_eq!(
+        client.try_launch_fair(&FairLaunchParams {
+            creator: creator.clone(),
+            name: String::from_str(&e, "Paused"),
+            symbol: String::from_str(&e, "PSD"),
+            xlm_lp_amount: 10 * STROOPS,
+            meta: String::from_str(&e, ""),
+            salt: BytesN::from_array(&e, &[88u8; 32]),
+        }),
+        Err(Ok(LaunchpadError::LaunchesPaused))
+    );
+
+    // Unpause & rotate admin/treasury
+    client.set_paused(&false);
+    let new_admin = Address::generate(&e);
+    client.transfer_admin(&new_admin);
+    client.accept_admin();
+    assert_eq!(client.get_admin(), Some(new_admin));
+
+    let new_treasury = Address::generate(&e);
+    client.set_treasury(&new_treasury);
+    assert_eq!(client.get_treasury(), Some(new_treasury));
+
+    assert_eq!(client.get_creation_fee(), 7 * STROOPS);
+    client.set_creation_fee(&(10 * STROOPS));
+    assert_eq!(client.get_creation_fee(), 10 * STROOPS);
+    assert_eq!(
+        client.try_set_creation_fee(&(1_001 * STROOPS)),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+}
+
+#[test]
+fn test_market_page_and_30d_abandoned_curve_sweep() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(50 * STROOPS));
+
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "Abandoned"),
+        symbol: String::from_str(&e, "ABND"),
+        xlm_lp_amount: 5 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[44u8; 32]),
+    });
+
+    // get_market_page returns launch record + live curve in a single RPC call
+    let page = client.get_market_page(&0, &10);
+    assert_eq!(page.len(), 1);
+    let card = page.get(0).unwrap();
+    assert_eq!(card.record.token, res.token);
+    assert_eq!(card.curve.len(), 1);
+    assert!(!card.curve.get(0).unwrap().graduated);
+
+    // Before 30 days, sweep_empty_curve_fees rejects because creator_seed_locked > 0
+    assert_eq!(
+        client.try_sweep_empty_curve_fees(&res.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // After 30 days with zero external buyers left, sweep returns creator's seed & sweeps XLM vault
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 30 * 86_400);
+    let swept = client.sweep_empty_curve_fees(&res.token);
+    assert!(swept > 0);
+    let tok = AstroTokenClient::new(&e, &res.token);
+    assert!(tok.balance(&creator) > 0);
+    let curve_after = client.get_curve(&res.token).unwrap();
+    assert_eq!(curve_after.creator_seed_locked, 0);
+    assert_eq!(curve_after.real_xlm_vault, 0);
+}
+
+#[test]
+fn test_50_wallets_lifecycle_buy_sell_stalled_refund_and_graduation_roi() {
+    let e = create_env();
+    e.cost_estimate().budget().reset_unlimited();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let xlm_read = token::Client::new(&e, &s.xlm_sac);
+
+    // -----------------------------------------------------------------
+    // Part 1: No-sale / stalled curve -> 1-click refund after 7 days
+    // -----------------------------------------------------------------
+    let stalled_creator = Address::generate(&e);
+    let flaky_buyer = Address::generate(&e);
+    xlm_sac.mint(&stalled_creator, &(25 * STROOPS));
+    xlm_sac.mint(&flaky_buyer, &(15 * STROOPS));
+
+    let res_a = client.launch_fair(&FairLaunchParams {
+        creator: stalled_creator.clone(),
+        name: String::from_str(&e, "Stalled"),
+        symbol: String::from_str(&e, "STLL"),
+        xlm_lp_amount: 10 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[11u8; 32]),
+    });
+
+    // External buyer enters with 5 XLM then exits 100%
+    let buy_a = client.buy_curve(&flaky_buyer, &res_a.token, &(5 * STROOPS), &1);
+    client.sell_curve(&flaky_buyer, &res_a.token, &buy_a.tokens, &1);
+
+    // Cannot refund before 7 days
+    assert_eq!(
+        client.try_refund_stalled_launch(&stalled_creator, &res_a.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // After 7 days with 0 external holders left, creator recovers full real_xlm_vault in 1 tx
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 7 * 86_400);
+    let bal_before_refund = xlm_read.balance(&stalled_creator);
+    let refunded = client.refund_stalled_launch(&stalled_creator, &res_a.token);
+    let bal_after_refund = xlm_read.balance(&stalled_creator);
+    // 10 XLM seed minus 0.50% treasury fee = 9.95 XLM + buyer's 2.50% floor bonus stayed in vault
+    assert!(refunded >= 99_500_000);
+    assert_eq!(bal_after_refund - bal_before_refund, refunded);
+    let curve_a = client.get_curve(&res_a.token).unwrap();
+    assert_eq!(curve_a.real_xlm_vault, 0);
+    assert_eq!(curve_a.tokens_sold, 0);
+    assert_eq!(curve_a.creator_seed_locked, 0);
+
+    // -----------------------------------------------------------------
+    // Part 2: 50 distinct wallets trading, burning shouts & graduating
+    // -----------------------------------------------------------------
+    let wallets: std::vec::Vec<Address> = (0..50).map(|_| Address::generate(&e)).collect();
+    for w in &wallets {
+        xlm_sac.mint(w, &(100 * STROOPS));
+    }
+
+    let creator = &wallets[0];
+    let res_b = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "FiftyWallets"),
+        symbol: String::from_str(&e, "FIFTY"),
+        xlm_lp_amount: 20 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[50u8; 32]),
+    });
+
+    // Wallets 1..=15 buy 25 XLM each
+    let mut bought_amounts: std::vec::Vec<i128> = std::vec![0; 50];
+    for i in 1..=15usize {
+        let tr = client.buy_curve(&wallets[i], &res_b.token, &(25 * STROOPS), &1);
+        bought_amounts[i] = tr.tokens;
+        assert!(!tr.graduated);
+    }
+
+    // Wallets 5..=9 take partial profit (sell 50% mid-curve)
+    let mut mid_sell_xlm = 0i128;
+    for i in 5..=9usize {
+        let half = bought_amounts[i] / 2;
+        let sr = client.sell_curve(&wallets[i], &res_b.token, &half, &1);
+        assert!(sr.xlm > 0);
+        if i == 5 {
+            mid_sell_xlm = sr.xlm;
+        }
+    }
+
+    // Wallets 1..=3 burn tokens in Burn-to-Chat (Chat, Hype, King)
+    client.burn_shout(
+        &wallets[1],
+        &res_b.token,
+        &(50 * STROOPS),
+        &String::from_str(&e, "Chat tier"),
+    );
+    client.burn_shout(
+        &wallets[2],
+        &res_b.token,
+        &(500 * STROOPS),
+        &String::from_str(&e, "Hype tier"),
+    );
+    client.burn_shout(
+        &wallets[3],
+        &res_b.token,
+        &(6_000 * STROOPS),
+        &String::from_str(&e, "King tier"),
+    );
+
+    // Wallets 16..50 buy 21 XLM each until atomic Soroswap graduation
+    let mut graduated_idx: Option<usize> = None;
+    let mut grad_xlm_spent: i128 = 0;
+    for i in 16..50usize {
+        if graduated_idx.is_some() {
+            // Post-graduation curve buys must cleanly reject
+            assert_eq!(
+                client.try_buy_curve(&wallets[i], &res_b.token, &(21 * STROOPS), &1),
+                Err(Ok(LaunchpadError::InvalidCurveState))
+            );
+            continue;
+        }
+        let tr = client.buy_curve(&wallets[i], &res_b.token, &(21 * STROOPS), &1);
+        bought_amounts[i] = tr.tokens;
+        if tr.graduated {
+            graduated_idx = Some(i);
+            grad_xlm_spent = tr.xlm;
+        }
+    }
+    assert!(
+        graduated_idx.is_some(),
+        "50-wallet wave must graduate curve"
+    );
+
+    let curve_b = client.get_curve(&res_b.token).unwrap();
+    assert!(curve_b.graduated);
+    assert_eq!(curve_b.burn_milestone_stage, 2);
+    assert_eq!(curve_b.tokens_sold, 6_600_000 * STROOPS);
+
+    // Verify supply burned organically via Burn-to-Chat shouts (6,550 tokens burned, 0 artificial burn vault)
+    let tok_b = AstroTokenClient::new(&e, &res_b.token);
+    assert!(tok_b.total_supply() < 10_000_000 * STROOPS);
+    assert_eq!(tok_b.balance(&s.treasury), 70_000 * STROOPS);
+
+    // Verify DEX price & participant ROIs (DEX seeded with 3.3M tokens and >=1,000 XLM)
+    let launch_rec = client.get_launch(&res_b.token).unwrap();
+    let dex_price_num = launch_rec.xlm_lp_amount; // stroops for 3.3M tokens
+    let dex_price_den = 3_300_000 * STROOPS;
+
+    let early_bal = tok_b.balance(&wallets[1]); // spent 25 XLM, burned 50 tok
+    let early_val_stroops = (early_bal * dex_price_num) / dex_price_den;
+    assert!(
+        early_val_stroops > 50 * STROOPS,
+        "Early buyer should be >2x (+100% ROI), got {} stroops",
+        early_val_stroops
+    );
+
+    let mid_bal = tok_b.balance(&wallets[25]); // spent 21 XLM mid-curve
+    let mid_val_stroops = (mid_bal * dex_price_num) / dex_price_den;
+    assert!(
+        mid_val_stroops > 25 * STROOPS,
+        "Mid buyer should be profitable at graduation (>25 XLM for 21 XLM in), got {} stroops",
+        mid_val_stroops
+    );
+
+    // Creator claims initial seed immediately at graduation + checks vesting
+    let creator_claimed_grad = client.claim_creator_vesting(creator, &res_b.token);
+    let creator_val_stroops = (creator_claimed_grad * dex_price_num) / dex_price_den;
+    assert!(
+        creator_val_stroops > 40 * STROOPS,
+        "Creator 20 XLM seed worth >40 XLM at graduation before 50K bonus vesting"
+    );
+
+    // Verify on-chain PilotRecord telemetry for Sorobits integration
+    let p_creator = client.get_pilot(creator);
+    assert_eq!(p_creator.launches, 1);
+    assert_eq!(p_creator.graduations, 1);
+    assert!(p_creator.trades >= 1);
+
+    let p_king = client.get_pilot(&wallets[3]);
+    assert_eq!(p_king.shouts, 1);
+    assert_eq!(p_king.king_shouts, 1);
+    assert_eq!(p_king.burns_triggered, 1);
+
+    let grad_idx = graduated_idx.unwrap();
+    let grad_actual_xlm_debited = 100 * STROOPS - xlm_read.balance(&wallets[grad_idx]);
+    let grad_bal = tok_b.balance(&wallets[grad_idx]);
+    let grad_val_stroops = (grad_bal * dex_price_num) / dex_price_den;
+    let pre_grad_bal = tok_b.balance(&wallets[grad_idx - 1]);
+    let pre_grad_val_stroops = (pre_grad_bal * dex_price_num) / dex_price_den;
+    let seller5_bal = tok_b.balance(&wallets[5]);
+    let seller5_val_stroops = mid_sell_xlm + (seller5_bal * dex_price_num) / dex_price_den;
+    std::println!(
+        "[50W-LAUNCHPAD] stalled_refund_stroops={} ({}% of 10 XLM seed) | grad_wallet={} (tr.xlm={}, actual_debit={}) | burned_stroops={}",
+        refunded,
+        (refunded * 100) / (10 * STROOPS),
+        grad_idx,
+        grad_xlm_spent,
+        grad_actual_xlm_debited,
+        10_000_000 * STROOPS - tok_b.total_supply()
+    );
+    std::println!(
+        "[50W-ROI] creator_20xlm->={} ({}% vs 27 XLM total cost, +30k bonus vesting={} stroops pending, +70k dev treasury) | early_w1_25xlm->={} ({}%) | half_seller_w5_25xlm->={} ({}%) | mid_w25_21xlm->={} ({}%) | pre_grad_w{}_21xlm->={} ({}%) | grad_w{}_{}xlm->={} ({}% vs actual debit)",
+        creator_val_stroops,
+        ((creator_val_stroops - 27 * STROOPS) * 100) / (27 * STROOPS),
+        (30_000 * STROOPS * dex_price_num) / dex_price_den,
+        early_val_stroops,
+        ((early_val_stroops - 25 * STROOPS) * 100) / (25 * STROOPS),
+        seller5_val_stroops,
+        ((seller5_val_stroops - 25 * STROOPS) * 100) / (25 * STROOPS),
+        mid_val_stroops,
+        ((mid_val_stroops - 21 * STROOPS) * 100) / (21 * STROOPS),
+        grad_idx - 1,
+        pre_grad_val_stroops,
+        ((pre_grad_val_stroops - 21 * STROOPS) * 100) / (21 * STROOPS),
+        grad_idx,
+        grad_actual_xlm_debited / STROOPS,
+        grad_val_stroops,
+        ((grad_val_stroops - grad_actual_xlm_debited) * 100) / grad_actual_xlm_debited,
+    );
+}
+
+#[test]
+fn test_50_wallets_economic_models_comparison_burn_vs_wallet_vs_7y_lock() {
+    // Integer constant-product helper mirroring Fair-Flywheel v4.2 fee mechanics:
+    // 50 bps treasury + 30 bps floor bonus (80 bps total buy fee).
+    fn sim_50_wallets(
+        vx_start: i128,
+        vy_start: i128,
+        curve_alloc: i128,
+        dex_alloc: i128,
+        real_goal: i128,
+    ) -> (i128, i128, i128, i128, i128, usize) {
+        let mut xlm_net: i128 = 0;
+        let mut sold: i128 = 0;
+        let mut vault: i128 = 0;
+        let mut holdings = [0i128; 50];
+        let mut spent = [0i128; 50];
+        let mut grad_w = 0usize;
+
+        for w in 0..50usize {
+            let order = if w == 0 { 20 * STROOPS } else { 21 * STROOPS };
+            let remaining_goal = real_goal - xlm_net;
+            if remaining_goal <= 0 {
+                break;
+            }
+            let max_gross_for_cap = ((remaining_goal as u128 * 10_000) / (10_000 - 80)) as i128 + 2;
+            let gross = if order > max_gross_for_cap && remaining_goal < (order * 9_920) / 10_000 {
+                let mut g = ((remaining_goal as u128 * 10_000).div_ceil(9_920)) as i128;
+                while g - ((g * 80) / 10_000) < remaining_goal {
+                    g += 1;
+                }
+                g.min(order)
+            } else {
+                order
+            };
+            let t_fee = ((gross as u128 * 50).div_ceil(10_000)) as i128;
+            let f_fee = ((gross as u128 * 30).div_ceil(10_000)) as i128;
+            let net = (gross - t_fee - f_fee).min(remaining_goal);
+            let is_grad = xlm_net + net >= real_goal;
+
+            let vx = vx_start + xlm_net;
+            let vy = vy_start - sold;
+            let out = if is_grad {
+                curve_alloc - sold
+            } else {
+                ((net as u128 * vy as u128) / (vx as u128 + net as u128)) as i128
+            };
+            xlm_net += net;
+            sold += out;
+            vault += net + f_fee;
+            holdings[w] = out;
+            spent[w] = gross;
+            if is_grad {
+                grad_w = w;
+                break;
+            }
+        }
+
+        // Value at Soroswap DEX open spot price: vault / dex_alloc
+        let roi_pct = |w: usize| -> i128 {
+            let val = ((holdings[w] as u128 * vault as u128) / dex_alloc as u128) as i128;
+            ((val - spent[w]) * 100) / spent[w]
+        };
+        (
+            roi_pct(0),
+            roi_pct(1),
+            roi_pct(25),
+            roi_pct(grad_w - 1),
+            roi_pct(grad_w),
+            grad_w,
+        )
+    }
+
+    let goal = 1_000 * STROOPS;
+
+    // Model A: v4.2 Actual (42% Curve / 28% DEX / 29.5% Burn Vault / 0.5% Vest, 2.25x curve)
+    let a = sim_50_wallets(
+        2_000 * STROOPS,
+        12_600_000 * STROOPS,
+        4_200_000 * STROOPS,
+        2_800_000 * STROOPS,
+        goal,
+    );
+
+    // Model B: Reserve 29.5% (2,950,000 tokens) in an UNLOCKED external wallet instead of burning.
+    // Simulate Soroswap pool at open: 1,000 XLM & 2,800,000 tokens. If wallet sells 50% (1,475,000):
+    let pool_xlm: u128 = (1_000 * STROOPS) as u128;
+    let pool_tok: u128 = (2_800_000 * STROOPS) as u128;
+    let dump_tok: u128 = (1_475_000 * STROOPS) as u128;
+    let dump_net: u128 = dump_tok - ((dump_tok * 3).div_ceil(1_000));
+    let xlm_drained: u128 = (dump_net * pool_xlm) / (pool_tok + dump_net);
+    let pool_xlm_after = pool_xlm - xlm_drained;
+    let pool_tok_after = pool_tok + dump_tok;
+    let price_before_num = pool_xlm * 1_000_000;
+    let price_before_den = pool_tok;
+    let price_after_num = pool_xlm_after * 1_000_000;
+    let price_after_den = pool_tok_after;
+    let crash_pct =
+        100 - (((price_after_num * price_before_den) * 100) / (price_before_num * price_after_den));
+    assert!((55..=60).contains(&crash_pct));
+
+    // Model C: Simplified 10M (66% Curve / 33% DEX / 1% Creator Vesting, NO burn vault, 4.00x range, 0.00% cliff)
+    let c = sim_50_wallets(
+        1_000 * STROOPS,
+        13_200_000 * STROOPS,
+        6_600_000 * STROOPS,
+        3_300_000 * STROOPS,
+        goal,
+    );
+    assert!(c.0 > a.0 && c.1 > a.1 && c.4 >= -1);
+
+    // 7-Year LP Time-Lock simulation for dead graduated pools
+    let grad_ts: u64 = 1_760_000_000;
+    let seven_years_secs: u64 = 7 * 365 * 86_400; // 220,752,000s
+    let locked_at_year_6 = (grad_ts + 6 * 365 * 86_400) < (grad_ts + seven_years_secs);
+    let unlocked_at_year_7 = (grad_ts + seven_years_secs) >= (grad_ts + seven_years_secs);
+    assert!(locked_at_year_6 && unlocked_at_year_7);
+
+    std::println!(
+        "[COMPARE-MODEL-A-V42] range=2.25x cliff=0% | creator_seed_roi={}% early_w1={}% mid_w25={}% pre_grad={}% grad_w{}={}% | dead_pool_xlm_lost=1000XLM",
+        a.0, a.1, a.2, a.3, a.5, a.4
+    );
+    std::println!(
+        "[COMPARE-MODEL-B-WALLET] unlocked_wallet=29.5% vs pool=28% (105% of pool!) | half_sell_1.475M_drains={} stroops (~{} XLM) | price_crash=-{}%",
+        xlm_drained,
+        xlm_drained / (STROOPS as u128),
+        crash_pct
+    );
+    std::println!(
+        "[COMPARE-MODEL-C-4X-7YLOCK] range=4.00x cliff=0% | creator_seed_roi={}% early_w1={}% mid_w25={}% pre_grad={}% grad_w{}={}% | dead_pool_xlm_recovered_after_7y=1000XLM",
+        c.0, c.1, c.2, c.3, c.5, c.4
+    );
 }

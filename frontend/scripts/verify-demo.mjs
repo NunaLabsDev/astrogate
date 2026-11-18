@@ -131,8 +131,8 @@ try {
   if (!curveInit || curveInit.graduated) {
     throw new Error(`CurveState inicial inesperado: ${JSON.stringify(curveInit)}`)
   }
-  if (curveInit.burn_vault_remaining !== 2_950_000n * unit) {
-    throw new Error(`burn_vault_remaining inesperado: ${curveInit.burn_vault_remaining}`)
+  if (curveInit.burn_vault_remaining !== 0n || curveInit.creator_vesting_total !== 30_000n * unit) {
+    throw new Error(`burn_vault/vesting inicial inesperado: vault=${curveInit.burn_vault_remaining} vest=${curveInit.creator_vesting_total}`)
   }
   if (!audit.isAntiRugVerified || !audit.verifiedLaunchpad || !audit.ownershipRenounced) {
     throw new Error(`verifyAntiRug fallo: ${JSON.stringify(audit)}`)
@@ -147,10 +147,10 @@ try {
     curveInit.tokens_sold !== expectedCreatorTokens
   ) {
     throw new Error(
-      `seed lock v4.2 no coincide: bal=${creatorBalInitial.toString()} locked=${curveInit.creator_seed_locked?.toString()} expected=${expectedCreatorTokens.toString()}`,
+      `seed lock v4.3 no coincide: bal=${creatorBalInitial.toString()} locked=${curveInit.creator_seed_locked?.toString()} expected=${expectedCreatorTokens.toString()}`,
     )
   }
-  console.log('verifyAntiRug + registro v4.2 OK (Curva 2,000 vXLM, creator seed locked', curveInit.creator_seed_locked.toString(), 'base units)')
+  console.log('verifyAntiRug + registro v4.3 OK (Curva 1,000 vXLM, creator seed locked', curveInit.creator_seed_locked.toString(), 'base units)')
 
   // 2. B compra en Virtual Bonding Curve con paridad local 0ms vs RPC (transfer P2P bloqueado pre-grad)
   const curveNow = await tokenLib.fetchCurveState(token)
@@ -199,7 +199,7 @@ try {
   }
   console.log('B vendio 1,000 DEMO en curva ->', sellRes.trade.xlm.toString(), 'stroops XLM')
 
-  const shoutText = `Live v4.1 E2E shout ${Date.now()}`
+  const shoutText = `[Testnet E2E] Curve check ${Date.now()}`
   const supplyBeforeShout = (await tokenLib.tokenClient(token).total_supply()).result
   await tokenLib.burnAndShout({
     tokenId: token,

@@ -10,6 +10,7 @@ import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/fo
 import { explorerTxUrl } from '../lib/explorer'
 import { isValidContractAddress, isValidStellarAddress } from '../lib/address'
 import { invalidateTokenData } from '../lib/query'
+import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
 
@@ -20,7 +21,7 @@ const inputClass =
  * Mint additional supply: only the owner can mint.
  */
 export function MintCard({ token }: { token: LaunchpadToken }) {
-  const { publicKey, demoAccounts, getSigner } = useWallet()
+  const { publicKey, mode, demoAccounts, requireSignerOrPrompt } = useWallet()
   const queryClient = useQueryClient()
   const info = useTokenInfo(token.id)
   const xlmBalance = useXlmBalance(publicKey)
@@ -28,6 +29,7 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
   const [renouncing, setRenouncing] = useState(false)
+  const [confirmRenounce, setConfirmRenounce] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [minted, setMinted] = useState<{
     amount: bigint
@@ -42,23 +44,24 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
     setError(null)
     setMinted(null)
     if (!publicKey) return
-    const confirmed = window.confirm(
-      `Permanently renounce ownership of ${token.symbol ?? 'this token'}?\n\nThis action is irreversible on-chain: minting will be disabled forever.`,
-    )
-    if (!confirmed) return
+    if (!confirmRenounce) {
+      setConfirmRenounce(true)
+      return
+    }
 
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
     }
 
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
 
+    setConfirmRenounce(false)
     setRenouncing(true)
     try {
       const client = tokenClient(token.id, signer)
@@ -88,9 +91,9 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
       setError('Connect your wallet or activate demo mode to mint tokens.')
       return
     }
-    const signer = getSigner()
+    const signer = requireSignerOrPrompt()
     if (!signer) {
-      setError('Unable to prepare signer for the active account.')
+      if (mode !== 'hot') setError(UNSUPPORTED_SIGNER_MESSAGE)
       return
     }
 
@@ -111,7 +114,7 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
       setError('Enter an amount greater than 0.')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       setError(xlmReserveError)
       return
@@ -280,18 +283,39 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
               Renounce Ownership (Fixed Supply)
             </h3>
             <p className="mt-0.5 text-xs text-slate-400">
-              Permanently disables owner permissions on-chain (`renounce_ownership`).
+              Permanently disables owner permissions on-chain (<code className="text-amber-300">renounce_ownership</code>).
               No one will ever be able to mint additional {token.symbol ?? 'tokens'}.
             </p>
           </div>
-          <button
-            type="button"
-            disabled={busy || renouncing}
-            onClick={() => void onRenounce()}
-            className="min-h-[40px] rounded-lg border border-amber-800/80 bg-amber-950/30 px-4 py-2 text-xs font-medium text-amber-200 hover:border-amber-600 hover:bg-amber-950/50 disabled:opacity-50"
-          >
-            {renouncing ? 'Renouncing…' : 'Renounce Ownership'}
-          </button>
+          {confirmRenounce ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy || renouncing}
+                onClick={() => void onRenounce()}
+                className="min-h-[40px] rounded-lg bg-rose-600 px-4 py-2 text-xs font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+              >
+                {renouncing ? 'Renouncing…' : 'Confirm Irreversible Renounce'}
+              </button>
+              <button
+                type="button"
+                disabled={busy || renouncing}
+                onClick={() => setConfirmRenounce(false)}
+                className="min-h-[40px] rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-300 hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={busy || renouncing}
+              onClick={() => void onRenounce()}
+              className="min-h-[40px] rounded-lg border border-amber-800/80 bg-amber-950/30 px-4 py-2 text-xs font-medium text-amber-200 hover:border-amber-600 hover:bg-amber-950/50 disabled:opacity-50"
+            >
+              {renouncing ? 'Renouncing…' : 'Renounce Ownership'}
+            </button>
+          )}
         </div>
       </div>
     </section>

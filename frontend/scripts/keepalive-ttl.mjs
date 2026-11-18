@@ -1,10 +1,11 @@
 /**
  * Permissionless Soroban Testnet TTL keep-alive script.
  *
- * Refreshes 90-day Soroban state TTLs for:
+ * Refreshes 90-day / 180-day Soroban state TTLs for:
  *  1. Launchpad instance (`extend_ttl`)
  *  2. Canonical ASTRO token instance (`extend_ttl`)
- *  3. Up to 10 most recent launched tokens + their Launchpad registry/shout entries
+ *  3. All launched tokens + their Launchpad registry/curve/shout entries (paginated)
+ *  4. Sorobits (SBIT) SEP-50 contract instance + all minted NFTs (`extend_token_ttl`)
  *
  * Usage:
  *   npm run keepalive:ttl              # Ephemeral Friendbot testnet account
@@ -16,12 +17,15 @@ import { KeypairSigner } from '@stellar/stellar-sdk/contract'
 import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const FRIENDBOT_URL = 'https://friendbot.stellar.org'
-const MAX_LAUNCHED_TOKENS = 10
+const PAGE_SIZE = 20
 
-async function getFundedKeypair() {
+async function getFundedKeypair(networkName) {
   const { secret, source } = loadStellarSecret()
   if (secret) {
     return { keypair: Keypair.fromSecret(secret), source: source ?? 'env' }
+  }
+  if (networkName === 'mainnet') {
+    throw new Error('STELLAR_SECRET is required when running keepalive:ttl on mainnet (Friendbot unavailable).')
   }
   const keypair = Keypair.random()
   const res = await fetch(`${FRIENDBOT_URL}?addr=${encodeURIComponent(keypair.publicKey())}`)
@@ -43,7 +47,7 @@ try {
   const networkLib = await vite.ssrLoadModule('/src/lib/network.ts')
   const tokenLib = await vite.ssrLoadModule('/src/lib/token.ts')
 
-  const { keypair, source } = await getFundedKeypair()
+  const { keypair, source } = await getFundedKeypair(networkLib.NETWORK_NAME)
   const signer = new KeypairSigner(keypair, networkLib.NETWORK_PASSPHRASE)
   console.log(`keeper: ${keypair.publicKey()} (${source})`)
 
@@ -73,12 +77,19 @@ try {
     console.error('FAIL astro-token.extend_ttl:', err instanceof Error ? err.message : String(err))
   }
 
-  const launchesTx = await launchpad.get_launches({
-    offset: 0,
-    limit: MAX_LAUNCHED_TOKENS,
-  })
-  const launches = launchesTx.result ?? []
-  console.log(`launches found on-chain: ${launches.length}`)
+  const countTx = await launchpad.get_launch_count()
+  const totalLaunches = Number(countTx.result ?? 0)
+  const launches = []
+  for (let offset = 0; offset < totalLaunches; offset += PAGE_SIZE) {
+    const launchesTx = await launchpad.get_launches({
+      offset,
+      limit: Math.min(PAGE_SIZE, totalLaunches - offset),
+    })
+    const page = launchesTx.result ?? []
+    if (page.length === 0) break
+    launches.push(...page)
+  }
+  console.log(`launches found on-chain: ${launches.length} / ${totalLaunches}`)
 
   const seen = new Set([networkLib.ASTRO_TOKEN_ID])
   for (const record of launches) {
@@ -106,6 +117,52 @@ try {
         err instanceof Error ? err.message : String(err),
       )
     }
+  }
+
+  // Refresh Sorobits (SBIT) contract & minted NFTs
+  try {
+    const { Client: SorobitsClient } = await vite.ssrLoadModule('/src/contracts/sorobits/index.ts')
+    const sorobits = new SorobitsClient({
+      contractId: networkLib.SOROBITS_CONTRACT_ID,
+      rpcUrl: networkLib.RPC_URL,
+      networkPassphrase: networkLib.NETWORK_PASSPHRASE,
+      publicKey: signer.address,
+      signTransaction: signer,
+      signAuthEntry: signer,
+    })
+    const sbTx = await sorobits.extend_ttl()
+    const sbSent = await sbTx.signAndSend({ force: true })
+    console.log(
+      `ok   sorobits.extend_ttl · ${networkLib.SOROBITS_CONTRACT_ID} · tx=${sbSent.sendTransactionResponse?.hash ?? 'ok'}`,
+    )
+    const supplyTx = await sorobits.total_supply()
+    const totalNfts = Number(supplyTx.result ?? 0)
+    console.log(`sorobits minted on-chain: ${totalNfts}`)
+    for (let index = 0; index < totalNfts; index++) {
+      let tokenId = index
+      try {
+        const idTx = await sorobits.get_token_id({ index })
+        if (typeof idTx.result === 'number') tokenId = idTx.result
+      } catch {
+        // Fallback to index if contract does not expose enumerable get_token_id
+      }
+      try {
+        const nftTx = await sorobits.extend_token_ttl({ token_id: tokenId })
+        const nftSent = await nftTx.signAndSend({ force: true })
+        console.log(
+          `ok   sorobits.extend_token_ttl · #${tokenId} · tx=${nftSent.sendTransactionResponse?.hash ?? 'ok'}`,
+        )
+      } catch (err) {
+        failures++
+        console.error(
+          `FAIL sorobits.extend_token_ttl #${tokenId}:`,
+          err instanceof Error ? err.message : String(err),
+        )
+      }
+    }
+  } catch (err) {
+    failures++
+    console.error('FAIL sorobits keep-alive:', err instanceof Error ? err.message : String(err))
   }
 } finally {
   await vite.close()

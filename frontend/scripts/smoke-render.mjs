@@ -106,6 +106,15 @@ try {
     throw new Error('la ruta /sorobits no renderiza la colección Sorobits')
   }
 
+  const docsHtml = renderApp('/docs')
+  if (
+    !docsHtml.includes('AstroGate Developer, Audit') ||
+    !docsHtml.includes('/api/v1/health') ||
+    !docsHtml.includes('developers.stellar.org')
+  ) {
+    throw new Error('la ruta /docs no renderiza la documentación de protocolo, auditoría y API/MCP')
+  }
+
   const tokenHtml = renderApp('/token/CTOKEN')
   if (!tokenHtml.includes('Reading token')) {
     throw new Error('la ruta /token/:id no renderiza su estado de carga')

@@ -16,6 +16,7 @@ export function WalletButton() {
     mode,
     hotAccounts,
     hotActiveId,
+    telegramLink,
     hotUnlocked,
     demoAccounts,
     demoActive,
@@ -152,8 +153,10 @@ export function WalletButton() {
             }
           >
             <span>{hotUnlocked ? '⚡' : '🔒'}</span>
-            <span className="hidden sm:inline max-w-[78px] truncate">
-              {activeHot?.label ?? 'Vault'}
+            <span className="hidden sm:inline max-w-[96px] truncate">
+              {telegramLink?.username
+                ? `@${telegramLink.username}`
+                : activeHot?.label ?? 'Vault'}
             </span>
             {xlmBalance.data !== undefined ? (
               <span className="font-mono tabular-nums text-emerald-300 whitespace-nowrap">

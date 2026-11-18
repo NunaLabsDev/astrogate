@@ -59,6 +59,7 @@ import {
 import {
   claimCreatorVesting,
   extendTokenTtl,
+  refundStalledLaunch,
   triggerBuybackBurn,
   triggerMilestoneBurn,
   type LaunchpadToken,
@@ -184,8 +185,10 @@ export function TokenPage() {
     'thread' | 'trades' | 'holders' | 'audit'
   >('thread')
   const [extendingTtl, setExtendingTtl] = useState(false)
+  const [mountNowSecs] = useState(() => BigInt(Math.floor(Date.now() / 1000)))
+  const [dexPanelTab, setDexPanelTab] = useState<'swap' | 'liquidity' | 'tools'>('swap')
   const [busyFlywheel, setBusyFlywheel] = useState<
-    'milestone' | 'vesting' | 'buyback' | null
+    'milestone' | 'vesting' | 'buyback' | 'refund' | null
   >(null)
 
   const holderAnalysis = useMemo(
@@ -269,6 +272,8 @@ export function TokenPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
       ])
     } catch (err) {
       toast.error('Milestone burn unavailable', { message: errorMessage(err) })
@@ -299,6 +304,8 @@ export function TokenPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
       ])
     } catch (err) {
       toast.error('Nothing unlocked yet', { message: errorMessage(err) })
@@ -330,9 +337,45 @@ export function TokenPage() {
         queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
         queryClient.invalidateQueries({ queryKey: ['soroswap-pool', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
       ])
     } catch (err) {
       toast.error('Buyback burn unavailable', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onRefundStalledLaunch() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('refund')
+    try {
+      const { refunded, hash } = await refundStalledLaunch({ tokenId: id, signer })
+      toast.success('🌊 Stalled curve XLM refunded!', {
+        message: `Returned ${formatAmount(refunded, XLM_DECIMALS)} XLM to creator wallet`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
+      ])
+    } catch (err) {
+      toast.error('Refund unavailable yet', { message: errorMessage(err) })
     } finally {
       setBusyFlywheel(null)
     }
@@ -343,6 +386,20 @@ export function TokenPage() {
     decimals: info.data?.decimals ?? 7,
     symbol: info.data?.symbol,
   }
+
+  const canRefundStalled = Boolean(
+    curve.data &&
+      !curve.data.graduated &&
+      publicKey === curve.data.creator &&
+      curve.data.creator_seed_locked > 0n &&
+      curve.data.real_xlm_vault > 0n &&
+      (curve.data.tokens_sold === curve.data.creator_seed_locked ||
+        curve.data.tokens_sold === 0n) &&
+      info.data?.launchTimestamp !== undefined &&
+      info.data.launchTimestamp > 0n &&
+      mountNowSecs >=
+        info.data.launchTimestamp + 604_800n,
+  )
 
   const tradePairScope = isBondingCurve ? null : pool.data?.pairId
 
@@ -447,14 +504,20 @@ export function TokenPage() {
   const marketCapUsd = marketCapXlm * xlmUsd
 
   const reserveToken = effectivePool?.reserveToken ?? 0n
-  const poolSupplyPct =
-    reserveToken > 0n && info.data.totalSupply > 0n && !isBondingCurve
-      ? calculateSupplySharePercent(reserveToken, info.data.totalSupply)
-      : 0
   const circulatingWalletsBase =
     !isBondingCurve && info.data.totalSupply > reserveToken
       ? info.data.totalSupply - reserveToken
       : (curve.data?.tokens_sold ?? 0n)
+  const launchpadCustodyBase =
+    isBondingCurve && info.data.totalSupply > circulatingWalletsBase
+      ? info.data.totalSupply - circulatingWalletsBase
+      : 0n
+  const poolSupplyPct =
+    isBondingCurve && info.data.totalSupply > 0n
+      ? calculateSupplySharePercent(launchpadCustodyBase, info.data.totalSupply)
+      : reserveToken > 0n && info.data.totalSupply > 0n
+        ? calculateSupplySharePercent(reserveToken, info.data.totalSupply)
+        : 0
   const walletsSupplyPct =
     circulatingWalletsBase > 0n && info.data.totalSupply > 0n
       ? calculateSupplySharePercent(circulatingWalletsBase, info.data.totalSupply)
@@ -585,7 +648,7 @@ export function TokenPage() {
           {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
             <span
               className="shrink-0 rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[11px] font-semibold text-sky-300 flex items-center gap-1 whitespace-nowrap"
-              title="Mint renounced & reserves locked in Launchpad v4.2 Virtual Bonding Curve"
+              title="Mint renounced & reserves locked in Launchpad v4.3 Virtual Bonding Curve"
             >
               ⚡ Fair Curve
             </span>
@@ -767,15 +830,20 @@ export function TokenPage() {
                     (curve.data.graduated &&
                       publicKey === curve.data.creator &&
                       curve.data.creator_claimed <
-                        curve.data.creator_vesting_total),
+                        curve.data.creator_vesting_total) ||
+                    canRefundStalled,
                 )
               }
               className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4 text-xs sm:text-sm"
             >
               <summary className="cursor-pointer select-none font-semibold text-slate-200 flex items-center justify-between gap-2">
-                <span>🔥 Milestone Burn &amp; 15d Creator Vesting</span>
+                <span>🛡️ 7Y LP Lock, Buyback &amp; 15d Creator Vesting</span>
                 <span className="font-mono text-xs text-amber-300">
-                  Stage {curve.data.burn_milestone_stage}/2
+                  {curve.data.burn_vault_remaining > 0n
+                    ? `Stage ${curve.data.burn_milestone_stage}/2`
+                    : curve.data.graduated
+                      ? '7Y LP Locked ✓'
+                      : '4.00× Curve'}
                 </span>
               </summary>
 
@@ -783,18 +851,24 @@ export function TokenPage() {
                 <div className="rounded-2xl border border-amber-500/30 bg-slate-950/50 p-3.5 space-y-2">
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-bold text-amber-300">
-                      🔥 Proof-of-Burn Vault
+                      {curve.data.burn_vault_remaining > 0n
+                        ? '🔥 Proof-of-Burn Vault'
+                        : '🛡️ 7-Year LP Lock & Deflation'}
                     </span>
                     <span className="font-mono text-slate-400">
-                      {curve.data.burn_milestone_stage}/2
+                      {curve.data.burn_vault_remaining > 0n
+                        ? `${curve.data.burn_milestone_stage}/2`
+                        : '66 / 33 / 0.3 / 0.7'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    {curve.data.burn_milestone_stage === 0
-                      ? `2.95M $${token.symbol} vaulted: 1.475M burns at graduation + 1.475M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                      : curve.data.burn_milestone_stage === 1
-                        ? `1.475M burned ✓ · 1.475M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                        : `All 2.95M $${token.symbol} vault tokens permanently burned ✓`}
+                    {curve.data.burn_vault_remaining > 0n
+                      ? curve.data.burn_milestone_stage === 0
+                        ? `2.95M $${token.symbol} vaulted: 1.475M burns at graduation + 1.475M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                        : curve.data.burn_milestone_stage === 1
+                          ? `1.475M burned ✓ · 1.475M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
+                          : `All 2.95M $${token.symbol} vault tokens permanently burned ✓`
+                      : `Zero idle burn vault: 66% curve + 33% Soroswap DEX (LP contract-locked 7 years at graduation) + 0.7% ecosystem. Organic burns via DEX Buyback & Shouts.`}
                   </p>
                   {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
                     <button
@@ -808,7 +882,9 @@ export function TokenPage() {
                         : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
                     </button>
                   ) : null}
-                  {curve.data.graduated && curve.data.burn_milestone_stage === 1 ? (
+                  {curve.data.graduated &&
+                  curve.data.burn_milestone_stage === 1 &&
+                  curve.data.burn_vault_remaining > 0n ? (
                     <button
                       type="button"
                       disabled={
@@ -832,7 +908,7 @@ export function TokenPage() {
                 <div className="rounded-2xl border border-sky-500/30 bg-slate-950/50 p-3.5 space-y-2">
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-bold text-sky-300">
-                      ⏳ Creator 15d Vesting (0.5%)
+                      ⏳ Creator 15d Vesting (0.3%)
                     </span>
                     <span className="font-mono text-slate-400">
                       {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
@@ -840,12 +916,13 @@ export function TokenPage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-relaxed">
-                    50,000 ${token.symbol} bonus locked until graduation, then 5 tranches every 3 days{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} seed locked until grad)` : ''}.
+                    {formatAmount(curve.data.creator_vesting_total, token.decimals)} ${token.symbol} bonus locked until graduation, then 5 tranches every 3 days{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} seed locked until graduation or 7 days if ungraduated)` : ''}.
                   </p>
                   {publicKey === curve.data.creator &&
-                  (curve.data.creator_claimed < curve.data.creator_vesting_total ||
-                    curve.data.creator_seed_locked > 0n) &&
-                  curve.data.graduated ? (
+                  (curve.data.graduated
+                    ? curve.data.creator_claimed < curve.data.creator_vesting_total ||
+                      curve.data.creator_seed_locked > 0n
+                    : curve.data.creator_seed_locked > 0n) ? (
                     <button
                       type="button"
                       disabled={busyFlywheel !== null}
@@ -854,9 +931,23 @@ export function TokenPage() {
                     >
                       {busyFlywheel === 'vesting'
                         ? 'Claiming Tranche…'
-                        : curve.data.creator_seed_locked > 0n
-                          ? '⏳ Claim Seed & Unlocked Vesting'
-                          : '⏳ Claim Unlocked Creator Vesting'}
+                        : !curve.data.graduated
+                          ? '⏳ Rescue Seed (Unlocks 7d After Launch)'
+                          : curve.data.creator_seed_locked > 0n
+                            ? '⏳ Claim Seed & Unlocked Vesting'
+                            : '⏳ Claim Unlocked Creator Vesting'}
+                    </button>
+                  ) : null}
+                  {canRefundStalled && curve.data ? (
+                    <button
+                      type="button"
+                      disabled={busyFlywheel !== null}
+                      onClick={() => void onRefundStalledLaunch()}
+                      className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50 transition"
+                    >
+                      {busyFlywheel === 'refund'
+                        ? 'Refunding Stalled Vault…'
+                        : `🌊 Refund Full Stalled Vault (7d · ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM)`}
                     </button>
                   ) : null}
                 </div>
@@ -866,11 +957,17 @@ export function TokenPage() {
 
           {/* Tabbed Interactive Section: Thread | Live Trades | Holders & Risk | Audit & Contract */}
           <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-2">
+            <div
+              role="tablist"
+              aria-label="Token detail sections"
+              className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-2"
+            >
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'thread'}
                 onClick={() => setActiveTab('thread')}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
                   activeTab === 'thread'
                     ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
                     : 'text-slate-400 hover:text-white'
@@ -885,8 +982,10 @@ export function TokenPage() {
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'trades'}
                 onClick={() => setActiveTab('trades')}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
                   activeTab === 'trades'
                     ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
                     : 'text-slate-400 hover:text-white'
@@ -899,8 +998,10 @@ export function TokenPage() {
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'holders'}
                 onClick={() => setActiveTab('holders')}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
                   activeTab === 'holders'
                     ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
                     : 'text-slate-400 hover:text-white'
@@ -919,8 +1020,10 @@ export function TokenPage() {
               </button>
               <button
                 type="button"
+                role="tab"
+                aria-selected={activeTab === 'audit'}
                 onClick={() => setActiveTab('audit')}
-                className={`rounded-xl px-3.5 py-1.5 text-xs font-bold transition flex items-center gap-1.5 ${
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
                   activeTab === 'audit'
                     ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 shadow-sm'
                     : 'text-slate-400 hover:text-white'
@@ -977,7 +1080,8 @@ export function TokenPage() {
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-300">
                     <span>
-                      🟩 Pool AMM: <strong>{poolSupplyPct.toFixed(1)}%</strong>
+                      🟩 {isBondingCurve ? 'Launchpad Vault' : 'Pool AMM'}:{' '}
+                      <strong>{poolSupplyPct.toFixed(1)}%</strong>
                     </span>
                     <span>
                       🟨 Creator: <strong>{holderAnalysis.creatorSharePercent.toFixed(2)}%</strong>
@@ -1201,10 +1305,18 @@ export function TokenPage() {
 
                   <div className="space-y-1.5 font-mono text-[11px]">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-slate-400">Soroswap AMM Pool (Tradable)</span>
+                      <span className="text-slate-400">
+                        {isBondingCurve
+                          ? 'Launchpad Curve + DEX/Burn Custody'
+                          : 'Soroswap AMM Pool (Tradable)'}
+                      </span>
                       <span className="text-emerald-300 font-semibold">
-                        {formatGroupedAmount(reserveToken, token.decimals)} ${token.symbol} (
-                        {poolSupplyPct.toFixed(2)}%) + {formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM
+                        {formatGroupedAmount(
+                          isBondingCurve ? launchpadCustodyBase : reserveToken,
+                          token.decimals,
+                        )}{' '}
+                        ${token.symbol} ({poolSupplyPct.toFixed(2)}%) +{' '}
+                        {formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1226,7 +1338,9 @@ export function TokenPage() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-slate-400">Swap Fee Flow</span>
                       <span className="text-slate-300">
-                        {SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax
+                        {isBondingCurve
+                          ? '0.80% Buy (0.50% Treasury + 0.30% LP/Buyback) · 2.50%/1.50% Sell'
+                          : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax`}
                       </span>
                     </div>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1323,59 +1437,138 @@ export function TokenPage() {
           </div>
         </div>
 
-        {/* Right Column (first on mobile/Telegram): Comprar y Vender (SwapCard) Sticky */}
+        {/* Right Column (first on mobile/Telegram): Bonding Curve OR Full 3-Tab Graduated Soroswap DEX Terminal */}
         <div className="min-w-0 space-y-4 lg:col-span-5 lg:sticky lg:top-20 order-first lg:order-last">
-          <SwapCard
-            token={token}
-            onOpenLiquidityTools={() => setOpenAdvanced(true)}
-          />
-          {/* Posición LP del usuario + retirada atómica (remove_liquidity).
-              Fuera del acordeón: solo se pinta si la wallet tiene LP. */}
-          <LiquidityPosition token={token} />
-
-          {/* Collapsed Advanced Developer Tools */}
-          <details
-            id="advanced-tools"
-            open={openAdvanced}
-            onToggle={(e) => setOpenAdvanced(e.currentTarget.open)}
-            className="group rounded-2xl border border-slate-800/80 bg-slate-950/40 p-3.5 transition-all"
-          >
-            <summary className="flex cursor-pointer select-none items-center justify-between text-xs font-bold text-slate-400 hover:text-white">
-              <span className="flex items-center gap-1.5">
-                <span>🛠️</span> Advanced Tools & Liquidity
-              </span>
-              <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">
-                ▼
-              </span>
-            </summary>
-
-            <div className="mt-4 space-y-4 border-t border-slate-800/80 pt-4">
-              <div className="space-y-2">
-                <div className="text-xs font-semibold text-slate-300">Add Community Liquidity</div>
-                <LiquidityForm token={token} />
+          {!isBondingCurve ? (
+            <div className="space-y-3">
+              <div
+                role="tablist"
+                aria-label="Graduated Soroswap DEX tools"
+                className="grid grid-cols-3 gap-1.5 rounded-2xl border border-emerald-500/30 bg-slate-900/75 p-1.5"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'swap'}
+                  onClick={() => setDexPanelTab('swap')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'swap'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  ⚡ Swap DEX
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'liquidity'}
+                  onClick={() => setDexPanelTab('liquidity')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'liquidity'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  💧 Pool &amp; LP
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'tools'}
+                  onClick={() => setDexPanelTab('tools')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'tools'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  🔥 Send &amp; Burn
+                </button>
               </div>
 
-              <div className="grid gap-3">
-                <TransferCard token={token} />
-                <BurnCard token={token} />
-                {isOwner ? <MintCard token={token} /> : null}
-              </div>
-
-              {owner ? (
-                <div className="text-[11px] font-mono text-slate-500">
-                  Owner:{' '}
-                  <a
-                    href={explorerAccountUrl(owner)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline text-slate-400"
-                  >
-                    {shortAddress(owner)}
-                  </a>
+              {dexPanelTab === 'swap' ? (
+                <>
+                  <SwapCard
+                    token={token}
+                    onOpenLiquidityTools={() => setDexPanelTab('liquidity')}
+                  />
+                  <LiquidityPosition token={token} />
+                </>
+              ) : dexPanelTab === 'liquidity' ? (
+                <div className="space-y-3">
+                  <LiquidityPosition token={token} />
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-emerald-300">
+                        💧 Add Soroswap Pool Liquidity
+                      </span>
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
+                        Earn 0.30% LP Fees
+                      </span>
+                    </div>
+                    <LiquidityForm token={token} />
+                  </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="grid gap-3">
+                  <TransferCard token={token} />
+                  <BurnCard token={token} />
+                  {isOwner ? <MintCard token={token} /> : null}
+                </div>
+              )}
             </div>
-          </details>
+          ) : (
+            <>
+              <SwapCard
+                token={token}
+                onOpenLiquidityTools={() => setOpenAdvanced(true)}
+              />
+              <div className="rounded-2xl border border-sky-500/20 bg-slate-900/50 px-3.5 py-2.5 text-xs text-slate-300 leading-relaxed">
+                🎓 <strong>Goal: 1,000 XLM (≈ ${formatUsdPrice(1_000 * xlmUsd)} USDC)</strong> — Once the curve fills, this coin launches automatically on Soroswap DEX with <strong className="text-emerald-300">100% LP burned forever</strong> and zero exit cliff.
+              </div>
+              <details
+                id="advanced-tools"
+                open={openAdvanced}
+                onToggle={(e) => setOpenAdvanced(e.currentTarget.open)}
+                className="group rounded-2xl border border-slate-800/80 bg-slate-950/40 p-3.5 transition-all"
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between text-xs font-bold text-slate-400 hover:text-white">
+                  <span className="flex items-center gap-1.5">
+                    <span>🛠️</span> Burn &amp; Advanced Tools
+                  </span>
+                  <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">
+                    ▼
+                  </span>
+                </summary>
+
+                <div className="mt-4 space-y-4 border-t border-slate-800/80 pt-4">
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200 leading-relaxed">
+                    🔒 <strong>Pre-Graduation Lock Active:</strong> P2P transfers and Soroswap LP additions unlock automatically at{' '}
+                    <span className="font-mono font-semibold">1,000 XLM</span>. Use Burn-to-Chat or Burn below if you want to permanently burn tokens.
+                  </div>
+                  <div className="grid gap-3">
+                    <BurnCard token={token} />
+                    {isOwner ? <MintCard token={token} /> : null}
+                  </div>
+                </div>
+              </details>
+            </>
+          )}
+
+          {owner ? (
+            <div className="text-[11px] font-mono text-slate-500 px-1">
+              Owner:{' '}
+              <a
+                href={explorerAccountUrl(owner)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-slate-400"
+              >
+                {shortAddress(owner)}
+              </a>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

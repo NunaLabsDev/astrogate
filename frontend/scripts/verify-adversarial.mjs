@@ -22,10 +22,10 @@ import { loadStellarSecret } from './lib/load-secret.mjs'
 
 const UNIT = 10_000_000n // 7 decimals
 const EXPECTED_INITIAL_SUPPLY = 10_000_000n * UNIT
-const EXPECTED_BURN_VAULT = 2_950_000n * UNIT
-const EXPECTED_CREATOR_VESTING = 50_000n * UNIT
-const EXPECTED_DEX_RESERVE = 2_800_000n * UNIT
-const EXPECTED_MILESTONE_1_BURN = 1_475_000n * UNIT
+const EXPECTED_BURN_VAULT = 0n
+const EXPECTED_CREATOR_VESTING = 30_000n * UNIT
+const EXPECTED_DEX_RESERVE = 3_300_000n * UNIT
+const EXPECTED_MILESTONE_1_BURN = 0n
 
 const { secret } = loadStellarSecret()
 if (!secret) {
@@ -151,7 +151,7 @@ try {
   if (ownerInit.result !== null) {
     throw new Error(`Ownership was not renounced: ${ownerInit.result}`)
   }
-  console.log('  invariants verified: 10M cap, 42/28/29.5/0.5 split + creator seed locked, owner=None, exact v4.2 quote parity')
+  console.log('  invariants verified: 10M cap, 66/33/0.3/0.7 split + creator seed locked, owner=None, exact v4.3 quote parity')
 
   console.log('\n3) Malicious & malformed Launchpad attack attempts...')
   const lpAttacker = tokenLib.launchpadClient(attackerSigner)
@@ -563,8 +563,8 @@ try {
   ])
   if (
     !cGrad.graduated ||
-    cGrad.burn_milestone_stage !== 1 ||
-    cGrad.burn_vault_remaining !== EXPECTED_MILESTONE_1_BURN
+    cGrad.burn_milestone_stage !== 2 ||
+    cGrad.burn_vault_remaining !== 0n
   ) {
     throw new Error(`Invalid post-grad CurveState: ${JSON.stringify(cGrad)}`)
   }
@@ -575,7 +575,7 @@ try {
     throw new Error(`Post-grad anti-rug check failed: ${JSON.stringify(auditGrad)}`)
   }
 
-  // Day 0 post-grad: Creator unlocks paid seed, then premature Day 3 vesting tranche MUST revert (#8)
+  // Day 0 post-grad: Creator unlocks paid seed, then premature Day 3 vesting tranche & 7Y LP reclaim MUST revert
   const seedClaim = await tokenLib.claimCreatorVesting({ tokenId: token, signer: creatorSigner })
   if (seedClaim.claimed !== cGrad.creator_seed_locked) {
     throw new Error(`Expected seed unlock ${cGrad.creator_seed_locked}, got ${seedClaim.claimed}`)
@@ -591,8 +591,9 @@ try {
   await expectRejected('claim_creator_vesting before Day 3 cliff rejected', async () => {
     await tokenLib.claimCreatorVesting({ tokenId: token, signer: creatorSigner })
   })
-  await expectRejected('trigger_milestone_burn before 1,800 XLM DEX depth rejected', async () => {
-    await tokenLib.triggerMilestoneBurn({ tokenId: token, signer: opsSigner })
+  await expectRejected('reclaim_expired_lp before 7 years rejected', async () => {
+    const tx = await lpAttacker.reclaim_expired_lp({ token })
+    await tx.signAndSend()
   })
 
   // Permissionless DEX Buyback & Burn if buyback_xlm_reserve > 0
@@ -659,7 +660,7 @@ try {
     throw new Error(`Holder analysis exceeded total supply: ${observedSum} > ${supplyEnd}`)
   }
 
-  console.log('\n=== FAIR-FLYWHEEL V4.2 ADVERSARIAL & GRADUATION AUDIT PASSED ===')
+  console.log('\n=== FAIR-FLYWHEEL V4.3 ADVERSARIAL & GRADUATION AUDIT PASSED ===')
   console.log(`Token           : ${token}`)
   console.log(`Pair            : ${pFinal.pairId}`)
   console.log(`Supply final    : ${supplyEnd.toString()} (burned M1+Shouts+Buyback=${(EXPECTED_MILESTONE_1_BURN + totalBurnedShouts + buybackBurned).toString()})`)

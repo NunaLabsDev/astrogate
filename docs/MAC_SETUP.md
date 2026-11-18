@@ -7,12 +7,11 @@ está sin reconstruir contexto.
 
 | Dato | Valor |
 |---|---|
-| Cuenta GitHub | `ruwaq` |
-| Repo | <https://github.com/ruwaq/astro-launchpad> |
-| Remoto | `origin` → `https://github.com/ruwaq/astro-launchpad.git` |
-| Rama de trabajo | `ai/market-discovery` |
-| PR abierto | #1, base `floodgate/testnet-base` |
-| Autor de los commits | `Ruwaq <pepepop2000@gmail.com>` |
+| Cuenta GitHub | `NunaLabsDev` (admin: `KawsayRuraq`) |
+| Repo | `https://github.com/NunaLabsDev/astrogate` |
+| Remoto | `origin` → `https://github.com/NunaLabsDev/astrogate.git` |
+| Rama de trabajo | `main` |
+| Autor de los commits | `KawsayRuraq <269836211+KawsayRuraq@users.noreply.github.com>` |
 
 `main` en GitHub es el monorepo legacy sin ancestro común: **no** hacer merge ni
 reset contra `main`. Todo el trabajo vive en `ai/market-discovery`.
@@ -36,9 +35,9 @@ Comprobar: `node -v` (v22.x), `cargo -V`, `rustup target list --installed`
 ## Clonar y arrancar
 
 ```bash
-git clone https://github.com/ruwaq/astro-launchpad.git
-cd astro-launchpad
-git checkout ai/market-discovery
+git clone https://github.com/NunaLabsDev/astrogate.git
+cd astrogate
+git checkout main
 
 cd frontend
 npm ci              # usa package-lock.json; no npm install

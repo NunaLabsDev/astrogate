@@ -12,9 +12,11 @@ export async function invalidateTokenData(
     queryClient.invalidateQueries({ queryKey: ['token-balance', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['token-info', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['token-events', tokenId] }),
+    queryClient.invalidateQueries({ queryKey: ['launch-curve', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['soroswap-pool', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['lp-position', tokenId] }),
     queryClient.invalidateQueries({ queryKey: ['lp-burn'] }),
     queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
+    queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
   ])
 }
