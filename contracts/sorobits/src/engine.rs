@@ -181,10 +181,7 @@ pub fn validate_palette45(pal: &[u8]) -> bool {
         }
     }
     // L(6) >= 85% of 2_550_000 = 2_167_500; L(15) <= 42% = 1_071_000
-    if lums[6] < 2_167_500 || lums[15] > 1_071_000 {
-        return false;
-    }
-    true
+    lums[6] >= 2_167_500 && lums[15] <= 1_071_000
 }
 
 /// Deterministic `xorshift32` cosmos sky mirroring `scripts/sorobits_studio.py`.

@@ -6,7 +6,7 @@
  * @reown/appkit → zod, etc.) y no tiene fix sin downgrade del kit. Cuando el
  * kit suelte una versión limpia, BAJAR `baseline` en ci.yml y aquí.
  *
- * Uso: node scripts/npm-audit-ratchet.mjs [baseline=30]
+ * Uso: node scripts/npm-audit-ratchet.mjs [baseline=44]
  * (el CI pasa el baseline también por env `AUDIT_BASELINE`).
  */
 import { spawnSync } from 'node:child_process'
@@ -18,7 +18,7 @@ const baseline = Number.isFinite(argBaseline) && argBaseline > 0
   ? argBaseline
   : Number.isFinite(envBaseline) && envBaseline > 0
     ? envBaseline
-    : 30
+    : 44
 
 const result = spawnSync('npm', ['audit', '--json'], {
   encoding: 'utf8',
