@@ -1,0 +1,51 @@
+name: Optimization, Feature or AI Agent Integration Proposal
+description: Propose a gas/storage optimization, UX improvement, new MCP/API capability, or protocol hardening idea.
+title: "[Proposal] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for helping improve AstroGate! Please reference exact file paths and verify that your proposal preserves core Fair-Flywheel v4.2 and Anti-Rug invariants described in `AUDIT_GUIDE.md`.
+  - type: dropdown
+    id: category
+    attributes:
+      label: Proposal Category
+      options:
+        - Smart Contract Gas / Storage Optimization
+        - Frontend UX / Performance
+        - AI Agent / MCP / SDK Integration
+        - Telegram Bot / Live Feed
+        - Documentation / Auditability
+    validations:
+      required: true
+  - type: input
+    id: targets
+    attributes:
+      label: Target Files / Modules
+      placeholder: e.g. contracts/launchpad/src/contract.rs, frontend/worker/mcp.ts
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Problem or Opportunity
+      description: Explain what bottleneck, UX friction, or missing AI/developer capability this solves.
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Proposed Design & Invariant Impact
+      description: Outline the implementation approach and confirm whether any contract invariants, curve math parity, CSP rules, or Telegram routing rules are affected.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification Plan
+      placeholder: |
+        - cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+        - cd frontend && npx tsc --noEmit -p tsconfig.worker.json && npm run check
+    validations:
+      required: true

@@ -1,0 +1,24 @@
+# Rust / Soroban
+/target/
+**/target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Logs de procesos largos (Termux)
+logs/*.log
+
+# Entornos
+.env
+.env.*
+
+# Secretos locales (nunca en repo; ~/.secrets vive fuera del repo)
+.secrets/
+*.session
+*.session-journal
+__pycache__/
+*.pyc
+.vercel
+**/.vercel
+.opensource-stage/

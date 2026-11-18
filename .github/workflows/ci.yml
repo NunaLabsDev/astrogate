@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Escanear secretos
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  frontend:
+    name: Frontend (build + lint + tests + smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Escaneo de dependencias (ratchet)
+        # Vulnerabilidades transitivas actuales de los módulos de wallet del
+        # kit (@hot-wallet/sdk → near/elliptic, @reown/appkit → zod) sin fix
+        # posible sin downgrade. Gate de regresión, no de perfección: si una
+        # dependencia nueva añade vulnerabilidades, falla. Cuando el kit suba
+        # limpio, bajar AUDIT_BASELINE aquí y en scripts/npm-audit-ratchet.mjs.
+        run: node scripts/npm-audit-ratchet.mjs
+
+      - name: Worker typecheck, build, lint, tests y smoke
+        run: npx tsc --noEmit -p tsconfig.worker.json && npm run check
+
+  contracts:
+    name: Contratos (fmt + clippy + tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32v1-none
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formato
+        run: cargo fmt --all -- --check
+
+      - name: Compilar WASM astro-token requerido por tests de Launchpad
+        env:
+          SOROBAN_SDK_BUILD_SYSTEM_SUPPORTS_SPEC_SHAKING_V2: "1"
+        run: cargo build --release --target wasm32v1-none -p astro-token
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: Instalar cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      - name: Auditoría de dependencias (cargo-audit)
+        # RUSTSEC-2026-0387: crypto-bigint en soroban-env-host/elliptic-curve (transitivo upstream)
+        # RUSTSEC-2024-0436: paste sin mantenimiento en wasmi_core/ark-ff (transitivo upstream)
+        run: cargo audit --ignore RUSTSEC-2026-0387 --ignore RUSTSEC-2024-0436

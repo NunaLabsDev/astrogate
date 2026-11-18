@@ -1,0 +1,35 @@
+name: Testnet TTL Keep-Alive
+
+on:
+  schedule:
+    # Twice weekly (Monday & Thursday at 06:00 UTC) keeps 90-day Soroban state alive for free.
+    - cron: '0 6 * * 1,4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  keepalive:
+    name: Refresh Soroban Testnet TTLs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Extend 90-day TTLs on Soroban Testnet
+        env:
+          STELLAR_SECRET: ${{ secrets.STELLAR_SECRET }}
+        run: npm run keepalive:ttl

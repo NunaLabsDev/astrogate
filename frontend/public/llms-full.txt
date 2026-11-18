@@ -1,0 +1,125 @@
+# AstroGate Protocol — Full AI & Auditor Specification (`llms-full.txt`)
+
+> Decentralized Fair-Flywheel v4.3 Token Launchpad, Soroswap AMM Studio, Sorobits (SEP-50) 100% On-Chain Genomic NFTs, Read-Only REST API, MCP Server & Telegram Mini App on Stellar / Soroban.
+
+- **Repository**: `https://github.com/NunaLabsDev/astrogate`
+- **Live Web / Mini App (Testnet)**: `https://astrogate.pages.dev`
+- **Developer & Audit Hub**: `https://astrogate.pages.dev/docs`
+- **Compact Index**: `https://astrogate.pages.dev/llms.txt`
+- **OpenAPI 3.1 Spec**: `https://astrogate.pages.dev/openapi.json`
+- **Remote MCP Endpoint**: `POST https://astrogate.pages.dev/mcp` (JSON-RPC 2.0)
+- **License**: MIT source code ([LICENSE](https://github.com/NunaLabsDev/astrogate/blob/main/LICENSE)) · Brand/Logos protected ([TRADEMARK.md](https://github.com/NunaLabsDev/astrogate/blob/main/TRADEMARK.md))
+
+---
+
+## 1. Network & Verified Testnet Contract Registry
+
+- **Network**: Stellar Testnet (`Test SDF Network ; September 2015`)
+- **Primary Soroban RPC**: `https://soroban-testnet.stellar.org` (fallback: `https://rpc-testnet.stellar.org`)
+- **Horizon API**: `https://horizon-testnet.stellar.org`
+- **Launchpad Contract (v4.3)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+  - WASM Hash: `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7`
+- **SEP-41 Token Template WASM Hash (v4.2)**: `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6`
+- **Flagship Token ($ASTRO)**: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
+- **ASTRO / XLM Soroswap Pair**: `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP`
+- **Sorobits NFT Contract (SEP-50)**: `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`
+  - WASM Hash: `c668ebba24880a46202e6746009a95a62d1893207f678db3422d8194154f17fd`
+- **Soroswap Factory**: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
+- **Soroswap Router**: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`
+- **Native XLM SAC**: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
+- **Anti-Rug LP Burn Blackhole**: `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`
+- **Protocol Treasury**: `GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE`
+
+---
+
+## 2. Fair-Flywheel v4.3 Constants & Math Parity
+
+Source of truth: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/curve-math.ts`.
+
+- **Precision**: `7` decimals (`1 XLM = 10_000_000` stroops).
+- **Fixed Supply**: `10,000,000` tokens (`100_000_000_000_000` base units), hard-capped via OpenZeppelin `Capped`, ownership renounced atomically on `launch_fair`.
+- **Creation Fee & Initial Creator Seed**: `7 XLM` flat protocol fee (`70_000_000` stroops) + `>= 2 XLM` initial creator curve buy (`creator_seed_locked` unlocked upon graduation or `7 days` after launch if stalled).
+- **Token Partition (10,000 bps)**:
+  - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM` start -> `1,000 real XLM` graduation target, `13,200,000` virtual token start; `4.00x` curve range).
+  - **33.0% (`3,300,000`)** Soroswap DEX Pool Reserve seeded at graduation alongside `>= 1,000 XLM` (`0%` price cliff), with **100% of minted LP time-locked inside the Launchpad contract for 7 years (`reclaim_expired_lp` thereafter)**.
+  - **0.3% (`30,000`)** Post-graduation creator vesting (`5` tranches of `6,000` every `3 days` = `15 days` total via `claim_creator_vesting`).
+  - **0.7% (`70,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` atomically upon graduation.
+- **Bonding Curve Fees**:
+  - **Buy**: Flat `80 bps` (`0.80%` = `50 bps` treasury + `30 bps` pool/buyback floor).
+  - **Sell (< 50% curve progress)**: `250 bps` (`2.50%` = `50 bps` treasury + `200 bps` floor).
+  - **Sell (>= 50% curve progress)**: `150 bps` (`1.50%` = `50 bps` treasury + `100 bps` floor).
+- **Organic Deflation & Anti-MEV DEX Buyback (`trigger_buyback_burn`)**:
+  - Permissionless swap of accumulated `buyback_xlm_reserve` on Soroswap followed by `token.burn()`.
+  - Capped at `50 bps` (`0.50%`) of pool XLM reserve per call with a `300s` per-token cooldown (`BuybackLastTs`).
+- **Burn-to-Chat (`burn_shout`)**:
+  - `>= 50` tokens: Chat Shout; `>= 500` tokens: Hype Shout; `>= 5,000` tokens: King Shout (24h decay). Executes real `token.burn_from()`, up to `15` shouts stored per token (`1..=160` bytes).
+
+---
+
+## 3. Smart Contract Entrypoints (`contracts/`)
+
+### `contracts/launchpad/src/contract.rs` (`astro-launchpad-contract`)
+- **Launch & Trading**: `launch_fair(params: FairLaunchParams)`, `launch_token(params: LaunchParams)`, `quote_buy(token, xlm_in)`, `quote_sell(token, token_amount)`, `buy_curve(...)`, `sell_curve(...)`.
+- **Flywheel & Graduation**: `reclaim_expired_lp(token)`, `trigger_buyback_burn(token)`, `sweep_empty_curve_fees(token)`, `refund_stalled_launch(creator, token)`, `claim_creator_vesting(caller, token)`.
+- **Engagement & Reads**: `burn_shout(sender, token, amount, message)`, `get_launches(offset, limit)`, `get_market_page(offset, limit)`, `get_launch(token)`, `get_curve(token)`, `get_pilot(user)`, `get_launch_count()`, `get_shouts(token)`, `get_king_shout(token)`, `get_creation_fee()`.
+- **TTL & Governance**: `extend_ttl()`, `extend_launch_ttl(token)`, `set_paused(paused)` (pauses new launches only — sells/exits/claims remain open), `set_treasury(new_treasury)`, `set_token_wasm_hash(hash)`, `transfer_admin(new_admin)`, `accept_admin()`, `upgrade(hash)`.
+
+### `contracts/token/src/contract.rs` (`astro-token`)
+- OpenZeppelin Stellar SEP-41 (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`).
+- Curve Transfer Lock: `lock_until_graduated(launchpad)`, `unlock_transfers()`, `is_transfers_unlocked()`, `extend_ttl()`, `mint(to, amount)`.
+- While curve-locked (`!unlocked`), `transfer` and `transfer_from` reject P2P movements (only the Launchpad gate can move curve tokens), while `burn` and `burn_from` stay enabled for `burn_shout`.
+
+### `contracts/sorobits/src/contract.rs` (`astro-sorobits-contract`)
+- SEP-50 NFTs with 100% on-chain `32x32` RLE-compressed pixel SVG (`<= 720` runs, `<= 12,800` SVG bytes).
+- Entrypoints: `claim_pioneer(user)`, `claim_quest_badge(user, archetype_id)`, `mint_capsule(user, user_entropy)`, `get_capsule_quota(user)`, `get_capsule_fee()`, `sync_epigenetics(token_id)`, `forge_ascend(owner, burn_id_a, burn_id_b, user_entropy)`, `has_claimed(user, archetype_id)`, `set_launchpad(launchpad)`, `get_launchpad()`, `set_xlm_sac(xlm_sac)`, `get_xlm_sac()`, `mint_genesis(...)`, `mint_generative(...)`, `update_epigenetics(...)`, `register_layer(...)`, `register_palette(...)`, `set_active_season(season)`, `seal_season(caller, season)`, `render_svg(token_id)`, `animated_svg(token_id)`, `raw_bitmap(token_id)`, `get_sorobit(token_id)`, `tokens_of(owner)`, `tokens_of_page(owner, offset, limit)`, `genesis_minted(archetype_id)`, `is_season_sealed(season)`, `extend_ttl()`, `extend_token_ttl(token_id)`.
+
+---
+
+## 4. Security Invariants for Auditors
+
+1. **Pre-Graduation Pool Griefing Defense (`C-01`)**: `seed_soroswap_and_burn_lp` checks `pair.total_supply() > 0 || (r0 > 0 && r1 > 0)` instead of raw `r0 > 0 || r1 > 0`, tolerating unilateral XLM dust sent to a pair while rejecting pre-seeded LP pools.
+2. **CEI + Reentrancy Guard**: `execute_curve_buy` persists `CurveState` before external transfers and holds a temporary `ReentrancyLock`.
+3. **1:1 Curve Parity**: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/curve-math.ts` share identical integer math (floor/ceil rounding, fee bps, graduation cap).
+4. **Client Hot Wallet Crypto (`frontend/src/lib/hot-wallet/`)**: `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256` with `meta.publicKey` bound as GCM `additionalData` (AAD), transient key buffer zeroing, recovered publicKey verification, and `15m` idle auto-lock (`HOT_IDLE_AUTO_LOCK_MS`).
+5. **Stellar Minimum Reserve & Signing Safety**: `frontend/src/lib/xlm.ts` queries Horizon `subentry_count`, `num_sponsoring`, `num_sponsored`, and `selling_liabilities` before allowing signatures; destructive UI actions require inline 2-step confirmation.
+6. **Cloudflare Worker Security (`frontend/worker/`)**: Constant-time SHA-256 verification of `X-Telegram-Bot-Api-Secret-Token`, strict CORS origin allowlist + HMAC-SHA256 `verifyTelegramInitData` on `/api/telegram/pulse`, 5s per-IP rate limit, 180-ledger recency filter, KV cursor/dedupe, and `community: false` feed-only routing (`@AstroGateFeed` only).
+
+---
+
+## 5. Public Read-Only REST API & MCP Integration
+
+- **REST Endpoints (`GET`)**:
+  - `/api/v1/health`: Network config, live contracts, Fair-Flywheel v4.3 parameters, Sorobits limits.
+  - `/api/v1/tokens`: Active bonding curves and graduated Soroswap pairs with XLM reserves.
+  - `/api/v1/tokens/:id`: Full token metadata, `CurveState`, `kingShout`, and `recentShouts`.
+  - `/api/v1/tokens/:id/audit`: Automated on-chain verification (`ownership_renounced`, `launchpad_verified`, `curve_or_lp_lock`, `proof_of_burn_vault`).
+  - `/api/v1/tokens/:id/quote?amountIn=<stroops>&direction=buy|sell&slippage=2`: Deterministic quote.
+  - `/api/v1/sorobits`: Supply, genesis archetype counts, RLE render budgets.
+  - `/openapi.json`: OpenAPI 3.1.0 schema.
+- **MCP Server (`POST /mcp` or `cd frontend && npm run mcp`)**:
+  - Tools: `get_protocol_info`, `get_market_tokens`, `get_token_details`, `verify_anti_rug`, `quote_swap`, `get_sorobits_info`.
+  - Resources: `astrogate://protocol/overview`, `astrogate://market/snapshot`.
+
+---
+
+## 6. Reproducible Build, Test & Audit Commands
+
+```bash
+# Smart Contracts (Rust / Soroban)
+stellar contract build --package astro-token
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+stellar contract build
+
+# Frontend & Cloudflare Worker
+cd frontend
+npm ci
+npx tsc --noEmit -p tsconfig.worker.json
+npm run check
+
+# Live Testnet Read-Only / Friendbot E2E Verification (no secrets required)
+npm run verify:discovery
+npm run verify:token-events
+npm run verify:demo
+```
