@@ -7,6 +7,7 @@ React 19 + TypeScript + Vite SPA, Cloudflare Worker (`@AstroGateSorobanBot`, RES
 ## Directory Layout
 
 - `src/`: React 19 UI, wallet kit & client-side AES-GCM Hot Wallet (`src/lib/hot-wallet/`), 1:1 Fair-Flywheel curve math (`src/lib/curve-math.ts`, `src/lib/tokenomics.ts`), Soroswap & Sorobits RPC clients, and `@astrogate/sdk` (`src/sdk/index.ts`).
+- `functions/`: Cloudflare Pages Functions routing `/telegram/webhook`, `/api/*`, `/mcp`, `/openapi.json`, and `/health` on `https://astrogate.pages.dev` to the `astrogate-stellar` Worker via `ASTROW` Service Binding.
 - `worker/`: Cloudflare Worker runtime (`index.ts`), public read-only REST API (`api.ts`), JSON-RPC MCP endpoint (`mcp.ts`), protocol/audit engine (`protocol.ts`), Soroban RPC & event polling (`rpc.ts`, `events.ts`), Sorobits quest verification (`quests.ts`), and Telegram command views (`views.ts`).
 - `scripts/`: Local stdio MCP server (`mcp-server.mjs`), SSR smoke render (`smoke-render.mjs`), PWA & CSP parity checks (`verify-pwa.mjs`, `check-csp.mjs`), npm audit ratchet (`npm-audit-ratchet.mjs`), Soroban contract bindings generator, and live Testnet verification scripts.
 - `public/`: Static assets, `_headers` (CSP & cache policy), `sw.js`, `.well-known/stellar.toml`, `llms.txt`, and `llms-full.txt`.
@@ -35,6 +36,6 @@ npm run verify:demo           # 3 disposable Friendbot-funded accounts + end-to-
 
 ## Key Invariants for Contributors
 
-- Keep `src/lib/curve-math.ts` strictly free of Vite (`import.meta.env`) and DOM globals so both browser code and Cloudflare Worker share identical Fair-Flywheel v4.3 integer math.
+- Keep `src/lib/curve-math.ts` strictly free of Vite (`import.meta.env`) and DOM globals so both browser code and Cloudflare Worker share identical Fair-Flywheel v4.4 integer math.
 - Keep HTTP Security Headers & CSP synchronized across `public/_headers`, `vercel.json`, and `nginx.conf` (enforced by `npm run check:csp`).
 - Never store secrets, `VITE_*` private keys, or user tokens in frontend configuration.

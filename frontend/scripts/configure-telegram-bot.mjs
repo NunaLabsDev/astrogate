@@ -70,30 +70,32 @@ async function tgCall(method, payload, attempt = 1) {
 
 const DEFAULT_AND_PRIVATE_COMMANDS = [
   { command: 'start', description: 'Open AstroGate hub & Mini App' },
-  { command: 'market', description: 'Live Fair-Flywheel v4.3 curves & DEX' },
+  { command: 'market', description: 'Live Fair-Flywheel v4.4 curves & DEX' },
   { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
   { command: 'king', description: 'King of the Hill & King Shout throne' },
   { command: 'quests', description: 'Season-1 NFT quests & rank (GA...)' },
   { command: 'rewards', description: 'Bounties, sprints & wallet check' },
   { command: 'launch', description: 'Launch a Fair-Flywheel token (7 XLM)' },
-  { command: 'wallet', description: 'Self-custody vault & Friendbot faucet' },
+  { command: 'wallet', description: 'Self-custody vault & @user lookup' },
   { command: 'token', description: 'Inspect Soroban token (CA... or SYMBOL)' },
   { command: 'shouts', description: 'Live Burn-to-Chat shouts (CA... or SYMBOL)' },
   { command: 'ask', description: 'Ask anything about AstroGate' },
-  { command: 'v42', description: 'Fair-Flywheel v4.3 tokenomics' },
+  { command: 'v42', description: 'Fair-Flywheel v4.4 tokenomics' },
   { command: 'help', description: 'Commands, inline share & safety' },
 ]
 
 const GROUP_COMMANDS = [
-  { command: 'market', description: 'Live Fair-Flywheel v4.3 curves & DEX' },
+  { command: 'market', description: 'Live Fair-Flywheel v4.4 curves & DEX' },
   { command: 'king', description: 'King of the Hill & King Shout throne' },
   { command: 'sorobits', description: 'Sorobits (SBIT) 100% on-chain NFTs' },
   { command: 'quests', description: 'Check Sorobits NFT quests (GA...)' },
   { command: 'token', description: 'Inspect Soroban token (CA... or SYMBOL)' },
   { command: 'shouts', description: 'Live Burn-to-Chat shouts (CA... or SYMBOL)' },
+  { command: 'launch', description: 'Launch a Fair-Flywheel token (7 XLM)' },
+  { command: 'wallet', description: 'Native wallet & @user lookup' },
   { command: 'ask', description: 'Ask anything about AstroGate' },
   { command: 'rewards', description: 'Bounties, sprints & claim info' },
-  { command: 'v42', description: 'Fair-Flywheel v4.3 tokenomics' },
+  { command: 'v42', description: 'Fair-Flywheel v4.4 tokenomics' },
   { command: 'help', description: 'Commands & safety rules' },
 ]
 
@@ -135,7 +137,7 @@ await tgCall('setMyDescription', {
     'AstroGate — Fair Launchpad & Sorobits NFTs on Stellar Soroban (Testnet)',
     '',
     '• 1-Tap Launch (7 XLM) · 10M supply · 7Y LP lock on Soroswap',
-    '• Fair-Flywheel v4.3 · 0.80% flat buys · Auto Buyback & Burn',
+    '• Fair-Flywheel v4.4 · 3-stage buys + 40K Jackpots · Auto Buyback & Burn',
     '• Sorobits (SBIT) · 100% on-chain 32x32 SVG NFTs (SEP-50)',
     '• Instant Q&A (/ask) + Encrypted CloudStorage Wallet',
     '',

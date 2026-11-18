@@ -76,8 +76,11 @@ stateDiagram-v2
 
 ---
 
-## 4. Cloudflare Worker & Telegram Bot (`frontend/worker/`)
+## 4. Cloudflare Pages Functions & Worker (`frontend/functions/`, `frontend/worker/`)
 
+- **Unified Domain Architecture (`https://astrogate.pages.dev`)**:
+  - Static SPA assets (`/*`) are served directly from Cloudflare Pages edge CDN.
+  - Dynamic routes (`/telegram/webhook`, `/api/*`, `/mcp`, `/openapi.json`, `/health`) are routed via thin Cloudflare Pages Functions (`frontend/functions/`) over an internal `ASTROW` Service Binding to the `astrogate-stellar` Worker (`workers_dev: false`), keeping same-origin API calls free of CORS overhead and running the `*/2 * * * *` Soroban event cron inside `astrogate-stellar`.
 - **Separation of Chat Roles**:
   - **`@AstroGateFeed`** (`TELEGRAM_FEED_CHAT_ID`): Receives ALL automated spam-filtered protocol alerts (`launch`, buys/sells `>= 2 XLM`, `>= 80%` near-graduation pushes, graduations, DEX buybacks, Stage-2 milestones, Burn-to-Chat shouts, Sorobits mints & rank evolutions).
   - **`@AstroGateCommunity`** (`TELEGRAM_COMMUNITY_CHAT_ID`): **Zero automated broadcasts** (`community: false` for all parsed contract events). Responds strictly to interactive commands (`/market`, `/king`, `/token`, `/wallet`, `/wallet @user`, `/quests`, `/sorobits`, etc.), `$TICKER` lookups, and secret-seed auto-deletion guards.

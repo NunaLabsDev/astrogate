@@ -154,6 +154,17 @@ export function parseCommandAndArg(text: string): {
   }
 }
 
+/** Extracts `@botusername` from `/cmd@botusername` when present (lowercased). */
+export function extractCommandTargetBot(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed.startsWith('/')) return null
+  const [rawCmd] = trimmed.split(/\s+/)
+  const atIdx = (rawCmd ?? '').indexOf('@')
+  if (atIdx < 0) return null
+  const target = (rawCmd ?? '').slice(atIdx + 1).trim().toLowerCase()
+  return target || null
+}
+
 export function miniAppStartUrl(
   botUsername = DEFAULT_BOT_USERNAME,
   startParam?: string,
@@ -299,7 +310,13 @@ export function buildSorobitsView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  liveStatus?: { contractId: string; totalSupply: number; genesisMinted: number },
 ): BotRenderedView {
+  const contractId =
+    liveStatus?.contractId || 'CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3'
+  const supplyLine = liveStatus
+    ? `• <b>Minted On-Chain:</b> <code>${liveStatus.totalSupply} SBIT</code> (${liveStatus.genesisMinted}/8 Genesis archetypes)`
+    : `• <b>Season 1 (AGQ01–AGQ08):</b> Art &amp; 7 Faction palettes sealed on-chain`
   return {
     photoUrl: telegramHeroUrl(baseUrl, 'sorobits-hero-card.png'),
     text: [
@@ -307,9 +324,9 @@ export function buildSorobitsView(
       ``,
       `<blockquote>32×32 Genomic Pixel Art rendered natively from Stellar Soroban SVG — zero IPFS &amp; zero Pinata.</blockquote>`,
       ``,
-      `• <b>Contract:</b> <code>CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3</code>`,
-      `• <b>Season 1 (AGQ01–AGQ08):</b> Art &amp; 7 Faction palettes sealed on-chain`,
-      `• <b>Genesis #0:</b> Minted &amp; verifiable live via <code>token_uri(0)</code>`,
+      `• <b>Contract:</b> <code>${escapeHtml(contractId)}</code>`,
+      supplyLine,
+      `• <b>On-Chain Render:</b> Verifiable live via <code>token_uri(id)</code>`,
       ``,
       `<i>Tap below to open Sorobits inside the Telegram Mini App so your encrypted CloudStorage wallet stays connected.</i>`,
       `<i>Built by NunaLabs</i>`,

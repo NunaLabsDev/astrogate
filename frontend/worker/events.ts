@@ -317,12 +317,13 @@ export function renderLaunchpadEventTelegramView(
   ev: LaunchpadParsedEvent,
   meta: { symbol: string; name: string; decimals: number },
   botUsername = DEFAULT_BOT_USERNAME,
+  hasMainApp = false,
 ): BotRenderedView {
   const safeSym = escapeHtml(meta.symbol || 'TOK')
   const safeName = escapeHtml(meta.name || 'Token')
-  const tokenDeepLink = miniAppStartUrl(botUsername, ev.tokenId)
+  const tokenDeepLink = miniAppStartUrl(botUsername, ev.tokenId, hasMainApp)
   const communityLink = 'https://t.me/AstroGateCommunity'
-  const marketDeepLink = miniAppStartUrl(botUsername, 'market')
+  const marketDeepLink = miniAppStartUrl(botUsername, 'market', hasMainApp)
 
   if (ev.kind === 'shout') {
     const burnedText = formatTokensCompact(ev.amount, meta.decimals)
@@ -426,7 +427,7 @@ export function renderLaunchpadEventTelegramView(
   }
 
   if (ev.kind === 'sorobit_mint') {
-    const sorobitsDeepLink = miniAppStartUrl(botUsername, 'sorobits')
+    const sorobitsDeepLink = miniAppStartUrl(botUsername, 'sorobits', hasMainApp)
     const editionLabel =
       ev.edition >= 1 && ev.edition <= 8
         ? `Genesis Archetype #AGQ0${ev.edition}`
@@ -451,7 +452,7 @@ export function renderLaunchpadEventTelegramView(
   }
 
   if (ev.kind === 'sorobit_evolve') {
-    const sorobitsDeepLink = miniAppStartUrl(botUsername, 'sorobits')
+    const sorobitsDeepLink = miniAppStartUrl(botUsername, 'sorobits', hasMainApp)
     return {
       text: [
         `⚡ <b>Sorobit Rank Evolved · SBIT #${ev.sorobitId}</b>`,
@@ -471,16 +472,19 @@ export function renderLaunchpadEventTelegramView(
   }
 
   const pct = curvePercent(ev.curveXlmNet)
-  const isNearGrad = ev.isBuy && pct >= 80
+  const isGraduatingBuy = ev.isBuy && pct >= 100
+  const isNearGrad = ev.isBuy && pct >= 80 && pct < 100
   const isWhale = ev.xlmAmount >= WHALE_TRADE_THRESHOLD_STROOPS
   const remainingXlm = Math.max(0, 1000 - Number(ev.curveXlmNet) / 1e7)
 
   const header = ev.isBuy
-    ? isNearGrad
-      ? `⛰️ <b>Almost Graduated (${pct.toFixed(1)}%) · $${safeSym}</b>`
-      : isWhale
-        ? `🐳 <b>Whale Curve Buy · $${safeSym}</b>`
-        : `🟢 <b>Curve Buy · $${safeSym}</b>`
+    ? isGraduatingBuy
+      ? `🎓 <b>Graduating Curve Buy (100.0%) · $${safeSym}</b>`
+      : isNearGrad
+        ? `⛰️ <b>Almost Graduated (${pct.toFixed(1)}%) · $${safeSym}</b>`
+        : isWhale
+          ? `🐳 <b>Whale Curve Buy · $${safeSym}</b>`
+          : `🟢 <b>Curve Buy · $${safeSym}</b>`
     : isWhale
       ? `🚨 <b>Whale Curve Sell · $${safeSym}</b>`
       : `🔴 <b>Curve Sell · $${safeSym}</b>`

@@ -190,6 +190,8 @@ export function SorobitsPage() {
       try {
         const res = await fetch(`/api/v1/quests/${inspectedAddress}`)
         if (!res.ok) return null
+        const ctype = res.headers.get('content-type') || ''
+        if (!ctype.includes('application/json')) return null
         const data = (await res.json()) as { ok?: boolean } & QuestProgressSummary
         return data.ok && data.unlocked ? data : null
       } catch {
