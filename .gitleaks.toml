@@ -1,0 +1,14 @@
+title = "AstroGate Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow public Stellar C.../G... addresses, storage keys, and Stellar SDK doc test fixture"
+regexTarget = "secret"
+regexes = [
+  '''^[CG][A-Z2-7]{55}$''',
+  '''^contracts/launchpad$''',
+  '''^astrogate_splash_seen_v1$''',
+  '''^SCZANGBA5YHTNYVVV4C3U252E2B6P6F5T3U6MM63WBSBZATAQI3EBTQ4$''',
+]
