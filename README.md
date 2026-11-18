@@ -44,7 +44,7 @@ flowchart TD
     RPC <--> Sorobits["Sorobits NFT (SEP-50)"]
     RPC <--> Soroswap["Soroswap Factory & Router"]
     Launchpad -. "7Y LP Lock & Legacy Burn" .-> Blackhole["Contract Vault / Legacy Blackhole"]
-    Worker["Cloudflare Worker (@AstroGateSorobanBot)"] <--> RPC
+    Worker["Cloudflare Pages Functions + astrogate-stellar Worker (@AstroGateSorobanBot)"] <--> RPC
     Worker -- "Automated Alerts Only" --> Feed["@AstroGateFeed"]
     Worker <--> Community["@AstroGateCommunity (Commands Only)"]
 ```
@@ -103,7 +103,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 stellar contract build
 
-# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 221+ Vitest specs, SSR smoke, PWA, CSP parity
+# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 227+ Vitest specs, SSR smoke, PWA, CSP parity
 cd frontend
 npx tsc --noEmit -p tsconfig.worker.json
 npm run check

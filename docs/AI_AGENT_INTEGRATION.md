@@ -15,7 +15,7 @@
   - Zero-Config Local Stdio Server: `cd frontend && npm run mcp` (`frontend/scripts/mcp-server.mjs`)
 - **Audit Handbook & Agent Guide**: [`AGENTS.md`](../AGENTS.md), [`AUDIT_GUIDE.md`](../AUDIT_GUIDE.md), & [`ARCHITECTURE.md`](../ARCHITECTURE.md)
 - **Testnet Contracts**:
-  - **Launchpad (Fair-Flywheel v4.3)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+  - **Launchpad (Fair-Flywheel v4.4)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
   - **Flagship Token ($ASTRO)**: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
   - **Sorobits NFT (SEP-50)**: `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`
   - **Soroswap Factory**: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
@@ -128,7 +128,7 @@ const events = await fetchTokenEvents(market[0].id, { maxEvents: 20 })
 ## 4. Critical Soroban / Stellar Rules for Autonomous Agents
 
 1. **7-Decimal Precision**: Native XLM (`1 XLM = 10^7` stroops) and all AstroGate Fair-Flywheel tokens use **7 decimals**.
-2. **Fair-Flywheel v4.3 Split**: `66%` Curve (`1,000 vXLM -> 1,000 XLM`, `4.00x` curve, `0%` graduation cliff) · `33%` Soroswap DEX (100% LP time-locked 7 years in-contract via `reclaim_expired_lp`) · `0.3%` 15-day creator vesting · `0.7%` Dev Ecosystem (`treasury` at graduation). Zero artificial idle burn vault.
+2. **Fair-Flywheel v4.4 Split**: `66%` Curve (`1,000 vXLM -> 1,000 XLM`, `4.00x` curve, `0%` graduation cliff; 3-stage buy fees `0.30% / 0.50% / 0.25%`) · `33%` Soroswap DEX (100% LP time-locked 7 years in-contract via `reclaim_expired_lp`) · `0.3%` 15-day creator vesting · `0.4%` 3-Checkpoint Jackpots (`+5K` Spark at `250 XLM`, `+10K` Crown at `500 XLM`, `+25K` Graduation at `1,000 XLM`) · `0.3%` Dev Ecosystem (`treasury` at graduation). Zero artificial idle burn vault.
 3. **Curve Transfer Lock**: Pre-graduation P2P transfers (`transfer`, `transfer_from`) intentionally revert until graduation to prevent pre-seeding Soroswap pools (`PairAlreadySeeded` DoS); `burn` / `burn_from` remain enabled for Burn-to-Chat.
 4. **No Soroswap Allowance Needed**: Soroswap Router moves tokens via direct `transfer` inside the atomic transaction.
 5. **Pair Reserve Ordering**: Always read `token_0()`, `token_1()`, and `get_reserves()` directly on the Soroswap Pair contract rather than assuming lexical address sorting.
