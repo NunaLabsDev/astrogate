@@ -258,6 +258,12 @@ export interface TierProgressInfo {
   xpToNext: number
 }
 
+export function generationLabel(item: SorobitOnChainItem): string {
+  if (item.soulbound) return 'Starter Pilot'
+  if (item.generation > 0) return `Gen ${item.generation} Ascended`
+  return 'Gen 0 Capsule'
+}
+
 export function nextTierProgress(
   xpScore: number,
   rankTier: number,

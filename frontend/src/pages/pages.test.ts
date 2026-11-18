@@ -37,6 +37,7 @@ vi.mock('../store/wallet', () => ({
 }))
 
 import { CreateTokenForm } from '../components/CreateTokenForm'
+import { SorobitEvolutionModal } from '../components/SorobitEvolutionModal'
 import { WalletButton } from '../components/WalletButton'
 import { DexPage } from './DexPage'
 import { DocsPage } from './DocsPage'
@@ -157,6 +158,99 @@ describe('Page Components and Lifecycle', () => {
       expect(html).toContain('/api/v1/tokens')
       expect(html).toContain('NunaLabs')
       expect(html).toContain('mcpServers')
+    })
+
+    it('renders SorobitEvolutionModal for sync evolution and Astral Forge with real before/after diffs', () => {
+      const sampleImg = 'data:image/svg+xml;utf8,%3Csvg%3E%3C/svg%3E'
+      const baseItem = {
+        tokenId: 4,
+        owner: 'GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE',
+        name: 'Sorobit #4',
+        edition: 0,
+        generation: 0,
+        rankTier: 0,
+        xpScore: 100,
+        bornLedger: 5000,
+        soulbound: false,
+        svgMarkup: '<svg></svg>',
+        imageDataUrl: sampleImg,
+        animatedDataUrl: sampleImg,
+        attributes: [
+          { trait_type: 'Faction', value: 'Soroswap Jade' },
+          { trait_type: 'Frame', value: 'OriginHUD' },
+          { trait_type: 'Suit', value: 'LedgerSquare' },
+        ],
+      }
+      const evolvedItem = {
+        ...baseItem,
+        rankTier: 2,
+        xpScore: 650,
+        attributes: [
+          { trait_type: 'Faction', value: 'Soroswap Jade' },
+          { trait_type: 'Frame', value: 'SovereignTTL' },
+          { trait_type: 'Suit', value: 'LedgerSquare' },
+        ],
+      }
+      const perks = {
+        chatTitle: '🎓 Soroswap Graduate',
+        sprintMultiplier: '1.25x',
+        feedPriority: true,
+        vipAlphaAccess: true,
+      }
+
+      const anticipateHtml = renderToString(
+        createElement(SorobitEvolutionModal, {
+          reveal: { kind: 'sync', before: baseItem, after: evolvedItem, perks },
+          initialPhase: 'anticipate',
+          onClose: vi.fn(),
+        }),
+      )
+      expect(anticipateHtml).toContain('What? Sorobit #4 is evolving!')
+      expect(anticipateHtml).toContain('Skip Animation')
+
+      const syncHtml = renderToString(
+        createElement(SorobitEvolutionModal, {
+          reveal: {
+            kind: 'sync',
+            before: baseItem,
+            after: evolvedItem,
+            perks,
+            txHash: 'a'.repeat(64),
+          },
+          initialPhase: 'revealed',
+          onClose: vi.fn(),
+        }),
+      )
+      expect(syncHtml).toContain('Sorobit #4 Evolved!')
+      expect(syncHtml).toContain('OriginHUD')
+      expect(syncHtml).toContain('SovereignTTL')
+      expect(syncHtml).toContain('+550 XP')
+      expect(syncHtml).toContain('Solar Gold Shield')
+      expect(syncHtml).toContain('Replay')
+
+      const forgeChild = {
+        ...evolvedItem,
+        tokenId: 9,
+        generation: 1,
+        rankTier: 3,
+        xpScore: 700,
+      }
+      const forgeHtml = renderToString(
+        createElement(SorobitEvolutionModal, {
+          reveal: {
+            kind: 'forge',
+            parents: [baseItem, { ...baseItem, tokenId: 5 }],
+            after: forgeChild,
+            perks,
+          },
+          initialPhase: 'revealed',
+          onClose: vi.fn(),
+        }),
+      )
+      expect(forgeHtml).toContain('Astral Forge Complete')
+      expect(forgeHtml).toContain('Gen 1 Ascended')
+      expect(forgeHtml).toContain('+500 Forge Bonus XP')
+      expect(forgeHtml).toContain('+1 Capsule Slot Freed')
     })
   })
 

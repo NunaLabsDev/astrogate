@@ -28,6 +28,7 @@ import {
   forgeAscendOnChain,
   formatCollectorTrait,
   formatTraitLabel,
+  generationLabel,
   getRealmForItem,
   hasClaimedPioneer,
   mintCapsuleOnChain,
@@ -39,7 +40,12 @@ import {
   notifyTelegramPulse,
   shareToTelegram,
   telegramMiniAppUrl,
+  triggerTelegramHaptic,
 } from '../lib/telegram'
+import {
+  SorobitEvolutionModal,
+  type SorobitEvolutionReveal,
+} from '../components/SorobitEvolutionModal'
 import { toast } from '../lib/toast'
 import { useActivity } from '../store/activity'
 import { useCreatedTokens } from '../store/creations'
@@ -49,12 +55,6 @@ function parseTokenParam(raw: string | null): number | null {
   if (!raw) return null
   const num = Number(raw)
   return Number.isInteger(num) && num >= 0 ? num : null
-}
-
-function generationLabel(item: SorobitOnChainItem): string {
-  if (item.soulbound) return 'Starter Pilot'
-  if (item.generation > 0) return `Gen ${item.generation} Ascended`
-  return 'Gen 0 Capsule'
 }
 
 export function SorobitsPage() {
@@ -74,6 +74,8 @@ export function SorobitsPage() {
   const [syncingTokenId, setSyncingTokenId] = useState<number | null>(null)
   const [forging, setForging] = useState(false)
   const [forgeSelection, setForgeSelection] = useState<[string, string]>(['', ''])
+  const [evolutionReveal, setEvolutionReveal] =
+    useState<SorobitEvolutionReveal | null>(null)
 
   const openTokenModal = useCallback(
     (tokenId: number) => {
@@ -358,14 +360,29 @@ export function SorobitsPage() {
     if (!signer) return
     setSyncingTokenId(tokenId)
     try {
+      const beforeItem =
+        (ownedTokens.data ?? []).find((t) => t.tokenId === tokenId) ??
+        (activeModalItem?.tokenId === tokenId ? activeModalItem : null) ??
+        (await fetchSorobitById(tokenId))
       const { xpScore, rankTier, hash } = await syncEpigeneticsOnChain(
         signer,
         tokenId,
       )
       if (hash) void notifyTelegramPulse(hash)
+      triggerTelegramHaptic('success')
       toast.success(
         `Synced Sorobit #${tokenId}: Shield Tier ${rankTier} · ${xpScore} XP`,
       )
+      const afterItem = await fetchSorobitById(tokenId)
+      if (beforeItem && afterItem) {
+        setEvolutionReveal({
+          kind: 'sync',
+          before: beforeItem,
+          after: afterItem,
+          perks: computePilotPerks(questProgress),
+          txHash: hash,
+        })
+      }
       await invalidateSorobitsQueries()
     } catch (err) {
       toast.error(errorMessage(err))
@@ -402,18 +419,35 @@ export function SorobitsPage() {
     if (!signer) return
     setForging(true)
     try {
+      const parentA =
+        tradeableOwned.find((t) => t.tokenId === burnIdA) ??
+        (await fetchSorobitById(burnIdA))
+      const parentB =
+        tradeableOwned.find((t) => t.tokenId === burnIdB) ??
+        (await fetchSorobitById(burnIdB))
       const { tokenId, hash } = await forgeAscendOnChain(
         signer,
         burnIdA,
         burnIdB,
       )
       if (hash) void notifyTelegramPulse(hash)
+      triggerTelegramHaptic('success')
       toast.success(
         `⚒️ Forged Ascended Sorobit #${tokenId} (fused #${burnIdA} & #${burnIdB})!`,
       )
       setForgeSelection(['', ''])
+      const forgedChild = await fetchSorobitById(tokenId)
       await invalidateSorobitsQueries()
       openTokenModal(tokenId)
+      if (parentA && parentB && forgedChild) {
+        setEvolutionReveal({
+          kind: 'forge',
+          parents: [parentA, parentB],
+          after: forgedChild,
+          perks: computePilotPerks(questProgress),
+          txHash: hash,
+        })
+      }
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -1101,6 +1135,14 @@ export function SorobitsPage() {
           onSync={() => void onSyncEpigenetics(modalTokenId)}
           onSelectForForge={() => onSelectForForge(modalTokenId)}
           onClose={closeTokenModal}
+        />
+      ) : null}
+
+      {/* Minimalist Pokémon-style Evolution / Astral Forge Celebration */}
+      {evolutionReveal ? (
+        <SorobitEvolutionModal
+          reveal={evolutionReveal}
+          onClose={() => setEvolutionReveal(null)}
         />
       ) : null}
     </div>
