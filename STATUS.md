@@ -1,5 +1,17 @@
 # Estado actual (para continuar en la próxima sesión)
 
+## Handoff rápido (Nov 18 2026, sesión 38 — AstroGate Native Wallet `@username` Linked + Multi-Wallet + Encrypted Web/TG Sync)
+Evolución completa de la wallet integrada hacia una **Wallet Nativa 100% autocustodia (Telegram + Web)** sin wallets externas en la interfaz, vinculada criptográficamente al `@username` / `tgUserId`, con soporte multi-wallet (`Primary` + sub-wallets), exportación de claves individuales (`S...`), sincronización portátil cifrada (`AGVAULT1:`), resolución de `@username` en transferencias/bot/MCP y actualización integral de documentación. *AI-generated; revisión humana pendiente.*
+- **Motor de Bóveda (`frontend/src/lib/hot-wallet/`)**:
+  - `types.ts`, `storage.ts`, `telegram-sync.ts`, `crypto.ts`, `vault.ts`: soporte para `primaryId`, `TelegramWalletLinkMeta`, `setPrimaryHotAccount`, `saveTelegramWalletLink`, exportación/importación portátil cifrada `AGVAULT1:<base64>` (`exportEncryptedVaultBundle`, `importEncryptedVaultBundle`) y firma canónica Ed25519 `signTelegramWalletLink` (`astrogate:link:v1:...`).
+- **Directorio Criptográfico & Bot (`frontend/worker/`)**:
+  - `telegram-auth.ts` (`verifyTelegramInitData`, `parseTelegramInitDataUser`, `safeSecretEquals`), `wallet.ts` (`decodeStellarPublicKey`, `verifyStellarEd25519Signature`, `linkWalletIdentity`, `resolveWalletIdentity`, `getVerifiedWalletVault` con anti-replay `wnonce:`, ventana `±300s` y bloqueo `fail-closed` contra semillas `S...`).
+  - `api.ts`, `mcp.ts`, `views.ts`, `ai.ts`, `index.ts`: endpoints `POST /api/v1/wallet/link`, `GET /api/v1/wallet/resolve?q=...`, `GET /api/v1/wallet/vault`, herramienta MCP `resolve_wallet` y comando `/wallet @username` en inglés con enlaces internos Telegram.
+- **Frontend & UX Nativa (`frontend/src/`)**:
+  - `lib/wallet-directory.ts` (`publishWalletTelegramLink`, `resolveUsernameOrAddress`, `fetchRemoteTelegramWalletVault`) y `store/wallet.ts` (auto-vínculo + sync `AGVAULT1:` con `@username` al crear/importar en TMA e hidratación remota).
+  - `HotWalletModal.tsx` (eliminada pestaña `external`; flujos nativos Create/Import `S...` o `AGVAULT1:`, tarjeta `@username`, selector `Set Primary`, exportación `S...` y `Sync Bundle`), `WalletButton.tsx`, `TransferCard.tsx` (envío directo a `@username`), `PortfolioPage.tsx` (tarjeta resumen Native Wallet) y `DocsPage.tsx`.
+- **Documentación sincronizada**: `ARCHITECTURE.md`, `README.md`, `SECURITY.md`, `docs/AI_AGENT_INTEGRATION.md`, `frontend/public/llms.txt`, `frontend/public/llms-full.txt`, `STATUS.md`.
+
 ## Handoff rápido (Nov 18 2026, sesión 37 — Fair-Flywheel v4.3 `66/33/0.3/0.7` + 7Y LP Time-Lock + Sorobits `7 XLM` Mystery Capsules)
 Simplificación económica y cierre de desperdicio en Launchpad (**Fair-Flywheel v4.3** sin bóveda artificial de quema + **LP Time-Lock de 7 años** en contrato), actualización del contrato Sorobits SEP-50 (`mint_capsule`, cuota anti-ballena, Pioneer Soulbound) y sincronización total de frontend, Worker, bindings, documentación y repo open-source (`NunaLabsDev/astrogate`). *AI-generated; revisión humana pendiente.*
 - **Contrato Launchpad v4.3 en Testnet**:

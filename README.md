@@ -102,7 +102,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 stellar contract build
 
-# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 217 Vitest specs, SSR smoke, PWA, CSP parity
+# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 221+ Vitest specs, SSR smoke, PWA, CSP parity
 cd frontend
 npx tsc --noEmit -p tsconfig.worker.json
 npm run check

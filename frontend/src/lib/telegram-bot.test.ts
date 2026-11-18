@@ -794,6 +794,7 @@ describe('Telegram bot views & parsers', () => {
       result: { tools: Array<{ name: string }> }
     }
     expect(toolsJson.result.tools.map((t) => t.name)).toContain('verify_anti_rug')
+    expect(toolsJson.result.tools.map((t) => t.name)).toContain('resolve_wallet')
 
     const mcpCall = await handleWorkerRequest(
       new Request('https://astrogate-bot.workers.dev/mcp', {
@@ -1450,5 +1451,33 @@ describe('Telegram bot views & parsers', () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+
+    // 7. MCP resolve_wallet tool resolves @alicestellar via JSON-RPC 2.0
+    const mcpResolve = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 77,
+          method: 'tools/call',
+          params: {
+            name: 'resolve_wallet',
+            arguments: { query: '@alicestellar' },
+          },
+        }),
+      }),
+      env,
+    )
+    expect(mcpResolve.status).toBe(200)
+    const mcpResolveJson = (await mcpResolve.json()) as {
+      result: { content: Array<{ text: string }> }
+    }
+    const mcpResolved = JSON.parse(mcpResolveJson.result.content[0]?.text ?? '{}') as {
+      primaryPublicKey: string
+      verifiedTelegram: boolean
+    }
+    expect(mcpResolved.primaryPublicKey).toBe(kp2.publicKey())
+    expect(mcpResolved.verifiedTelegram).toBe(true)
   })
 })

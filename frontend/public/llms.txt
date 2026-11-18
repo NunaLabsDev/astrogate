@@ -1,7 +1,7 @@
 # AstroGate Protocol (`llms.txt`)
 > Decentralized Fair-Flywheel Token Launchpad, Soroswap AMM Interface, Sorobits SEP-50 NFTs & Telegram Mini App on Stellar / Soroban.
 
-AstroGate operates with zero user backend: wallet signatures (`@creit.tech/stellar-wallets-kit` or client-side AES-GCM vault) authorize all writes directly against Stellar Soroban RPC & Horizon.
+AstroGate operates with zero custodial backend: client-encrypted native wallet signatures (`PBKDF2-SHA256` + `AES-GCM-256` vault, linked to Telegram `@username` via Ed25519 proofs with `AGVAULT1:` cross-device sync and exportable `S...` seeds) authorize all writes directly against Stellar Soroban RPC & Horizon.
 
 ## Fair-Flywheel v4.3 Tokenomics
 - Standard Supply: `10,000,000` tokens (`7` decimals, `1 XLM = 10,000,000` stroops), hard-capped via OpenZeppelin `Capped`, ownership renounced atomically on launch.
@@ -44,10 +44,10 @@ AstroGate operates with zero user backend: wallet signatures (`@creit.tech/stell
   - `/contracts/sorobits/src/contract.rs` & `/contracts/sorobits/src/engine.rs` (SEP-50 RLE Pixel Art + 256-bit Genomes)
 - Frontend & Crypto Vault:
   - `/frontend/src/lib/network.ts` (`NETWORK_PRESETS`, multi-RPC failover)
-  - `/frontend/src/lib/hot-wallet/` (PBKDF2-SHA256 210k + AES-GCM-256 with publicKey AAD + RAM zeroing)
+  - `/frontend/src/lib/hot-wallet/` & `/frontend/src/lib/wallet-directory.ts` (PBKDF2-SHA256 210k + AES-GCM-256 with publicKey AAD, Primary `@username` Ed25519 link, `AGVAULT1:` sync, RAM zeroing)
   - `/frontend/src/lib/tokenomics.ts`, `/frontend/src/lib/token.ts`, `/frontend/src/lib/soroswap.ts`
 - Cloudflare Worker & Telegram Bot:
-  - `/frontend/worker/index.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`
+  - `/frontend/worker/index.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`, `/frontend/worker/wallet.ts`, `/frontend/worker/telegram-auth.ts`
   - Automated broadcasts route exclusively to `@AstroGateFeed` (community chat stays command-only and spam-free).
 
 ## SDK Integration (`frontend/src/sdk/index.ts`)

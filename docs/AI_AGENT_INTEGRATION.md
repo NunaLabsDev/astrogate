@@ -117,6 +117,12 @@ const events = await fetchTokenEvents(market[0].id, { maxEvents: 20 })
 }
 ```
 
+- **Wallet Directory & Encrypted Sync Endpoints (`frontend/worker/wallet.ts`)**:
+  - `GET /api/v1/wallet/resolve?q=@username`: Resolves a Telegram `@username`, numeric user ID, or `G...` address to its `primaryPublicKey` and connected wallets.
+  - `POST /api/v1/wallet/link`: Binds `@username` / `initData` to Stellar wallet(s) using an Ed25519 proof (`±300s`, anti-replay nonces).
+  - `GET /api/v1/wallet/vault`: Fetches the authenticated Telegram Mini App user's `AGVAULT1:` encrypted bundle (`X-Telegram-Init-Data` required).
+  - MCP Tool `resolve_wallet(query)` exposes `@username` / `G...` lookup to AI agents.
+
 ---
 
 ## 4. Critical Soroban / Stellar Rules for Autonomous Agents

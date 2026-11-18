@@ -80,24 +80,27 @@ Source of truth: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/cur
 1. **Pre-Graduation Pool Griefing Defense (`C-01`)**: `seed_soroswap_and_burn_lp` checks `pair.total_supply() > 0 || (r0 > 0 && r1 > 0)` instead of raw `r0 > 0 || r1 > 0`, tolerating unilateral XLM dust sent to a pair while rejecting pre-seeded LP pools.
 2. **CEI + Reentrancy Guard**: `execute_curve_buy` persists `CurveState` before external transfers and holds a temporary `ReentrancyLock`.
 3. **1:1 Curve Parity**: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/curve-math.ts` share identical integer math (floor/ceil rounding, fee bps, graduation cap).
-4. **Client Hot Wallet Crypto (`frontend/src/lib/hot-wallet/`)**: `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256` with `meta.publicKey` bound as GCM `additionalData` (AAD), transient key buffer zeroing, recovered publicKey verification, and `15m` idle auto-lock (`HOT_IDLE_AUTO_LOCK_MS`).
+4. **Client Native Wallet Crypto (`frontend/src/lib/hot-wallet/`, `wallet-directory.ts`)**: `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256` with `meta.publicKey` bound as GCM `additionalData` (AAD), transient key buffer zeroing, recovered publicKey verification, `15m` idle auto-lock (`HOT_IDLE_AUTO_LOCK_MS`), multi-wallet `Primary` routing for `@username`, `AGVAULT1:` portable encrypted sync, and Ed25519 ownership proofs.
 5. **Stellar Minimum Reserve & Signing Safety**: `frontend/src/lib/xlm.ts` queries Horizon `subentry_count`, `num_sponsoring`, `num_sponsored`, and `selling_liabilities` before allowing signatures; destructive UI actions require inline 2-step confirmation.
-6. **Cloudflare Worker Security (`frontend/worker/`)**: Constant-time SHA-256 verification of `X-Telegram-Bot-Api-Secret-Token`, strict CORS origin allowlist + HMAC-SHA256 `verifyTelegramInitData` on `/api/telegram/pulse`, 5s per-IP rate limit, 180-ledger recency filter, KV cursor/dedupe, and `community: false` feed-only routing (`@AstroGateFeed` only).
+6. **Cloudflare Worker Security (`frontend/worker/`)**: Constant-time SHA-256 verification of `X-Telegram-Bot-Api-Secret-Token`, strict CORS origin allowlist + HMAC-SHA256 `verifyTelegramInitData` (`telegram-auth.ts`), anti-replay Ed25519 `@username` wallet linking (`wallet.ts`, `300s` window + KV nonces + secret seed rejection), 5s per-IP rate limit on `/api/telegram/pulse`, 180-ledger recency filter, KV cursor/dedupe, and `community: false` feed-only routing (`@AstroGateFeed` only).
 
 ---
 
-## 5. Public Read-Only REST API & MCP Integration
+## 5. Public REST API & MCP Integration
 
-- **REST Endpoints (`GET`)**:
-  - `/api/v1/health`: Network config, live contracts, Fair-Flywheel v4.3 parameters, Sorobits limits.
-  - `/api/v1/tokens`: Active bonding curves and graduated Soroswap pairs with XLM reserves.
-  - `/api/v1/tokens/:id`: Full token metadata, `CurveState`, `kingShout`, and `recentShouts`.
-  - `/api/v1/tokens/:id/audit`: Automated on-chain verification (`ownership_renounced`, `launchpad_verified`, `curve_or_lp_lock`, `proof_of_burn_vault`).
-  - `/api/v1/tokens/:id/quote?amountIn=<stroops>&direction=buy|sell&slippage=2`: Deterministic quote.
-  - `/api/v1/sorobits`: Supply, genesis archetype counts, RLE render budgets.
-  - `/openapi.json`: OpenAPI 3.1.0 schema.
+- **REST Endpoints**:
+  - `GET /api/v1/health`: Network config, live contracts, Fair-Flywheel v4.3 parameters, Sorobits limits.
+  - `GET /api/v1/tokens`: Active bonding curves and graduated Soroswap pairs with XLM reserves.
+  - `GET /api/v1/tokens/:id`: Full token metadata, `CurveState`, `kingShout`, and `recentShouts`.
+  - `GET /api/v1/tokens/:id/audit`: Automated on-chain verification (`ownership_renounced`, `launchpad_verified`, `curve_or_lp_lock`, `proof_of_burn_vault`).
+  - `GET /api/v1/tokens/:id/quote?amountIn=<stroops>&direction=buy|sell&slippage=2`: Deterministic quote.
+  - `GET /api/v1/sorobits`: Supply, genesis archetype counts, RLE render budgets.
+  - `GET /api/v1/wallet/resolve?q=@username`: Resolve `@username`, numeric user ID, or `G...` address to linked primary wallet (`no-store`).
+  - `POST /api/v1/wallet/link`: Bind `@username` / `initData` to Stellar wallet(s) via Ed25519 signature (`±300s`, anti-replay nonces).
+  - `GET /api/v1/wallet/vault`: Fetch authenticated Telegram Mini App user's `AGVAULT1:` encrypted bundle (`X-Telegram-Init-Data` required).
+  - `GET /openapi.json`: OpenAPI 3.1.0 schema.
 - **MCP Server (`POST /mcp` or `cd frontend && npm run mcp`)**:
-  - Tools: `get_protocol_info`, `get_market_tokens`, `get_token_details`, `verify_anti_rug`, `quote_swap`, `get_sorobits_info`.
+  - Tools: `get_protocol_info`, `get_market_tokens`, `get_token_details`, `verify_anti_rug`, `quote_swap`, `get_sorobits_info`, `resolve_wallet`.
   - Resources: `astrogate://protocol/overview`, `astrogate://market/snapshot`.
 
 ---
