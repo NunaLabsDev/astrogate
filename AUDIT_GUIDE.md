@@ -16,7 +16,7 @@ This guide provides the exact file map, core security invariants, threat model, 
 | **Critical** | SEP-41 Token Cap, Burn & Transfer Lock | `contracts/token/src/contract.rs`, `contracts/token/src/test.rs` |
 | **High** | Client Hot Wallet Crypto & Auto-Lock | `frontend/src/lib/hot-wallet/{crypto.ts,vault.ts,storage.ts,telegram-sync.ts}`, `frontend/src/store/wallet.ts`, `frontend/src/lib/signer.ts` |
 | **High** | Bonding Curve Parity & Soroswap AMM Math | `frontend/src/lib/tokenomics.ts`, `frontend/src/lib/soroswap.ts`, `frontend/src/lib/token.ts`, `frontend/src/lib/xlm.ts` |
-| **Medium** | Telegram Worker Auth, CORS, Anti-Spoof Quests | `frontend/worker/{index.ts,events.ts,rpc.ts,quests.ts,views.ts}` |
+| **Medium** | Telegram Worker, Pages Functions & Anti-Spoof Quests | `frontend/functions/*.ts`, `frontend/worker/{index.ts,api.ts,events.ts,rpc.ts,quests.ts,views.ts,wallet.ts,telegram-auth.ts,ai.ts}` |
 | **Medium** | Sorobits SEP-50 RLE Budget & Genomes | `contracts/sorobits/src/{contract.rs,engine.rs,assets.rs,test.rs}` |
 | **Medium** | CSP Parity, PWA Service Worker & Scripts | `frontend/public/{_headers,sw.js}`, `frontend/vercel.json`, `frontend/nginx.conf`, `frontend/scripts/check-csp.mjs` |
 
@@ -26,7 +26,7 @@ This guide provides the exact file map, core security invariants, threat model, 
 
 ### A. Smart Contracts (`contracts/`)
 1. **Supply Conservation & Immutable Cap**:
-   - `launch_fair` always mints `10,000,000 * 10^7` (`100_000_000_000_000`) units partitioned cleanly: `66%` Curve (`6.6M`), `33%` DEX (`3.3M`), `0.3%` Creator Vesting (`30K`), `0.7%` Dev Ecosystem (`70K`), zero idle Burn Vault (`0`), and immediately renounces ownership (`renounce_ownership`).
+   - `launch_fair` always mints `10,000,000 * 10^7` (`100_000_000_000_000`) units partitioned cleanly: `66%` Curve (`6.6M`), `33%` DEX (`3.3M`), `0.3%` Creator Vesting (`30K`), `0.4%` 3-Checkpoint Jackpots (`40K`: `+5K` Spark, `+10K` Crown, `+25K` Grad), `0.3%` Dev Ecosystem (`30K`), zero idle Burn Vault (`0`), and immediately renounces ownership (`renounce_ownership`).
 2. **Pre-Graduation Curve Isolation (`C-01` / Anti-Dilution)**:
    - While `!curve.graduated`, `token.transfer` and `token.transfer_from` must fail for non-gate callers, while `token.burn` / `token.burn_from` remain callable by `burn_shout`.
    - At graduation, `seed_soroswap_and_burn_lp` must tolerate unilateral XLM dust sent to the Soroswap pair (`pair.total_supply() == 0`), yet reject pre-seeded LP pools (`pair.total_supply() > 0 || (r0 > 0 && r1 > 0)`).
@@ -82,7 +82,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 stellar contract build
 
-# 2. Frontend & Worker typecheck, lint (oxlint), 217 Vitest specs, SSR smoke, PWA & CSP parity
+# 2. Frontend & Worker typecheck, lint (oxlint), 227+ Vitest specs, SSR smoke, PWA & CSP parity
 cd frontend
 npx tsc --noEmit -p tsconfig.worker.json
 npm run check

@@ -47,8 +47,9 @@ AstroGate operates with zero custodial backend: client-encrypted native wallet s
   - `/frontend/src/lib/network.ts` (`NETWORK_PRESETS`, multi-RPC failover)
   - `/frontend/src/lib/hot-wallet/` & `/frontend/src/lib/wallet-directory.ts` (PBKDF2-SHA256 210k + AES-GCM-256 with publicKey AAD, Primary `@username` Ed25519 link, `AGVAULT1:` sync, RAM zeroing)
   - `/frontend/src/lib/tokenomics.ts`, `/frontend/src/lib/token.ts`, `/frontend/src/lib/soroswap.ts`
-- Cloudflare Worker & Telegram Bot:
-  - `/frontend/worker/index.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`, `/frontend/worker/wallet.ts`, `/frontend/worker/telegram-auth.ts`
+- Cloudflare Pages Functions & Worker (`https://astrogate.pages.dev`):
+  - `/frontend/functions/` (Service Binding `ASTROW` -> `astrogate-stellar` Worker for `/telegram/webhook`, `/api/*`, `/mcp`, `/openapi.json`, `/health`)
+  - `/frontend/worker/index.ts`, `/frontend/worker/api.ts`, `/frontend/worker/mcp.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`, `/frontend/worker/wallet.ts`, `/frontend/worker/telegram-auth.ts`, `/frontend/worker/ai.ts`
   - Automated broadcasts route exclusively to `@AstroGateFeed` (community chat stays command-only and spam-free).
 
 ## SDK Integration (`frontend/src/sdk/index.ts`)
