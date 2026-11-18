@@ -1480,4 +1480,122 @@ describe('Telegram bot views & parsers', () => {
     expect(mcpResolved.primaryPublicKey).toBe(kp2.publicKey())
     expect(mcpResolved.verifiedTelegram).toBe(true)
   })
+
+  it('handles slash commands across DM & groups cleanly, ignores other bots, retries thread 400 errors, and formats 100% graduating buys', async () => {
+    const tgCalls: Array<{ method: string; body: Record<string, unknown> }> = []
+    const originalFetch = globalThis.fetch
+    let failFirstThreadSend = true
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (urlStr.startsWith('https://api.telegram.org/')) {
+        const method = urlStr.split('/').pop() ?? ''
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {}
+        tgCalls.push({ method, body })
+        if ((method === 'sendPhoto' || method === 'sendMessage') && failFirstThreadSend && body.message_thread_id === 999) {
+          if (method === 'sendMessage') failFirstThreadSend = false
+          return new Response(
+            JSON.stringify({ ok: false, error_code: 400, description: 'Bad Request: message thread not found' }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } },
+          )
+        }
+        return Response.json({ ok: true, result: { message_id: 700 + tgCalls.length } })
+      }
+      if (urlStr.includes('/accounts/')) {
+        return Response.json({
+          id: SAMPLE_ACCOUNT,
+          balances: [{ asset_type: 'native', balance: '123.4500000' }],
+        })
+      }
+      return Response.json({ jsonrpc: '2.0', id: 1, result: { entries: [] } })
+    }) as typeof fetch
+
+    try {
+      const webhookSecret = 'test-webhook-secret-2'
+      const env = {
+        ASSETS: { fetch: async () => new Response('ok') },
+        TELEGRAM_BOT_TOKEN: '123456:TEST_TOKEN_2',
+        TELEGRAM_WEBHOOK_SECRET: webhookSecret,
+        TELEGRAM_BOT_USERNAME: 'AstroGateSorobanBot',
+      }
+
+      const sendWebhook = (update: Record<string, unknown>) =>
+        handleWorkerRequest(
+          new Request('https://astrogate.pages.dev/telegram/webhook', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Telegram-Bot-Api-Secret-Token': webhookSecret,
+            },
+            body: JSON.stringify(update),
+          }),
+          env,
+        )
+
+      // 1. Command directed at another bot in group is ignored
+      await sendWebhook({
+        update_id: 201,
+        message: {
+          message_id: 1,
+          chat: { id: -1001625368092, type: 'supergroup' },
+          from: { id: 10, first_name: 'Ana', is_bot: false },
+          text: '/help@SomeOtherBot',
+        },
+      })
+      expect(tgCalls).toHaveLength(0)
+
+      // 2. Topic message whose thread_id returns 400 falls back cleanly without message_thread_id
+      await sendWebhook({
+        update_id: 202,
+        message: {
+          message_id: 2,
+          message_thread_id: 999,
+          is_topic_message: true,
+          chat: { id: -1001625368092, type: 'supergroup' },
+          from: { id: 10, first_name: 'Ana', is_bot: false },
+          text: '/unknowncmd@AstroGateSorobanBot',
+        },
+      })
+      const sendMsgCalls = tgCalls.filter((c) => c.method === 'sendMessage')
+      expect(sendMsgCalls.length).toBeGreaterThanOrEqual(2)
+      expect(sendMsgCalls[0]?.body.message_thread_id).toBe(999)
+      expect(sendMsgCalls[1]?.body.message_thread_id).toBeUndefined()
+      expect(String(sendMsgCalls[1]?.body.text)).toContain('Commands')
+
+      // 3. /wallet GA... falls back to Horizon Account Inspector when address is not linked
+      tgCalls.length = 0
+      await sendWebhook({
+        update_id: 203,
+        message: {
+          message_id: 3,
+          chat: { id: 777, type: 'private' },
+          from: { id: 777, first_name: 'DmUser', is_bot: false },
+          text: `/wallet ${SAMPLE_ACCOUNT}`,
+        },
+      })
+      const acctCall = tgCalls.find((c) => c.method === 'sendMessage')
+      expect(String(acctCall?.body.text)).toContain('123.45 XLM')
+
+      // 4. 100% graduating curve buy renders cleanly without "Only 0.0 XLM left"
+      const gradTradeView = renderLaunchpadEventTelegramView(
+        {
+          kind: 'trade',
+          id: 'ev-grad-buy',
+          ledger: 999,
+          txHash: 'c'.repeat(64),
+          tokenId: SAMPLE_CONTRACT,
+          trader: SAMPLE_ACCOUNT,
+          isBuy: true,
+          xlmAmount: 240_000_000n,
+          tokenAmount: 800_000_000_000n,
+          curveXlmNet: 10_000_000_000n,
+        },
+        { symbol: 'HEY', name: 'Hey', decimals: 7 },
+      )
+      expect(gradTradeView.text).toContain('Graduating Curve Buy (100.0%)')
+      expect(gradTradeView.text).not.toContain('Only <code>0.0 XLM</code> left')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

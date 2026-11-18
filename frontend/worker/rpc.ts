@@ -689,9 +689,10 @@ export async function fetchRecentLaunchpadEvents(
       const server = new sorobanRpc.Server(rpcUrl)
       const latest = await withTimeout(server.getLatestLedger(), 3500)
       const latestSeq = Number(latest.sequence ?? 0)
+      const retentionFloor = Math.max(1, latestSeq - 1_500)
       const fromLedger =
         startLedger && startLedger > 0
-          ? startLedger
+          ? Math.max(startLedger, retentionFloor)
           : Math.max(1, latestSeq - 30)
       if (fromLedger > latestSeq) {
         return { events: [], latestLedger: latestSeq }

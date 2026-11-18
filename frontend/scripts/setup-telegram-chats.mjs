@@ -158,7 +158,7 @@ if (POST_PINS) {
     caption: [
       `🌊🚀 <b>AstroGate Community</b> · <code>Stellar Soroban Testnet</code>`,
       ``,
-      `<blockquote>Fair-Flywheel v4.3 Launchpad · Soroswap AMM · 100% On-Chain Sorobits (SBIT) NFTs</blockquote>`,
+      `<blockquote>Fair-Flywheel v4.4 Launchpad · Soroswap AMM · 100% On-Chain Sorobits (SBIT) NFTs</blockquote>`,
       ``,
       `<b>What you can do right here:</b>`,
       `• 🚀 <b>1-Tap Mini App:</b> Launch tokens (7 XLM), trade curves &amp; keep your encrypted CloudStorage wallet synced`,
@@ -206,7 +206,7 @@ if (POST_PINS) {
       `<blockquote>24/7 anti-dust Soroban telemetry — zero noise, pure on-chain signal.</blockquote>`,
       ``,
       `<b>What streams here live:</b>`,
-      `• 🚀 <b>Fair Launches:</b> New v4.3 tokens (10M supply, 7Y LP lock)`,
+      `• 🚀 <b>Fair Launches:</b> New v4.4 tokens (10M supply, 7Y LP lock)`,
       `• 🐋 <b>Meaningful Trades:</b> Buys/sells <code>&gt;= 2 XLM</code> &amp; <code>80%+</code> graduation pushes`,
       `• 🎓 <b>Soroswap Graduations:</b> Pool creation + Buyback &amp; Burn milestones`,
       `• 👑 <b>Burn-to-Chat &amp; Sorobits:</b> King Shouts + SEP-50 NFT mints`,

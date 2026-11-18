@@ -58,6 +58,7 @@ import {
   DEFAULT_BOT_USERNAME,
   detectStellarAddress,
   detectTickerMention,
+  extractCommandTargetBot,
   isAccountAddr,
   isContractAddr,
   parseCommandAndArg,
@@ -129,6 +130,8 @@ async function sendRenderedView(
     if (replyParams) photoPayload.reply_parameters = replyParams
     const photoRes = await callTelegram(token, 'sendPhoto', photoPayload)
     if (photoRes.ok) return true
+    const photoErr = await photoRes.text().catch(() => '')
+    console.warn('[AstroGate Bot] sendPhoto fallback to text:', chatId, photoRes.status, photoErr)
   }
 
   const payload: Record<string, unknown> = {
@@ -148,6 +151,18 @@ async function sendRenderedView(
     const waitSec = Math.min(3, Math.max(1, Number(retryJson?.parameters?.retry_after ?? 1)))
     await new Promise((r) => setTimeout(r, waitSec * 1000))
     res = await callTelegram(token, 'sendMessage', payload)
+  }
+  if (!res.ok && res.status === 400 && (typeof threadId === 'number' || replyParams)) {
+    const firstErr = await res.text().catch(() => '')
+    console.warn('[AstroGate Bot] sendMessage 400 retry without thread/reply:', chatId, firstErr)
+    const fallbackPayload: Record<string, unknown> = {
+      chat_id: chatId,
+      text: view.text,
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+      reply_markup: view.reply_markup,
+    }
+    res = await callTelegram(token, 'sendMessage', fallbackPayload)
   }
   if (!res.ok) {
     const errText = await res.text().catch(() => '')
@@ -247,11 +262,37 @@ async function resolveContractOrSymbolArg(
   rawArg: string,
   env: Env,
 ): Promise<string | null> {
-  const cleanAddr = rawArg.replace(/[^A-Z2-7]/g, '')
+  const cleanAddr = rawArg.trim().toUpperCase().replace(/[^A-Z2-7]/g, '')
   if (isContractAddr(cleanAddr)) return cleanAddr
-  const cleanSym = rawArg.trim().replace(/^\$/, '').toUpperCase()
+  const cleanSym = rawArg
+    .trim()
+    .replace(/^\$/, '')
+    .replace(/[^A-Za-z0-9]/g, '')
+    .toUpperCase()
   if (/^[A-Z0-9]{2,12}$/.test(cleanSym)) {
     return findTokenBySymbol(cleanSym, env)
+  }
+  return null
+}
+
+async function resolveAccountArgOrSender(
+  rawArg: string,
+  senderTgId: number | undefined,
+  env: Env,
+): Promise<string | null> {
+  const trimmed = rawArg.trim()
+  if (trimmed) {
+    const cleanAcct = trimmed.toUpperCase().replace(/[^A-Z2-7]/g, '')
+    if (isAccountAddr(cleanAcct)) return cleanAcct
+    if (/^@?[a-zA-Z0-9_]{3,32}$/.test(trimmed)) {
+      const resolved = await resolveWalletIdentity(trimmed, env)
+      if (resolved?.primaryPublicKey) return resolved.primaryPublicKey
+    }
+    return null
+  }
+  if (typeof senderTgId === 'number' && senderTgId > 0) {
+    const resolved = await resolveWalletIdentity(String(senderTgId), env)
+    if (resolved?.primaryPublicKey) return resolved.primaryPublicKey
   }
   return null
 }
@@ -373,7 +414,7 @@ async function handleTextMessage(
   env: Env,
 ): Promise<void> {
   const chatId = msg.chat.id
-  const threadId = msg.message_thread_id
+  const threadId = msg.is_topic_message ? msg.message_thread_id : undefined
   const inGroup = msg.chat.type !== 'private'
   const feedChatId = Number(env.TELEGRAM_FEED_CHAT_ID || DEFAULT_FEED_CHAT_ID)
 
@@ -424,15 +465,21 @@ async function handleTextMessage(
 
   // 2. Slash command router
   const { command, arg } = parseCommandAndArg(text)
+  const targetBot = extractCommandTargetBot(text)
+  if (command && targetBot && targetBot !== botUsername.toLowerCase()) {
+    return
+  }
+
   if (command === 'start') {
     const cleanArg = arg.trim()
-    if (isContractAddr(cleanArg)) {
+    const upperArg = cleanArg.toUpperCase()
+    if (isContractAddr(upperArg)) {
       sendTypingNonBlocking(token, chatId, threadId)
-      const data = await fetchLiveTokenInspectorData(cleanArg, env)
+      const data = await fetchLiveTokenInspectorData(upperArg, env)
       await sendRenderedView(
         token,
         chatId,
-        buildTokenInspectorView(cleanArg, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+        buildTokenInspectorView(upperArg, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
         replyId,
         threadId,
       )
@@ -477,10 +524,12 @@ async function handleTextMessage(
       return
     }
     if (cleanArg === 'sorobits' || cleanArg === 'nfts') {
+      sendTypingNonBlocking(token, chatId, threadId)
+      const sbStatus = await fetchSorobitsStatusWorker(env)
       await sendRenderedView(
         token,
         chatId,
-        buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp),
+        buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp, sbStatus),
         replyId,
         threadId,
       )
@@ -524,7 +573,25 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'market') {
+  if (command === 'menu' || command === 'home') {
+    await sendRenderedView(
+      token,
+      chatId,
+      buildWelcomeView(
+        msg.from?.first_name,
+        lang,
+        baseUrl,
+        botUsername,
+        inGroup,
+        { hasMainApp, folderUrl },
+      ),
+      replyId,
+      threadId,
+    )
+    return
+  }
+
+  if (command === 'market' || command === 'curves' || command === 'tokens') {
     sendTypingNonBlocking(token, chatId, threadId)
     const snap = await fetchLiveMarketSnapshot(env)
     await sendRenderedView(
@@ -537,7 +604,14 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'king' || command === 'hill' || command === 'sprint') {
+  if (
+    command === 'king' ||
+    command === 'hill' ||
+    command === 'sprint' ||
+    command === 'leaderboard' ||
+    command === 'top' ||
+    command === 'koth'
+  ) {
     sendTypingNonBlocking(token, chatId, threadId)
     const view = await loadKingOfTheHillView(env, lang, baseUrl, inGroup)
     await sendRenderedView(token, chatId, view, replyId, threadId)
@@ -555,26 +629,48 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'wallet' || command === 'portfolio') {
+  if (
+    command === 'wallet' ||
+    command === 'portfolio' ||
+    command === 'faucet' ||
+    command === 'whoami' ||
+    command === 'me' ||
+    command === 'balance'
+  ) {
     const cleanArg = arg.trim()
-    if (command === 'wallet' && cleanArg) {
+    if (cleanArg || command === 'whoami' || command === 'me') {
       sendTypingNonBlocking(token, chatId, threadId)
-      const resolved = await resolveWalletIdentity(cleanArg, env)
-      await sendRenderedView(
-        token,
-        chatId,
-        buildWalletResolveView(
-          cleanArg,
-          resolved,
-          baseUrl,
-          inGroup,
-          botUsername,
-          hasMainApp,
-        ),
-        replyId,
-        threadId,
-      )
-      return
+      const lookupQuery = cleanArg || (msg.from?.id ? String(msg.from.id) : '')
+      const upperAcct = lookupQuery.toUpperCase().replace(/[^A-Z2-7]/g, '')
+      const resolved = lookupQuery ? await resolveWalletIdentity(lookupQuery, env) : null
+      if (!resolved && isAccountAddr(upperAcct)) {
+        const account = await fetchHorizonAccountSummary(upperAcct, env)
+        await sendRenderedView(
+          token,
+          chatId,
+          buildAccountInspectorView(upperAcct, account, lang, baseUrl, inGroup, botUsername, hasMainApp),
+          replyId,
+          threadId,
+        )
+        return
+      }
+      if (resolved || cleanArg) {
+        await sendRenderedView(
+          token,
+          chatId,
+          buildWalletResolveView(
+            cleanArg || (msg.from?.username ? `@${msg.from.username}` : 'your Telegram account'),
+            resolved,
+            baseUrl,
+            inGroup,
+            botUsername,
+            hasMainApp,
+          ),
+          replyId,
+          threadId,
+        )
+        return
+      }
     }
     await sendRenderedView(
       token,
@@ -586,7 +682,7 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'v42' || command === 'rules') {
+  if (command === 'v42' || command === 'v44' || command === 'rules' || command === 'tokenomics' || command === 'fees') {
     await sendRenderedView(
       token,
       chatId,
@@ -609,8 +705,8 @@ async function handleTextMessage(
   }
 
   if (command === 'claim') {
-    const cleanAcct = arg.replace(/[^A-Z2-7]/g, '')
-    if (!isAccountAddr(cleanAcct)) {
+    const targetAcct = await resolveAccountArgOrSender(arg, msg.from?.id, env)
+    if (!targetAcct) {
       await sendRenderedView(
         token,
         chatId,
@@ -621,7 +717,7 @@ async function handleTextMessage(
       return
     }
     sendTypingNonBlocking(token, chatId, threadId)
-    const account = await fetchHorizonAccountSummary(cleanAcct, env)
+    const account = await fetchHorizonAccountSummary(targetAcct, env)
     await sendRenderedView(
       token,
       chatId,
@@ -633,10 +729,12 @@ async function handleTextMessage(
   }
 
   if (command === 'sorobits' || command === 'nft' || command === 'nfts') {
+    sendTypingNonBlocking(token, chatId, threadId)
+    const sbStatus = await fetchSorobitsStatusWorker(env)
     await sendRenderedView(
       token,
       chatId,
-      buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp),
+      buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp, sbStatus),
       replyId,
       threadId,
     )
@@ -649,8 +747,8 @@ async function handleTextMessage(
     command === 'badges' ||
     command === 'pilot'
   ) {
-    const cleanAcct = arg.replace(/[^A-Z2-7]/g, '')
-    if (!isAccountAddr(cleanAcct)) {
+    const targetAcct = await resolveAccountArgOrSender(arg, msg.from?.id, env)
+    if (!targetAcct) {
       await sendRenderedView(
         token,
         chatId,
@@ -661,7 +759,7 @@ async function handleTextMessage(
       return
     }
     sendTypingNonBlocking(token, chatId, threadId)
-    const progress = await fetchUserQuestStatus(cleanAcct, env)
+    const progress = await fetchUserQuestStatus(targetAcct, env)
     await sendRenderedView(
       token,
       chatId,
@@ -674,8 +772,23 @@ async function handleTextMessage(
 
   if (command === 'shouts') {
     sendTypingNonBlocking(token, chatId, threadId)
-    const resolved = arg ? await resolveContractOrSymbolArg(arg, env) : null
-    const targetToken = resolved ?? ASTRO_TOKEN_ID
+    let targetToken: string | null = null
+    if (arg.trim()) {
+      targetToken = await resolveContractOrSymbolArg(arg, env)
+      if (!targetToken) {
+        await sendRenderedView(
+          token,
+          chatId,
+          buildInvalidTokenUsageView(lang, baseUrl, inGroup, botUsername, hasMainApp),
+          replyId,
+          threadId,
+        )
+        return
+      }
+    } else {
+      const snap = await fetchLiveMarketSnapshot(env, 1)
+      targetToken = snap.items[0]?.id ?? ASTRO_TOKEN_ID
+    }
     const data = await fetchTokenShoutsData(targetToken, env)
     await sendRenderedView(
       token,
@@ -687,7 +800,7 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'help') {
+  if (command === 'help' || command === 'commands') {
     await sendRenderedView(
       token,
       chatId,
@@ -747,6 +860,18 @@ async function handleTextMessage(
       token,
       chatId,
       buildAiAnswerView(ai.answer, ai.poweredByAi, baseUrl, inGroup, botUsername, hasMainApp),
+      replyId,
+      threadId,
+    )
+    return
+  }
+
+  // Unknown slash command addressed to this bot (in DM or /cmd@AstroGateSorobanBot in group) -> show Help
+  if (command && (!inGroup || targetBot === botUsername.toLowerCase())) {
+    await sendRenderedView(
+      token,
+      chatId,
+      buildHelpView(lang, baseUrl, inGroup, botUsername, hasMainApp),
       replyId,
       threadId,
     )
@@ -849,7 +974,7 @@ async function handleCallbackQuery(
   if (!msg) return
   const chatId = msg.chat.id
   const messageId = msg.message_id
-  const threadId = msg.message_thread_id
+  const threadId = msg.is_topic_message ? msg.message_thread_id : undefined
   const inGroup = msg.chat.type !== 'private'
   const isPhoto = Boolean(msg.photo?.length)
 
@@ -896,11 +1021,12 @@ async function handleCallbackQuery(
       return
     }
     if (viewName === 'sbt') {
+      const sbStatus = await fetchSorobitsStatusWorker(env)
       await editRenderedView(
         token,
         chatId,
         messageId,
-        buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp),
+        buildSorobitsView(baseUrl, inGroup, botUsername, hasMainApp, sbStatus),
         isPhoto,
         threadId,
       )
@@ -1079,8 +1205,8 @@ async function broadcastLaunchpadEvents(
           : await fetchTokenMetaSummary(ev.tokenId, env)
       metaCache.set(ev.tokenId, meta)
     }
-    const botUsername = env.TELEGRAM_BOT_USERNAME || DEFAULT_BOT_USERNAME
-    const view = renderLaunchpadEventTelegramView(ev, meta, botUsername)
+    const { botUsername, hasMainApp } = botFlags(env)
+    const view = renderLaunchpadEventTelegramView(ev, meta, botUsername, hasMainApp)
 
     if (targets.feed && Number.isFinite(feedChatId)) {
       await sendRenderedView(token, feedChatId, view)
