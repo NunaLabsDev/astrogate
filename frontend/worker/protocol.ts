@@ -1,17 +1,21 @@
 import {
   CREATOR_VESTING_ALLOC_BASE,
+  CROWN_JACKPOT_TOKENS_ALLOC_BASE,
   CURVE_TOKENS_ALLOC_BASE,
   CURVE_VIRTUAL_XLM_START_STROOPS,
   DEV_TOKENS_ALLOC_BASE,
   DEX_TOKENS_ALLOC_BASE,
   FAIR_INITIAL_SUPPLY_BASE,
+  GRADUATION_JACKPOT_TOKENS_ALLOC_BASE,
   GRADUATION_TARGET_XLM,
   LAUNCH_CREATION_FEE_XLM,
   localCurveQuoteBuy,
   localCurveQuoteSell,
   LP_LOCK_YEARS,
   MIN_SEED_XLM,
+  SPARK_JACKPOT_TOKENS_ALLOC_BASE,
   STELLAR_BURN_ADDRESS,
+  TOTAL_JACKPOT_TOKENS_ALLOC_BASE,
 } from '../src/lib/curve-math'
 import {
   fetchLiveMarketSnapshot,
@@ -45,7 +49,7 @@ export function buildProtocolOverview(env: Env) {
   const cfg = resolveWorkerNetwork(env)
   return {
     protocol: 'AstroGate',
-    version: 'v4.3-fair-flywheel',
+    version: 'v4.4-fair-flywheel',
     network: cfg.network,
     networkPassphrase: cfg.passphrase,
     rpcUrls: cfg.rpcUrls,
@@ -75,13 +79,22 @@ export function buildProtocolOverview(env: Env) {
         soroswapDexBase: DEX_TOKENS_ALLOC_BASE.toString(),
         creatorVesting15dPct: 0.3,
         creatorVesting15dBase: CREATOR_VESTING_ALLOC_BASE.toString(),
-        devEcosystemPct: 0.7,
+        jackpotLadderPct: 0.4,
+        jackpotLadderBase: TOTAL_JACKPOT_TOKENS_ALLOC_BASE.toString(),
+        sparkCheckpoint250XlmBase: SPARK_JACKPOT_TOKENS_ALLOC_BASE.toString(),
+        crownCheckpoint500XlmBase: CROWN_JACKPOT_TOKENS_ALLOC_BASE.toString(),
+        graduationJackpotPct: 0.25,
+        graduationJackpotBase: GRADUATION_JACKPOT_TOKENS_ALLOC_BASE.toString(),
+        devEcosystemPct: 0.3,
         devEcosystemBase: DEV_TOKENS_ALLOC_BASE.toString(),
       },
       fees: {
-        curveBuyBps: 80,
-        curveSellUnder50Bps: 250,
-        curveSellOver50Bps: 150,
+        curveBuyEarlyBps: 30,
+        curveBuyMidBps: 50,
+        curveBuySprintBps: 25,
+        curveSellEarlyBps: 120,
+        curveSellMidBps: 180,
+        curveSellSprintBps: 150,
         soroswapSwapBps: 30,
       },
       antiMev: {
@@ -203,7 +216,7 @@ export async function auditTokenApi(tokenId: string, env: Env) {
     },
     {
       id: 'launchpad_verified',
-      label: 'Registered in Fair-Flywheel v4.3 Launchpad',
+      label: 'Registered in Fair-Flywheel v4.4 Launchpad',
       passed: isVerifiedLaunchpad,
       detail: isVerifiedLaunchpad
         ? `Creator ${inspector.curve?.creator}`

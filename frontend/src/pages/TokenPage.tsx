@@ -28,7 +28,12 @@ import {
 } from '../lib/soroswap'
 import { TokenArt } from '../components/TokenArt'
 import { SwapCard } from '../components/SwapCard'
+import {
+  RewardCelebrationModal,
+  type CurveRewardCelebration,
+} from '../components/RewardCelebrationModal'
 import { ReserveChart } from '../components/ReserveChart'
+import { CurveStoryChart } from '../components/CurveStoryChart'
 import { TokenHypeBar } from '../components/TokenHypeBar'
 import { LiquidityForm } from '../components/LiquidityForm'
 import { LiquidityPosition } from '../components/LiquidityPosition'
@@ -46,6 +51,7 @@ import {
   calculateSupplySharePercent,
   curveVirtualReserves,
   DEVELOPER_TREASURY_ADDRESS,
+  GRADUATION_JACKPOT_TOKENS,
   GRADUATION_TARGET_XLM,
   graduationProgressForListing,
   MILESTONE_2_PAIR_XLM,
@@ -186,10 +192,19 @@ export function TokenPage() {
   >('thread')
   const [extendingTtl, setExtendingTtl] = useState(false)
   const [mountNowSecs] = useState(() => BigInt(Math.floor(Date.now() / 1000)))
+  const [justGraduated, setJustGraduated] = useState(false)
+  const [rewardCelebration, setRewardCelebration] =
+    useState<CurveRewardCelebration | null>(null)
+  const [showRewardModal, setShowRewardModal] = useState(false)
   const [dexPanelTab, setDexPanelTab] = useState<'swap' | 'liquidity' | 'tools'>('swap')
   const [busyFlywheel, setBusyFlywheel] = useState<
     'milestone' | 'vesting' | 'buyback' | 'refund' | null
   >(null)
+  const isDeveloperTreasury = Boolean(
+    publicKey &&
+      DEVELOPER_TREASURY_ADDRESS &&
+      publicKey === DEVELOPER_TREASURY_ADDRESS,
+  )
 
   const holderAnalysis = useMemo(
     () =>
@@ -561,8 +576,75 @@ export function TokenPage() {
 
   return (
     <div className="space-y-4 sm:space-y-5">
+      {showRewardModal && rewardCelebration ? (
+        <RewardCelebrationModal
+          celebration={rewardCelebration}
+          symbol={token.symbol ?? 'TOKEN'}
+          onClose={() => setShowRewardModal(false)}
+        />
+      ) : null}
+
+      {(justGraduated && !isBondingCurve) ||
+      (rewardCelebration && rewardCelebration.rewardTokens > 0) ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/60 bg-gradient-to-r from-emerald-950/70 via-slate-900/90 to-amber-950/60 p-4 shadow-xl"
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="animate-mascot-wave relative shrink-0 flex items-end">
+              <img
+                src="/badges/pioneer.png"
+                alt="Sorobits Pioneer Mascot"
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-xl border border-amber-400/70 bg-slate-950"
+                style={{ imageRendering: 'pixelated' }}
+              />
+              <span aria-hidden="true" className="animate-flag-flutter -ml-2 text-lg">
+                🏁
+              </span>
+            </div>
+            <div className="space-y-0.5 min-w-0">
+              <p className="text-sm sm:text-base font-black text-emerald-300">
+                {rewardCelebration?.reasonTitle ??
+                  `🎓 Graduated to Soroswap DEX! 🏆 +${GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} $${token.symbol} Jackpot Awarded!`}
+              </p>
+              <p className="text-xs text-slate-300">
+                {rewardCelebration?.reasonDetail ??
+                  `$${token.symbol} left the closed Launchpad curve and is now a live Soroswap AMM token with P2P transfers & LP tools unlocked.`}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {rewardCelebration ? (
+              <button
+                type="button"
+                onClick={() => setShowRewardModal(true)}
+                className="rounded-xl border border-amber-400/60 bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition"
+              >
+                🎉 Replay Reward
+              </button>
+            ) : null}
+            {!isBondingCurve ? (
+              <Link
+                to="/dex"
+                className="rounded-xl bg-emerald-400 px-3.5 py-2 text-xs font-black text-slate-950 hover:bg-emerald-300 transition"
+              >
+                Explore Soroswap DEX Market →
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {/* 1. Minimalist TMA-Proportioned Hero Header (Zero CLS) */}
-      <div className="liquid-glass rounded-2xl p-3.5 sm:p-5 border border-sky-500/20 shadow-xl space-y-3">
+      <div
+        className={`liquid-glass rounded-2xl p-3.5 sm:p-5 shadow-xl space-y-3 border ${
+          isBondingCurve
+            ? 'border-sky-500/25'
+            : 'border-emerald-500/35 bg-gradient-to-br from-emerald-950/20 via-slate-900/70 to-slate-950/80'
+        }`}
+      >
         {/* Top Row: Avatar + Name/Symbol + Spot Price */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0 flex-1">
@@ -802,23 +884,99 @@ export function TokenPage() {
         </div>
       </div>
 
-      {/* 2. Main Arena: Gráfico + Chat on Left, Buy & Sell on Right */}
+      {/* 2. Main Arena: Story/DEX Chart + Chat on Left, Trade Terminal on Right */}
       <div className="grid gap-6 lg:grid-cols-12 items-start">
-        {/* Left Column: Gráfico (Chart) + Tabs [Thread | Trades] */}
+        {/* Left Column: Curve Story (Launchpad) OR Pair History (Graduated Soroswap DEX) + Tabs */}
         <div className="min-w-0 space-y-4 lg:col-span-7">
-          {/* Gráfico */}
-          <ReserveChart
-            history={history}
-            symbol={token.symbol}
-            decimals={token.decimals}
-            events={events.data}
-            pool={effectivePool}
-            curve={curve.data}
-            totalSupply={info.data.totalSupply}
-            xlmUsd={xlmUsd}
-          />
+          {isBondingCurve && curve.data ? (
+            <CurveStoryChart
+              curve={curve.data}
+              symbol={token.symbol}
+              decimals={token.decimals}
+              events={events.data}
+              xlmUsd={xlmUsd}
+            />
+          ) : (
+            <ReserveChart
+              history={history}
+              symbol={token.symbol}
+              decimals={token.decimals}
+              events={events.data}
+              pool={effectivePool}
+              curve={curve.data}
+              totalSupply={info.data.totalSupply}
+              xlmUsd={xlmUsd}
+            />
+          )}
 
-          {curve.data ? (
+          {/* Stalled Launch Creator Rescue (shown only to creator after 7 days with 0 external holders) */}
+          {isBondingCurve && canRefundStalled && curve.data ? (
+            <div className="rounded-2xl border border-emerald-500/30 bg-slate-900/50 p-4 space-y-2 text-xs">
+              <p className="font-bold text-emerald-300">
+                🌊 Stalled Launch Refund Available (7d)
+              </p>
+              <p className="text-slate-300">
+                No external traders remain in this curve after 7 days. Recover your full curve vault XLM or rescue your seed tokens.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onRefundStalledLaunch()}
+                  className="min-h-[38px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                >
+                  {busyFlywheel === 'refund'
+                    ? 'Refunding Vault…'
+                    : `🌊 Refund ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM`}
+                </button>
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onClaimCreatorVesting()}
+                  className="min-h-[38px] rounded-xl bg-sky-500 px-3 py-2 font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {busyFlywheel === 'vesting' ? 'Rescuing…' : '⏳ Rescue Seed Tokens'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Graduated Token Section: Creator 15d Vesting (0.3%) shown only after graduation */}
+          {!isBondingCurve && curve.data?.graduated ? (
+            <div className="rounded-2xl border border-sky-500/30 bg-slate-900/50 p-4 space-y-2 text-xs sm:text-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-sky-300">
+                  ⏳ Creator 15d Vesting (0.3%)
+                </span>
+                <span className="font-mono text-slate-400">
+                  {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
+                  {formatAmount(curve.data.creator_vesting_total, token.decimals)}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {formatAmount(curve.data.creator_vesting_total, token.decimals)} ${token.symbol} bonus unlocks across 5 tranches every 3 days post-graduation{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} paid seed ready to claim)` : ''}.
+              </p>
+              {publicKey === curve.data.creator &&
+              (curve.data.creator_claimed < curve.data.creator_vesting_total ||
+                curve.data.creator_seed_locked > 0n) ? (
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onClaimCreatorVesting()}
+                  className="w-full min-h-[40px] rounded-xl bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
+                >
+                  {busyFlywheel === 'vesting'
+                    ? 'Claiming Tranche…'
+                    : curve.data.creator_seed_locked > 0n
+                      ? '⏳ Claim Seed & Unlocked Vesting'
+                      : '⏳ Claim Unlocked Creator Vesting'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Developer-Only Panel: 7-Year LP Lock & Protocol Buyback/Milestone Controls */}
+          {isDeveloperTreasury && curve.data && !isBondingCurve ? (
             <details
               open={
                 Boolean(
@@ -827,130 +985,55 @@ export function TokenPage() {
                     pool.data?.exists &&
                     pool.data.reserveXlm >=
                       BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT) ||
-                    (curve.data.graduated &&
-                      publicKey === curve.data.creator &&
-                      curve.data.creator_claimed <
-                        curve.data.creator_vesting_total) ||
-                    canRefundStalled,
+                    curve.data.buyback_xlm_reserve > 0n,
                 )
               }
-              className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-4 text-xs sm:text-sm"
+              className="rounded-2xl border border-amber-500/35 bg-slate-900/60 p-4 text-xs"
             >
-              <summary className="cursor-pointer select-none font-semibold text-slate-200 flex items-center justify-between gap-2">
-                <span>🛡️ 7Y LP Lock, Buyback &amp; 15d Creator Vesting</span>
-                <span className="font-mono text-xs text-amber-300">
-                  {curve.data.burn_vault_remaining > 0n
-                    ? `Stage ${curve.data.burn_milestone_stage}/2`
-                    : curve.data.graduated
-                      ? '7Y LP Locked ✓'
-                      : '4.00× Curve'}
+              <summary className="cursor-pointer select-none font-semibold text-amber-300 flex items-center justify-between gap-2">
+                <span>🛡️ Developer Console · 7Y LP Lock &amp; Buyback</span>
+                <span className="font-mono text-xs text-slate-400">
+                  7Y LP Locked ✓
                 </span>
               </summary>
 
-              <div className="mt-3 grid gap-3 sm:grid-cols-2 pt-3 border-t border-slate-800/80">
-                <div className="rounded-2xl border border-amber-500/30 bg-slate-950/50 p-3.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-bold text-amber-300">
-                      {curve.data.burn_vault_remaining > 0n
-                        ? '🔥 Proof-of-Burn Vault'
-                        : '🛡️ 7-Year LP Lock & Deflation'}
-                    </span>
-                    <span className="font-mono text-slate-400">
-                      {curve.data.burn_vault_remaining > 0n
-                        ? `${curve.data.burn_milestone_stage}/2`
-                        : '66 / 33 / 0.3 / 0.7'}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {curve.data.burn_vault_remaining > 0n
-                      ? curve.data.burn_milestone_stage === 0
-                        ? `2.95M $${token.symbol} vaulted: 1.475M burns at graduation + 1.475M at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                        : curve.data.burn_milestone_stage === 1
-                          ? `1.475M burned ✓ · 1.475M unlocks at ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM DEX depth.`
-                          : `All 2.95M $${token.symbol} vault tokens permanently burned ✓`
-                      : `Zero idle burn vault: 66% curve + 33% Soroswap DEX (LP contract-locked 7 years at graduation) + 0.7% ecosystem. Organic burns via DEX Buyback & Shouts.`}
-                  </p>
-                  {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
-                    <button
-                      type="button"
-                      disabled={busyFlywheel !== null}
-                      onClick={() => void onTriggerBuybackBurn()}
-                      className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
-                    >
-                      {busyFlywheel === 'buyback'
-                        ? 'Executing DEX Buyback…'
-                        : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
-                    </button>
-                  ) : null}
-                  {curve.data.graduated &&
-                  curve.data.burn_milestone_stage === 1 &&
-                  curve.data.burn_vault_remaining > 0n ? (
-                    <button
-                      type="button"
-                      disabled={
-                        busyFlywheel !== null ||
-                        !pool.data?.exists ||
-                        pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
-                      }
-                      onClick={() => void onTriggerMilestoneBurn()}
-                      className="w-full min-h-[40px] rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
-                    >
-                      {busyFlywheel === 'milestone'
-                        ? 'Burning Milestone 2…'
-                        : pool.data?.exists &&
-                            pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
-                          ? '🔥 Trigger Milestone 2 Burn (1.475M)'
-                          : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Depth`}
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="rounded-2xl border border-sky-500/30 bg-slate-950/50 p-3.5 space-y-2">
-                  <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="font-bold text-sky-300">
-                      ⏳ Creator 15d Vesting (0.3%)
-                    </span>
-                    <span className="font-mono text-slate-400">
-                      {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
-                      {formatAmount(curve.data.creator_vesting_total, token.decimals)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    {formatAmount(curve.data.creator_vesting_total, token.decimals)} ${token.symbol} bonus locked until graduation, then 5 tranches every 3 days{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} seed locked until graduation or 7 days if ungraduated)` : ''}.
-                  </p>
-                  {publicKey === curve.data.creator &&
-                  (curve.data.graduated
-                    ? curve.data.creator_claimed < curve.data.creator_vesting_total ||
-                      curve.data.creator_seed_locked > 0n
-                    : curve.data.creator_seed_locked > 0n) ? (
-                    <button
-                      type="button"
-                      disabled={busyFlywheel !== null}
-                      onClick={() => void onClaimCreatorVesting()}
-                      className="w-full min-h-[40px] rounded-xl bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
-                    >
-                      {busyFlywheel === 'vesting'
-                        ? 'Claiming Tranche…'
-                        : !curve.data.graduated
-                          ? '⏳ Rescue Seed (Unlocks 7d After Launch)'
-                          : curve.data.creator_seed_locked > 0n
-                            ? '⏳ Claim Seed & Unlocked Vesting'
-                            : '⏳ Claim Unlocked Creator Vesting'}
-                    </button>
-                  ) : null}
-                  {canRefundStalled && curve.data ? (
-                    <button
-                      type="button"
-                      disabled={busyFlywheel !== null}
-                      onClick={() => void onRefundStalledLaunch()}
-                      className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50 transition"
-                    >
-                      {busyFlywheel === 'refund'
-                        ? 'Refunding Stalled Vault…'
-                        : `🌊 Refund Full Stalled Vault (7d · ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM)`}
-                    </button>
-                  ) : null}
-                </div>
+              <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-2">
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  66% curve / 33% Soroswap DEX (LP contract-locked 7 years at graduation) / 0.30% creator / 0.25% graduation jackpot / 0.45% ecosystem.
+                </p>
+                {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
+                  <button
+                    type="button"
+                    disabled={busyFlywheel !== null}
+                    onClick={() => void onTriggerBuybackBurn()}
+                    className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
+                  >
+                    {busyFlywheel === 'buyback'
+                      ? 'Executing DEX Buyback…'
+                      : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
+                  </button>
+                ) : null}
+                {curve.data.graduated &&
+                curve.data.burn_milestone_stage === 1 &&
+                curve.data.burn_vault_remaining > 0n ? (
+                  <button
+                    type="button"
+                    disabled={
+                      busyFlywheel !== null ||
+                      !pool.data?.exists ||
+                      pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                    }
+                    onClick={() => void onTriggerMilestoneBurn()}
+                    className="w-full min-h-[40px] rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
+                  >
+                    {busyFlywheel === 'milestone'
+                      ? 'Burning Milestone 2…'
+                      : pool.data?.exists &&
+                          pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                        ? '🔥 Trigger Milestone 2 Burn'
+                        : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Depth`}
+                  </button>
+                ) : null}
               </div>
             </details>
           ) : null}
@@ -1339,7 +1422,7 @@ export function TokenPage() {
                       <span className="text-slate-400">Swap Fee Flow</span>
                       <span className="text-slate-300">
                         {isBondingCurve
-                          ? '0.80% Buy (0.50% Treasury + 0.30% LP/Buyback) · 2.50%/1.50% Sell'
+                          ? '0.30% / 0.50% / 0.25% Buy · 1.20%–1.80% Sell · 40K Jackpot Ladder'
                           : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax`}
                       </span>
                     </div>
@@ -1437,10 +1520,21 @@ export function TokenPage() {
           </div>
         </div>
 
-        {/* Right Column (first on mobile/Telegram): Bonding Curve OR Full 3-Tab Graduated Soroswap DEX Terminal */}
+        {/* Right Column (first on mobile/Telegram): Closed Launchpad Curve OR Full 3-Tab Graduated Soroswap DEX Terminal */}
         <div className="min-w-0 space-y-4 lg:col-span-5 lg:sticky lg:top-20 order-first lg:order-last">
           {!isBondingCurve ? (
             <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-500/35 bg-emerald-950/25 px-3.5 py-2 text-xs">
+                <span className="font-bold text-emerald-300">
+                  🎓 Soroswap DEX Market Active
+                </span>
+                <Link
+                  to="/dex"
+                  className="font-semibold text-sky-300 hover:underline"
+                >
+                  Open DEX Market →
+                </Link>
+              </div>
               <div
                 role="tablist"
                 aria-label="Graduated Soroswap DEX tools"
@@ -1522,10 +1616,22 @@ export function TokenPage() {
             <>
               <SwapCard
                 token={token}
+                onSwapped={(didGrad, celebration) => {
+                  if (didGrad) setJustGraduated(true)
+                  if (celebration) {
+                    setRewardCelebration(celebration)
+                    setShowRewardModal(true)
+                  }
+                }}
                 onOpenLiquidityTools={() => setOpenAdvanced(true)}
               />
-              <div className="rounded-2xl border border-sky-500/20 bg-slate-900/50 px-3.5 py-2.5 text-xs text-slate-300 leading-relaxed">
-                🎓 <strong>Goal: 1,000 XLM (≈ ${formatUsdPrice(1_000 * xlmUsd)} USDC)</strong> — Once the curve fills, this coin launches automatically on Soroswap DEX with <strong className="text-emerald-300">100% LP burned forever</strong> and zero exit cliff.
+              <div className="rounded-2xl border border-sky-500/25 bg-slate-900/60 px-3.5 py-3 text-xs text-slate-300 leading-relaxed space-y-1">
+                <p className="font-bold text-sky-300">
+                  🔒 Closed Launchpad System · Goal: 1,000 XLM (≈ ${formatUsdPrice(1_000 * xlmUsd)} USDC)
+                </p>
+                <p>
+                  Trades stay inside this bonding curve until 1,000 XLM with 3 on-chain prizes (+5K at 250 XLM, +10K at 500 XLM, +{GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} at 1,000 XLM). At graduation, ${token.symbol} moves automatically to <strong className="text-emerald-300">Soroswap DEX</strong>!
+                </p>
               </div>
               <details
                 id="advanced-tools"
@@ -1535,7 +1641,7 @@ export function TokenPage() {
               >
                 <summary className="flex cursor-pointer select-none items-center justify-between text-xs font-bold text-slate-400 hover:text-white">
                   <span className="flex items-center gap-1.5">
-                    <span>🛠️</span> Burn &amp; Advanced Tools
+                    <span>🔥</span> Burn Tokens
                   </span>
                   <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">
                     ▼
@@ -1544,8 +1650,8 @@ export function TokenPage() {
 
                 <div className="mt-4 space-y-4 border-t border-slate-800/80 pt-4">
                   <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200 leading-relaxed">
-                    🔒 <strong>Pre-Graduation Lock Active:</strong> P2P transfers and Soroswap LP additions unlock automatically at{' '}
-                    <span className="font-mono font-semibold">1,000 XLM</span>. Use Burn-to-Chat or Burn below if you want to permanently burn tokens.
+                    🔒 <strong>Closed Curve Mode:</strong> P2P transfers and Soroswap LP pools unlock automatically upon graduation at{' '}
+                    <span className="font-mono font-semibold">1,000 XLM</span>.
                   </div>
                   <div className="grid gap-3">
                     <BurnCard token={token} />

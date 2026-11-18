@@ -1,16 +1,21 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { loadTokens, useCreatedTokens } from './creations'
+import {
+  CREATED_TOKENS_STORAGE_KEY,
+  loadTokens,
+  useCreatedTokens,
+} from './creations'
 import { clearStorageMemoryFallbackForTests, writeStorageJson } from '../lib/storage'
 
 const TOKEN_A = 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE'
 const TOKEN_B = 'CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP'
+const LEGACY_KEY = CREATED_TOKENS_STORAGE_KEY.replace(/^astrogate\./, 'floodgate.')
 
 describe('useCreatedTokens', () => {
   beforeEach(() => {
     clearStorageMemoryFallbackForTests()
     useCreatedTokens.setState({ tokens: [] })
-    writeStorageJson('astrogate.created-tokens.v1', [])
-    writeStorageJson('floodgate.created-tokens.v1', null)
+    writeStorageJson(CREATED_TOKENS_STORAGE_KEY, [])
+    writeStorageJson(LEGACY_KEY, null)
   })
 
   it('adds and removes tokens including name and creator scope', () => {
@@ -28,12 +33,12 @@ describe('useCreatedTokens', () => {
   })
 
   it('transparently migrates legacy floodgate.created-tokens.v1', () => {
-    writeStorageJson('floodgate.created-tokens.v1', [
+    writeStorageJson(LEGACY_KEY, [
       { id: TOKEN_B, symbol: 'LEGACY', decimals: 7, createdAt: 12345 },
     ])
     // Ensure astrogate key is absent initially so migration occurs
     clearStorageMemoryFallbackForTests()
-    writeStorageJson('floodgate.created-tokens.v1', [
+    writeStorageJson(LEGACY_KEY, [
       { id: TOKEN_B, symbol: 'LEGACY', decimals: 7, createdAt: 12345 },
     ])
 

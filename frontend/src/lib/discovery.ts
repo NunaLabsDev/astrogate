@@ -30,10 +30,10 @@ import type {
 } from '../contracts/launchpad/types'
 import { curveVirtualReserves } from './tokenomics'
 import {
-  ASTRO_TOKEN_ID,
+  contractStorageKey,
   EVENT_WINDOW_LEDGERS,
   executeWithRpcFailover,
-  networkStorageKey,
+  LAUNCHPAD_CONTRACT_ID,
   SOROSWAP_FACTORY,
   XLM_SAC,
 } from './network'
@@ -55,8 +55,21 @@ export const DEFAULT_WINDOW_LEDGERS = EVENT_WINDOW_LEDGERS
 /** Tokens que se listan como máximo. */
 export const DEFAULT_MAX_TOKENS = 50
 
-/** Tokens que siempre se intentan listar, aunque no estén en la ventana. */
-export const DEFAULT_PINNED_TOKENS = [ASTRO_TOKEN_ID]
+/** No external legacy tokens pinned by default — active Launchpad registry is authoritative. */
+export const DEFAULT_PINNED_TOKENS: string[] = []
+
+/** Filters out legacy pre-v4.3 burn-vault launches and automated CLI smoke/demo artifacts. */
+export function isLegacyOrSmokeLaunch(
+  rec: { symbol: string; name: string },
+  curve?: { burn_vault_remaining: bigint } | null,
+): boolean {
+  if (curve && curve.burn_vault_remaining > 0n) return true
+  const cleanName = rec.name.trim()
+  const cleanSymbol = rec.symbol.trim().toUpperCase()
+  if (/^Demo \d{10,}$/i.test(cleanName)) return true
+  if (/^(SMOKE|ADVT|E2E\d+)$/i.test(cleanSymbol)) return true
+  return false
+}
 
 type EventResponse = rpc.Api.EventResponse
 
@@ -233,7 +246,7 @@ const METADATA_TTL_MS = 24 * 60 * 60 * 1000
 /** Doble del TTL: al escribir se depuran entradas caducadas para no crecer sin límite. */
 const METADATA_PRUNE_AFTER = METADATA_TTL_MS * 2
 const METADATA_MAX_ENTRIES = 100
-const METADATA_STORAGE_KEY = networkStorageKey('astrogate.token-meta.v1')
+const METADATA_STORAGE_KEY = contractStorageKey('astrogate.token-meta.v1')
 
 export type ImmutableTokenMetadata = {
   name: string
@@ -587,6 +600,7 @@ export async function fetchLaunchpadRegistryListings(
           entry.prefetchedCurve !== undefined
             ? entry.prefetchedCurve
             : await fetchCurveState(rec.token)
+        if (isLegacyOrSmokeLaunch(rec, curve)) return null
         const resolvedPair = rec.pair ?? curve?.pair ?? null
 
         if (resolvedPair) {
@@ -727,16 +741,24 @@ export async function discoverTokens(options?: {
   windowLedgers?: number
   maxTokens?: number
   pinned?: string[]
+  includeExternalPairs?: boolean
 }): Promise<TokenListing[]> {
   const maxTokens = options?.maxTokens ?? DEFAULT_MAX_TOKENS
   const pinned = options?.pinned ?? DEFAULT_PINNED_TOKENS
+  const includeExternalPairs =
+    options?.includeExternalPairs ?? !LAUNCHPAD_CONTRACT_ID
 
   // 1. Carga instantánea desde almacenamiento local persistente (0ms)
   const storedRecords = await getAllStoredTokens()
   const storedListings: TokenListing[] = []
   for (const record of storedRecords) {
     try {
-      storedListings.push(recordToListing(record))
+      const listing = recordToListing(record)
+      if (isLegacyOrSmokeLaunch(listing, listing.curve)) continue
+      if (!includeExternalPairs && !listing.verifiedLaunchpad && !pinned.includes(listing.id)) {
+        continue
+      }
+      storedListings.push(listing)
       if (record.meta) {
         const enriched = decodeOnChainMeta(record.id, record.meta)
         if (enriched) saveLocalTokenMetadata(enriched)
@@ -746,16 +768,18 @@ export async function discoverTokens(options?: {
     }
   }
 
-  // 2. Primary on-chain registry + recent Soroswap pair events + pinned ASTRO
+  // 2. Primary on-chain registry (+ optional Soroswap pair events / explicitly pinned tokens)
   try {
     const [registryListings, pairs] = await Promise.all([
       fetchLaunchpadRegistryListings(maxTokens),
-      discoverPairs(options),
+      includeExternalPairs ? discoverPairs(options) : Promise.resolve([]),
     ])
     const registryIds = new Set(registryListings.map((r) => r.id))
-    const discovered = pairs.filter(
-      (pair) => !pinned.includes(pair.tokenId) && !registryIds.has(pair.tokenId),
-    )
+    const discovered = includeExternalPairs
+      ? pairs.filter(
+          (pair) => !pinned.includes(pair.tokenId) && !registryIds.has(pair.tokenId),
+        )
+      : []
     const pinnedPairs: DiscoveredPair[] = pinned
       .filter((tokenId) => !registryIds.has(tokenId))
       .map(
@@ -770,7 +794,8 @@ export async function discoverTokens(options?: {
 
     // Concurrencia acotada a 3 para no saturar RPC
     const freshEventListings = (await mapLimit(selected, 3, fetchTokenListing)).filter(
-      (listing): listing is TokenListing => listing !== null,
+      (listing): listing is TokenListing =>
+        listing !== null && !isLegacyOrSmokeLaunch(listing, listing.curve),
     )
 
     const allFresh = [...freshEventListings, ...registryListings]
@@ -778,8 +803,8 @@ export async function discoverTokens(options?: {
       await putStoredTokens(allFresh.map(listingToRecord))
     }
 
-    // Fallback scan only if both cache & live discovery returned no external pairs
-    if (storedListings.length === 0 && typeof window !== 'undefined') {
+    // Fallback scan only when external pairs mode is enabled and cache+live are empty
+    if (includeExternalPairs && storedListings.length === 0 && typeof window !== 'undefined') {
       if (!syncFactoryPromise) {
         syncFactoryPromise = syncFactoryPairs({ maxScan: 10 }).finally(() => {
           syncFactoryPromise = null

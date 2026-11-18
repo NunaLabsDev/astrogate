@@ -815,7 +815,7 @@ describe('Telegram bot views & parsers', () => {
     const overview = JSON.parse(callJson.result.content[0]?.text ?? '{}') as {
       version: string
     }
-    expect(overview.version).toBe('v4.3-fair-flywheel')
+    expect(overview.version).toBe('v4.4-fair-flywheel')
   })
 
   it('stores and serves immutable SHA-256 content-addressed logos and fails closed on mainnet config', async () => {
@@ -1079,7 +1079,7 @@ describe('Telegram bot views & parsers', () => {
         },
         AI: {
           run: async () => ({
-            response: 'Fair-Flywheel v4.3 graduates curves at 1,000 XLM and locks 100% LP for 7 years on-chain.',
+            response: 'Fair-Flywheel v4.4 graduates curves at 1,000 XLM and locks 100% LP for 7 years on-chain.',
           }),
         },
         TELEGRAM_BOT_TOKEN: '123456:TEST_TOKEN',
@@ -1168,7 +1168,7 @@ describe('Telegram bot views & parsers', () => {
           message_id: 403,
           chat: { id: -1001625368092, type: 'supergroup' },
           from: { id: 558, first_name: 'Carol', is_bot: false },
-          text: '@AstroGateSorobanBot how does Fair-Flywheel v4.3 work?',
+          text: '@AstroGateSorobanBot how does Fair-Flywheel v4.4 work?',
         },
       })
       const qaCall = tgCalls.find((c) => c.method === 'sendMessage')

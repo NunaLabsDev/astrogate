@@ -18,10 +18,10 @@ This document explains how AstroGate's smart contracts, client application, cryp
 ```mermaid
 stateDiagram-v2
     [*] --> CurveActive: launch_fair (7 XLM fee + >=2 XLM buy)
-    CurveActive --> CurveActive: buy_curve (0.80% fee) / sell_curve (2.5%->1.5% fee)
-    CurveActive --> CurveActive: burn_shout (real token.burn >= 50)
-    CurveActive --> Graduated: curve_xlm_net hits 1,000 XLM
-    Graduated --> Graduated: 7Y LP Contract Lock + unlock_transfers + 0.7% Dev Ecosystem
+    CurveActive --> CurveActive: buy_curve (0.30%/0.50%/0.25%) / sell_curve (1.2%/1.8%/1.5%)
+    CurveActive --> CurveActive: burn_shout / +5K Spark (250) / +10K Crown (500)
+    CurveActive --> Graduated: curve_xlm_net hits 1,000 XLM (+25K Graduation Jackpot to closer)
+    Graduated --> Graduated: 7Y LP Contract Lock + unlock_transfers + 0.30% Dev Ecosystem
     Graduated --> LpReclaimed: reclaim_expired_lp after 7 years (220,752,000s)
     Graduated --> BuybackBurn: trigger_buyback_burn (max 0.50% reserve / 300s cooldown)
     Graduated --> VestingClaimed: claim_creator_vesting (5x 6,000 / 3 days)
@@ -30,12 +30,15 @@ stateDiagram-v2
 ### 2.1 `contracts/launchpad` (`astro-launchpad-contract`)
 - **Curve Math (`quote_buy` / `quote_sell`)**:
   - Constant-product virtual curve initialized at `1,000 vXLM` and `6,600,000` curve tokens (`13,200,000` initial virtual tokens) until `curve_xlm_net == 1,000 XLM` (`2,000 vXLM` effective end, `4.00x` spot appreciation, `0.00%` graduation cliff).
-  - Buys charge a flat `0.80%` fee (`0.50%` treasury + `0.30%` stays in `real_xlm_vault` / `buyback_xlm_reserve`). Exact final buy exceeding graduation caps input at the remaining `1,000 - curve_xlm_net` delta.
-  - Sells charge `2.50%` (`< 50%` graduation progress) dropping to `1.50%` (`>= 50%`).
+  - 3-stage softened gamified fees & 3-Checkpoint Jackpot Ladder (`40,000` total prizes = `0.40%` supply) along `0 -> 1,000 XLM`:
+    - Stage 1 (`< 250 XLM`, 0–25%): buy `0.30%` (`20 + 10 bps`), sell `1.20%` (`30 + 90 bps`). Breaking `250 XLM` awards `+5,000` Spark Bonus (`burn_milestone_stage = 1`).
+    - Stage 2 (`250–500 XLM`, 25–50%): buy `0.50%` (`30 + 20 bps`), sell `1.80%` (`40 + 140 bps`). Breaking `500 XLM` awards `+10,000` King Crown (`burn_milestone_stage = 2`).
+    - Stage 3 (`500–1,000 XLM`, 50–100%): buy `0.25%` (`15 + 10 bps`), sell `1.50%` (`30 + 120 bps`). Breaking `1,000 XLM` awards `+25,000` Graduation Jackpot.
+  - Exact final buy exceeding graduation caps input at the remaining `1,000 - curve_xlm_net` delta.
 - **Graduation (`seed_soroswap_and_burn_lp`)**:
   - Unlocks P2P transfers on the token (`unlock_transfers`).
   - Verifies Soroswap pair does not already hold liquidity (`pair.total_supply() > 0 || (r0 > 0 && r1 > 0)`), preventing 1-stroop `pair.sync()` griefing while still defeating pre-seeded LP dilution.
-  - Transfers `>= 1,000 XLM` + `3,300,000` tokens (`33%`) directly into the Soroswap Pair, calls `deposit(&this)` so LP stays locked in the Launchpad contract for 7 years, and releases `70,000` (`0.7%`) to `treasury`.
+  - Transfers `>= 1,000 XLM` + `3,300,000` tokens (`33%`) directly into the Soroswap Pair, calls `deposit(&this)` so LP stays locked in the Launchpad contract for 7 years, awards `25,000` (`0.25%`) Graduation Jackpot to the final buyer, and releases `30,000` (`0.30%`) to `treasury`.
 - **Post-Graduation Flywheel & Anti-MEV**:
   - `reclaim_expired_lp`: allows reclaiming expired contract-locked LP to `treasury` only after `graduated_at + 7 * 365 * 86_400` (`220,752,000s`).
   - `trigger_buyback_burn`: permissionless Soroswap XLM -> Token swap + immediate `token.burn()`, chunk-capped at `50 bps` (`0.50%`) of pool XLM reserve with a `300s` per-token cooldown (`BuybackLastTs`) to prevent sandwich MEV extraction.

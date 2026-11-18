@@ -21,7 +21,7 @@ export function HomePage() {
             Memecoin Market
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 truncate">
-            Fair Soroban launches · 100% LP burned
+            Closed Bonding Curves → Soroswap DEX · 40,000 Token 3-Checkpoint Jackpot Ladder
           </p>
         </div>
 
@@ -33,7 +33,7 @@ export function HomePage() {
         </Link>
       </div>
 
-          <MarketList selectedId={null} onSelect={openToken} />
+      <MarketList selectedId={null} onSelect={openToken} mode="curves" />
 
       <Link
         to="/sorobits"

@@ -3,12 +3,13 @@
 AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on-chain collectible platform built natively on **Stellar / Soroban**.
 
 - **Zero Custodial Backend**: Identity = native self-custodial Stellar Wallet (`PBKDF2-SHA256` + `AES-GCM-256` vault synced via `Telegram.WebApp.CloudStorage` and encrypted `AGVAULT1:` bundles, linked cryptographically to Telegram `@username` via Ed25519 proofs, with exportable `S...` seeds). State & pricing = Stellar Horizon + Soroban RPC directly.
-- **Fair-Flywheel v4.3 Launchpad** (`7 XLM` protocol fee + `>= 2 XLM` initial creator curve buy):
+- **Fair-Flywheel v4.4 Launchpad** (`7 XLM` protocol fee + `>= 2 XLM` initial creator curve buy):
   - Fixed `10,000,000` supply (`7` decimals, aligned with `1 XLM = 10^7` stroops) and **immediate `renounce_ownership()`** on launch.
-  - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range): flat `0.80%` buy fee (`0.50%` treasury + `0.30%` curve/buyback floor), asymmetric `2.50% -> 1.50%` sell fee, and P2P transfers locked until graduation.
+  - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range): softened 3-stage buy fees (`0.30%` `<250 XLM`, `0.50%` `250–500 XLM`, `0.25%` sprint `500–1,000 XLM`), gentle sell fees (`1.20% -> 1.80% -> 1.50%`), and P2P transfers locked until graduation.
   - **33.0% (`3,300,000`)** Soroswap DEX Pool Reserve seeded automatically at graduation (`0.00%` price cliff) with **100% LP time-locked inside the Launchpad contract for 7 years** (`reclaim_expired_lp` thereafter).
   - **0.3% (`30,000`)** 15-day post-graduation creator vesting (`5 × 6,000` every 3 days), plus creator's initial curve seed locked until graduation (or 7-day stalled fallback).
-  - **0.7% (`70,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` on graduation.
+  - **0.40% (`40,000`)** 3-Checkpoint Jackpot Ladder awarded automatically on-chain (`+5,000` Spark at `250 XLM`, `+10,000` Crown at `500 XLM`, `+25,000` Graduation Jackpot at `1,000 XLM`).
+  - **0.30% (`30,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` on graduation.
   - **Organic Deflation Only (0% Idle Burn Vault)**: Real burns via chunked DEX Buyback & Burn (`trigger_buyback_burn`) and 3-tier Burn-to-Chat (`burn_shout`).
 - **Sorobits (SEP-50) On-Chain Pixel Collectibles**: `32×32` deterministic & generative pixel avatars rendered natively on-chain via RLE + SVG (`render_svg`, `animated_svg`) with 256-bit genomes (`BytesN<32>`), epigenetic XP/rank evolution, free Soulbound `AGQ01` Pioneer badge, and `7 XLM` evolving Mystery Capsules (`mint_capsule`).
 - **Telegram Mini App & Live Feed Bot (`@AstroGateSorobanBot`)**: Interactive commands in `@AstroGateCommunity` + automated, spam-filtered on-chain notifications streamed strictly to `@AstroGateFeed`.
@@ -38,7 +39,7 @@ flowchart TD
     Frontend <--> Oracles["XLM/USD Oracles (Coinbase, Binance, CoinGecko)"]
     Frontend <--> RPC["Soroban RPC Pool (Multi-endpoint Failover)"]
     Frontend <--> Horizon["Stellar Horizon API"]
-    RPC <--> Launchpad["Fair-Flywheel Launchpad v4.3"]
+    RPC <--> Launchpad["Fair-Flywheel Launchpad v4.4"]
     RPC <--> Token["SEP-41 Token (OpenZeppelin Stellar 0.8.0)"]
     RPC <--> Sorobits["Sorobits NFT (SEP-50)"]
     RPC <--> Soroswap["Soroswap Factory & Router"]
@@ -58,8 +59,8 @@ flowchart TD
 | :--- | :--- |
 | **Soroban RPC** | `https://soroban-testnet.stellar.org` |
 | **Horizon API** | `https://horizon-testnet.stellar.org` |
-| **Launchpad Contract (v4.3)** | `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` |
-| **Launchpad WASM Hash (v4.3 deployed)** | `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7` |
+| **Launchpad Contract (v4.4)** | `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK` |
+| **Launchpad WASM Hash (v4.4 deployed)** | `fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1` |
 | **Token WASM Hash (v4.2 deployed)** | `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6` |
 | **Flagship Token ($ASTRO)** | `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE` |
 | **ASTRO / XLM Soroswap Pair** | `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP` |

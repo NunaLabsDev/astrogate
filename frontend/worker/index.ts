@@ -729,7 +729,7 @@ async function handleTextMessage(
         token,
         chatId,
         buildAiAnswerView(
-          'Ask me anything about AstroGate, Fair-Flywheel v4.3, Soroswap graduations, or Sorobits NFTs — e.g. /ask how do I launch a token?',
+          'Ask me anything about AstroGate, Fair-Flywheel v4.4, Soroswap graduations, or Sorobits NFTs — e.g. /ask how do I launch a token?',
           false,
           baseUrl,
           inGroup,
@@ -1178,7 +1178,7 @@ export async function handleWorkerRequest(
       `ORG_NAME="AstroGate · Built by NunaLabs"\n` +
       `ORG_URL="${baseUrl}"\n` +
       `ORG_LOGO="${baseUrl}/icon-512.png"\n` +
-      `ORG_DESCRIPTION="Fair-Flywheel v4.3 Launchpad + Soroswap AMM & Sorobits (SBIT) On-Chain Genomic NFTs on Stellar Soroban Mainnet · Built by NunaLabs."\n`
+      `ORG_DESCRIPTION="Fair-Flywheel v4.4 Launchpad + Soroswap AMM & Sorobits (SBIT) On-Chain Genomic NFTs on Stellar Soroban Mainnet · Built by NunaLabs."\n`
     return new Response(toml, {
       status: 200,
       headers: {

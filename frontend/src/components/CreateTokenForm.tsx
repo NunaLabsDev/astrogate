@@ -666,7 +666,7 @@ export function CreateTokenForm({
                 {
                   label: 'Single-Transaction Fair Launch',
                   status: 'active',
-                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 66% curve / 33% Soroswap (7Y LP lock) / 0.3% 15d vesting / 0.7% ecosystem, P2P locked until graduation, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy locked until graduation (or 7 days if ungraduated), and ownership renounced in 1 signature.`,
+                  detail: `Atomic deployment: SEP-41 token minted (10M cap), 66% curve / 33% Soroswap (7Y LP lock) / 0.3% 15d vesting / 0.25% Graduation Jackpot / 0.45% ecosystem, P2P locked until graduation, initial ${formatAmount(seedXlmStroops, XLM_DECIMALS)} XLM buy locked until graduation (or 7 days if ungraduated), and ownership renounced in 1 signature.`,
                 },
               ]}
             />
@@ -727,7 +727,7 @@ export function CreateTokenForm({
           <details className="rounded-2xl border border-slate-800/80 bg-slate-950/60 p-3.5 text-xs sm:text-sm">
             <summary className="cursor-pointer select-none font-medium text-slate-300 flex items-center justify-between gap-2">
               <span>📊 View Fair-Flywheel Split &amp; Launch Price</span>
-              <span className="font-mono text-xs text-emerald-400">66 / 33 / 0.3 / 0.7</span>
+              <span className="font-mono text-xs text-emerald-400">66 / 33 / 0.3 / 0.40 / 0.30</span>
             </summary>
 
             <div className="mt-3 space-y-3 pt-3 border-t border-slate-800/80">
@@ -743,9 +743,9 @@ export function CreateTokenForm({
                 </div>
 
                 <div className="rounded-xl border border-slate-800/70 bg-slate-900/50 p-3">
-                  <p className="text-slate-400 font-sans">0.3% 15d Vesting + 0.7% Ecosystem</p>
+                  <p className="text-slate-400 font-sans">0.3% Vesting · 40K Jackpots · 0.30% Eco</p>
                   <p className="mt-1 font-bold text-amber-300">
-                    {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳ + {Number(devTokensWhole).toLocaleString('en-US')} 🛸
+                    {Number(creatorVestingTokensWhole).toLocaleString('en-US')} ⏳ + 40,000 🏆 (+5K/+10K/+25K) + {Number(devTokensWhole).toLocaleString('en-US')} 🛸
                   </p>
                   <p className="mt-1 text-slate-400 truncate">
                     100% LP time-locked {LP_LOCK_YEARS} years in contract

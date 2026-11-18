@@ -61,16 +61,16 @@ export function detectScamOrPhishing(text: string): ModerationVerdict {
 
 function deterministicFallbackAnswer(question: string): string {
   const q = question.toLowerCase()
-  if (q.includes('flywheel') || q.includes('v4.3') || q.includes('v4.2') || q.includes('tokenomics') || q.includes('tax')) {
+  if (q.includes('flywheel') || q.includes('v4.4') || q.includes('v4.3') || q.includes('v4.2') || q.includes('tokenomics') || q.includes('tax')) {
     return (
-      'Fair-Flywheel v4.3 uses a 1,000 vXLM -> 1,000 XLM bonding curve (4.00x range, 0.00% cliff at graduation) with a 0.80% flat buy fee and anti-sniper sell fees (2.50% <50%, 1.50% >=50%). ' +
-      'Supply is fixed at 10M (66% Curve, 33% Soroswap DEX with 7-year LP lock, 0.3% 15d Vesting, 0.7% Ecosystem), with 60% of floor fee surplus funding permissionless Buyback & Burn.'
+      'Fair-Flywheel v4.4 uses a 1,000 vXLM -> 1,000 XLM bonding curve (4.00x range, 0.00% cliff at graduation) with softened 3-stage buy fees (0.30% <250 XLM, 0.50% 250-500 XLM, 0.25% 500-1,000 XLM sprint) and gentle sell fees (1.20% / 1.80% / 1.50%). ' +
+      'Supply is fixed at 10M (66% Curve, 33% Soroswap DEX with 7-year LP lock, 0.3% 15d Vesting, 0.4% 3-Checkpoint Jackpots [+5K Spark at 250 XLM, +10K Crown at 500 XLM, +25K Grad at 1,000 XLM], 0.3% Ecosystem).'
     )
   }
   if (q.includes('launch') || q.includes('create') || q.includes('fee')) {
     return (
-      'Launching a Fair-Flywheel v4.3 token costs 7 XLM protocol fee plus at least 2 XLM initial seed buy. ' +
-      'Every token has a fixed 10,000,000 supply (66% Bonding Curve, 33% Soroswap DEX, 0.3% 15d Creator Vesting, 0.7% Ecosystem) ' +
+      'Launching a Fair-Flywheel v4.4 token costs 7 XLM protocol fee plus at least 2 XLM initial seed buy. ' +
+      'Every token has a fixed 10,000,000 supply (66% Bonding Curve, 33% Soroswap DEX, 0.3% 15d Creator Vesting, 0.4% 3-Checkpoint Jackpots, 0.3% Ecosystem) ' +
       'and graduates automatically to Soroswap at 1,000 XLM with LP locked 7 years on-chain.'
     )
   }
@@ -93,7 +93,7 @@ function deterministicFallbackAnswer(question: string): string {
     )
   }
   return (
-    'AstroGate is a decentralized Fair-Flywheel v4.3 launchpad, Soroswap AMM gateway, and Sorobits (SBIT) on-chain NFT hub on Stellar Soroban Testnet. ' +
+    'AstroGate is a decentralized Fair-Flywheel v4.4 launchpad, Soroswap AMM gateway, and Sorobits (SBIT) on-chain NFT hub on Stellar Soroban Testnet. ' +
     'Use /market for live curves, /launch to deploy a token (7 XLM), /sorobits for NFTs, or paste any CA.../GA... address or $TICKER to inspect live.'
   )
 }
@@ -192,7 +192,7 @@ export async function answerProtocolQuestion(
       '2. Never output external web URLs like astrogate.pages.dev. Only refer users to @AstroGateSorobanBot, @AstroGateCommunity, @AstroGateFeed, or bot slash commands (/market, /king, /launch, /sorobits, /quests, /wallet).',
       '3. Never give financial advice or price predictions. Explain mechanics accurately using the live context below.',
       '4. Never ask for secret seeds (S...) or private keys.',
-      `Protocol facts: Launchpad v4.3 (${overview.contracts.launchpad}), 7 XLM fee + >=2 XLM seed, 10M fixed supply (66% curve / 33% Soroswap DEX / 0.3% 15d vesting / 0.7% ecosystem), 0.80% flat buy fee, 1,000 XLM graduation target with LP locked 7 years on-chain. Sorobits SEP-50 NFTs minted: ${sorobits.totalSupply}.`,
+      `Protocol facts: Launchpad v4.4 (${overview.contracts.launchpad}), 7 XLM fee + >=2 XLM seed, 10M fixed supply (66% curve / 33% Soroswap DEX / 0.3% 15d vesting / 0.4% 3-checkpoint jackpots [5K/10K/25K] / 0.3% ecosystem), 3-stage buy fees (0.30%/0.50%/0.25%), 1,000 XLM graduation target with LP locked 7 years on-chain. Sorobits SEP-50 NFTs minted: ${sorobits.totalSupply}.`,
       `Live market: ${marketContext}.`,
     ].join('\n')
 

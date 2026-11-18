@@ -22,7 +22,7 @@ const API_ENDPOINTS = [
   {
     method: 'GET',
     path: '/api/v1/health',
-    desc: 'Network, live contract IDs, fee bps, anti-MEV limits, and Fair-Flywheel v4.3 constants.',
+    desc: 'Network, live contract IDs, 3-stage curve fees, Graduation Jackpot, and Fair-Flywheel v4.4 constants.',
   },
   {
     method: 'GET',
@@ -240,7 +240,7 @@ export function DocsPage() {
       <section className="rounded-3xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6 space-y-4">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-white">
-            1. How AstroGate Fair-Flywheel v4.3 Works
+            1. How AstroGate Fair-Flywheel v4.4 Works
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
             End-to-end lifecycle from atomic token creation to 7-year time-locked Soroswap liquidity.
@@ -259,14 +259,14 @@ export function DocsPage() {
             <span className="text-xs font-mono font-bold text-emerald-400">STEP 2 · BONDING CURVE</span>
             <h3 className="text-sm font-bold text-white">66% Virtual Curve</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              6.6M tokens trade along a deterministic 1,000 vXLM → 1,000 XLM curve (4.00× range). Flat 0.80% buy fee; 2.50%→1.50% sell fee; P2P transfers remain locked until graduation.
+              6.6M tokens trade along a 1,000 vXLM → 1,000 XLM curve (4.00× range). Soft 3-stage buy fees (0.30% → 0.50% → 0.25%), gentle sell fees (1.20% → 1.80% → 1.50%), +5K Spark at 250 XLM, +10K Crown at 500 XLM, and P2P transfers locked until graduation.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-1.5">
             <span className="text-xs font-mono font-bold text-amber-400">STEP 3 · GRADUATION</span>
-            <h3 className="text-sm font-bold text-white">33% DEX + 7Y LP Lock</h3>
+            <h3 className="text-sm font-bold text-white">33% DEX + 25K Jackpot + 7Y Lock</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              At 1,000 real XLM, 3.3M tokens + 1,000 XLM seed Soroswap (0% price cliff) with LP locked in-contract for 7 years, 0.7% ecosystem allocation sent to treasury, and P2P transfers unlock.
+              At 1,000 real XLM, 3.3M tokens + 1,000 XLM seed Soroswap (0% price cliff) with LP locked in-contract for 7 years, the final buyer wins +25K (completing 40K total jackpots), 0.30% goes to ecosystem treasury, and P2P transfers unlock.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-1.5">
@@ -401,7 +401,7 @@ export function DocsPage() {
         </h2>
         <div className="grid gap-2 text-xs font-mono">
           {[
-            ['Launchpad v4.3', LAUNCHPAD_CONTRACT_ID, explorerContractUrl(LAUNCHPAD_CONTRACT_ID)],
+            ['Launchpad v4.4', LAUNCHPAD_CONTRACT_ID, explorerContractUrl(LAUNCHPAD_CONTRACT_ID)],
             ['Sorobits SEP-50 NFTs', SOROBITS_CONTRACT_ID, explorerContractUrl(SOROBITS_CONTRACT_ID)],
             ['Genesis $ASTRO Token', ASTRO_TOKEN_ID, explorerContractUrl(ASTRO_TOKEN_ID)],
             ['Soroswap Factory', SOROSWAP_FACTORY, explorerContractUrl(SOROSWAP_FACTORY)],

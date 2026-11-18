@@ -3,7 +3,11 @@ import { Link, useSearchParams } from 'react-router'
 import { useTokenList } from '../hooks/useTokenList'
 import { shortAddress } from '../lib/format'
 import { isValidContractAddress } from '../lib/address'
-import { graduationProgressForListing } from '../lib/tokenomics'
+import {
+  curveStageInfo,
+  graduationProgressForListing,
+  TOTAL_JACKPOT_TOKENS,
+} from '../lib/tokenomics'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
 import { formatTokenPrice, formatUsdPrice, tokenPriceInXlmNumber } from '../lib/soroswap'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
@@ -27,6 +31,8 @@ type Props = {
   /** In homepage show only a subset. */
   limit?: number
   showFilters?: boolean
+  /** Restrict view to Launchpad closed curves (`curves`), Graduated Soroswap DEX (`graduated`), or tabs (`all`). */
+  mode?: 'all' | 'curves' | 'graduated'
 }
 
 function Price({ token }: { token: TokenListing }) {
@@ -70,6 +76,17 @@ function MarketCard({
   const isGraduated = grad.graduated
   const isHeating = grad.stage === 'heating'
   const ageLabel = token.ledger > 0 ? `#${token.ledger}` : null
+  const curveStage =
+    token.curve && !token.curve.graduated
+      ? curveStageInfo(token.curve.curve_xlm_net, token.curve.burn_milestone_stage)
+      : null
+  const stageShortPill = curveStage
+    ? curveStage.stage === 1
+      ? '🌱 0.30% · +5K'
+      : curveStage.stage === 2
+        ? '👑 0.50% · +10K'
+        : '🔥 0.25% · +25K'
+    : null
 
   return (
     <li
@@ -135,15 +152,15 @@ function MarketCard({
               </span>
             ) : isGraduated ? (
               <span className="liquid-glass-pill rounded-full border-emerald-400/40 bg-emerald-950/60 px-2.5 py-0.5 text-xs font-bold text-emerald-300">
-                ✦ Graduated
+                🎓 Soroswap DEX
               </span>
             ) : isHeating ? (
               <span className="liquid-glass-pill inline-flex items-center gap-1 rounded-full border-amber-400/60 bg-amber-950/75 px-2.5 py-0.5 text-xs font-bold text-amber-300 tabular-nums">
-                🔥 {grad.percent.toFixed(0)}%
+                {stageShortPill ?? '🔥'} · {grad.percent.toFixed(0)}%
               </span>
             ) : (
               <span className="liquid-glass-pill rounded-full px-2.5 py-0.5 text-xs font-medium text-sky-300 tabular-nums">
-                ⚡ Curve {grad.percent.toFixed(0)}%
+                {stageShortPill ?? '⚡ Curve'} · {grad.percent.toFixed(0)}%
               </span>
             )}
           </div>
@@ -198,7 +215,11 @@ function MarketCard({
           </div>
 
           <div className="hidden sm:flex liquid-glass-pill items-center justify-center gap-1.5 rounded-xl py-1.5 text-center text-xs font-semibold text-slate-200 group-hover:text-sky-300 transition">
-            <span>Trade &amp; Chart</span>
+            <span>
+              {isGraduated || !token.verifiedLaunchpad
+                ? 'Swap & LP on DEX'
+                : 'Play Curve & Win Jackpots'}
+            </span>
             <span aria-hidden="true">→</span>
           </div>
         </div>
@@ -241,6 +262,7 @@ export function MarketList({
   onSelect,
   limit,
   showFilters = true,
+  mode = 'all',
 }: Props) {
   const list = useTokenList()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -261,13 +283,18 @@ export function MarketList({
   const verifiedOnly = showFilters
     ? (searchParams.has('fair') ? searchParams.get('fair') === '1' : localVerifiedOnly)
     : false
-  const section: 'curves' | 'graduated' = showFilters
-    ? searchParams.get('tab') === 'graduated'
-      ? 'graduated'
-      : searchParams.get('tab') === 'curves'
-        ? 'curves'
-        : localSection
-    : localSection
+  const section: 'curves' | 'graduated' =
+    mode === 'curves'
+      ? 'curves'
+      : mode === 'graduated'
+        ? 'graduated'
+        : showFilters
+          ? searchParams.get('tab') === 'graduated'
+            ? 'graduated'
+            : searchParams.get('tab') === 'curves'
+              ? 'curves'
+              : localSection
+          : localSection
 
   const setQuery = useCallback(
     (newQ: string) => {
@@ -412,9 +439,13 @@ export function MarketList({
     <section className="liquid-glass rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 space-y-3.5 sm:space-y-4">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-base sm:text-lg font-semibold truncate">Live Market</h2>
+          <h2 className="text-base sm:text-lg font-semibold truncate">
+            {section === 'graduated' ? 'Soroswap DEX Market' : 'Launchpad Arena'}
+          </h2>
           <p className="text-xs text-slate-400 truncate">
-            Active bonding curves graduating to Soroswap DEX
+            {section === 'graduated'
+              ? 'Graduated tokens live on Soroswap AMM · Full DEX charts, LP pools & P2P transfers'
+              : `Closed bonding curves (1.00× → 4.00×) · ${TOTAL_JACKPOT_TOKENS.toLocaleString('en-US')} token 3-checkpoint jackpots`}
           </p>
         </div>
         <button
@@ -436,44 +467,70 @@ export function MarketList({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <div
-          role="tablist"
-          aria-label="Market sections"
-          className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-800 bg-slate-950/75 p-1.5"
-        >
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'curves'}
-            onClick={() => setSection('curves')}
-            className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
-              section === 'curves'
-                ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 border border-transparent'
-            }`}
+        {mode === 'all' ? (
+          <div
+            role="tablist"
+            aria-label="Market sections"
+            className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-800 bg-slate-950/75 p-1.5"
           >
-            🔥 Live Curves ({liveCurves.length})
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={section === 'graduated'}
-            onClick={() => setSection('graduated')}
-            className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
-              section === 'graduated'
-                ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
-                : 'text-slate-400 hover:text-slate-200 border border-transparent'
-            }`}
-          >
-            🎓 Graduated & DEX ({graduatedDex.length})
-          </button>
-        </div>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={section === 'curves'}
+              onClick={() => setSection('curves')}
+              className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
+                section === 'curves'
+                  ? 'bg-amber-500/20 text-amber-200 border border-amber-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              🔥 Live Curves · Launchpad ({liveCurves.length})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={section === 'graduated'}
+              onClick={() => setSection('graduated')}
+              className={`min-h-[44px] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold transition ${
+                section === 'graduated'
+                  ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/40 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 border border-transparent'
+              }`}
+            >
+              🎓 Graduated &amp; Soroswap DEX ({graduatedDex.length})
+            </button>
+          </div>
+        ) : null}
 
         {section === 'graduated' ? (
-          <p className="rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-3.5 py-2 text-xs text-emerald-200/90">
-            Graduated tokens & Soroswap DEX pairs — inspect liquidity depth, price momentum, and buy or sell live.
-          </p>
-        ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-500/25 bg-emerald-950/20 px-3.5 py-2 text-xs text-emerald-200/90">
+            <span>
+              Soroswap DEX pools — full Pair History charts, LP liquidity management &amp; instant XLM/token swaps.
+            </span>
+            {mode === 'graduated' ? (
+              <Link
+                to="/"
+                className="shrink-0 font-bold text-amber-300 hover:underline"
+              >
+                🔥 {liveCurves.length} in Launchpad →
+              </Link>
+            ) : null}
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/25 bg-amber-950/15 px-3.5 py-2 text-xs text-amber-200/90">
+            <span>
+              Soft 3-stage fees (0.30%→0.50%→0.25% buy) + 🏆 40,000 Jackpot Ladder (+5K at 250 · +10K at 500 · +25K at 1,000 XLM).
+            </span>
+            {mode === 'curves' ? (
+              <Link
+                to="/dex"
+                className="shrink-0 rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 font-bold text-emerald-200 hover:bg-emerald-500/25 transition"
+              >
+                🎓 {graduatedDex.length} on Soroswap DEX →
+              </Link>
+            ) : null}
+          </div>
+        )}
       </div>
 
       {showFilters ? (
@@ -633,16 +690,32 @@ export function MarketList({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {otherSectionCount > 0 ? (
-              <button
-                type="button"
-                onClick={() =>
-                  setSection(section === 'graduated' ? 'curves' : 'graduated')
-                }
-                className="min-h-[40px] rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30"
-              >
-                View {otherSectionCount} in{' '}
-                {section === 'graduated' ? '🔥 Live Curves' : '🎓 Graduated & DEX'} →
-              </button>
+              mode === 'curves' ? (
+                <Link
+                  to="/dex"
+                  className="min-h-[40px] inline-flex items-center rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30"
+                >
+                  View {otherSectionCount} in 🎓 Soroswap DEX →
+                </Link>
+              ) : mode === 'graduated' ? (
+                <Link
+                  to="/"
+                  className="min-h-[40px] inline-flex items-center rounded-xl bg-amber-500/20 border border-amber-500/40 px-3.5 py-2 text-xs font-semibold text-amber-200 hover:bg-amber-500/30"
+                >
+                  View {otherSectionCount} in 🔥 Live Curves →
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSection(section === 'graduated' ? 'curves' : 'graduated')
+                  }
+                  className="min-h-[40px] rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3.5 py-2 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/30"
+                >
+                  View {otherSectionCount} in{' '}
+                  {section === 'graduated' ? '🔥 Live Curves' : '🎓 Graduated & DEX'} →
+                </button>
+              )
             ) : null}
             {section === 'curves' && !query && !favsOnly && !verifiedOnly ? (
               <Link

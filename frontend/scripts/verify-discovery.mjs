@@ -101,7 +101,11 @@ try {
   // la ventana de eventos del RPC. Se comprueba abajo en `discoverTokens`.
 
   startedAt = performance.now()
-  const listings = await discovery.discoverTokens({ maxTokens: 6 })
+  const listings = await discovery.discoverTokens({
+    maxTokens: 6,
+    pinned: [ASTRO],
+    includeExternalPairs: true,
+  })
   console.log(
     `listados: ${listings.length} (${Math.round(
       performance.now() - startedAt,

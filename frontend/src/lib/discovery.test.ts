@@ -3,6 +3,7 @@ import { nativeToScVal, rpc } from '@stellar/stellar-sdk'
 import {
   discoverPairs,
   fetchLaunchpadRecord,
+  isLegacyOrSmokeLaunch,
   listingToRecord,
   newestPairPerToken,
   parseNewPairEvent,
@@ -191,5 +192,32 @@ describe('discoverPairs pagination & quiet ledgers', () => {
 
   it('returns null from fetchLaunchpadRecord when tokenId is invalid', async () => {
     await expect(fetchLaunchpadRecord('bad-contract-id')).resolves.toBeNull()
+  })
+
+  it('filters out pre-v4.3 burn-vault launches and CLI smoke/demo test tokens', () => {
+    expect(
+      isLegacyOrSmokeLaunch(
+        { symbol: 'AGT', name: 'AstroGate Genesis' },
+        { burn_vault_remaining: 29_500_000_000_000n },
+      ),
+    ).toBe(true)
+    expect(
+      isLegacyOrSmokeLaunch(
+        { symbol: 'DEMO', name: 'Demo 1794961997895' },
+        { burn_vault_remaining: 0n },
+      ),
+    ).toBe(true)
+    expect(
+      isLegacyOrSmokeLaunch(
+        { symbol: 'SMOKE', name: 'Smoke 12345' },
+        null,
+      ),
+    ).toBe(true)
+    expect(
+      isLegacyOrSmokeLaunch(
+        { symbol: 'HEY', name: 'hry' },
+        { burn_vault_remaining: 0n },
+      ),
+    ).toBe(false)
   })
 })

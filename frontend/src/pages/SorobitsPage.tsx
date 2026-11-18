@@ -18,6 +18,7 @@ import {
   claimQuestBadgeOnChain,
   fetchCapsuleQuota,
   fetchClaimedArchetypes,
+  fetchLaunchpadPilotTelemetry,
   fetchSorobitById,
   fetchSorobitsByOwner,
   fetchSorobitsSummary,
@@ -85,10 +86,25 @@ export function SorobitsPage() {
     retry: 1,
   })
 
+  const liveTokenIds = summary.data?.liveTokenIds?.length
+    ? summary.data.liveTokenIds
+    : [0]
+  const effectiveSelectedTokenId = liveTokenIds.includes(selectedTokenId)
+    ? selectedTokenId
+    : liveTokenIds[0]
+
   const inspectedToken = useQuery({
-    queryKey: ['sorobits-token', SOROBITS_CONTRACT_ID, selectedTokenId],
-    queryFn: () => fetchSorobitById(selectedTokenId),
+    queryKey: ['sorobits-token', SOROBITS_CONTRACT_ID, effectiveSelectedTokenId],
+    queryFn: () => fetchSorobitById(effectiveSelectedTokenId),
     staleTime: 60_000,
+    retry: 1,
+  })
+
+  const onChainPilot = useQuery({
+    queryKey: ['launchpad-pilot', inspectedAddress],
+    queryFn: () => fetchLaunchpadPilotTelemetry(inspectedAddress as string),
+    enabled: Boolean(inspectedAddress),
+    staleTime: 30_000,
     retry: 1,
   })
 
@@ -179,19 +195,45 @@ export function SorobitsPage() {
 
   const questProgress = useMemo(() => {
     const remote = remoteQuests.data
-    if (!remote) return localQuestProgress
+    const pilot = onChainPilot.data
+    const launchedCount = Math.max(
+      remote?.launchedCount ?? 0,
+      pilot?.launches ?? 0,
+      localQuestProgress.launchedCount,
+    )
+    const shoutCount = Math.max(
+      remote?.shoutCount ?? 0,
+      pilot?.shouts ?? 0,
+      localQuestProgress.shoutCount,
+    )
+    const graduatedCount = Math.max(
+      remote?.graduatedCount ?? 0,
+      pilot?.graduations ?? 0,
+      localQuestProgress.graduatedCount,
+    )
+    const swapCount = Math.max(
+      remote?.swapCount ?? 0,
+      pilot?.trades ?? 0,
+      localQuestProgress.swapCount,
+    )
+    const kingBurnCount = Math.max(
+      remote?.kingBurnCount ?? 0,
+      pilot?.kingShouts ?? 0,
+      pilot?.burnsTriggered ?? 0,
+      localQuestProgress.kingBurnCount,
+    )
     return computeQuestSummary({
-      accountId: remote.accountId,
-      funded: remote.funded || localQuestProgress.funded,
-      launchedCount: Math.max(remote.launchedCount, localQuestProgress.launchedCount),
-      shoutCount: Math.max(remote.shoutCount, localQuestProgress.shoutCount),
-      graduatedCount: Math.max(remote.graduatedCount, localQuestProgress.graduatedCount),
-      swapCount: Math.max(remote.swapCount, localQuestProgress.swapCount),
-      assetCount: Math.max(remote.assetCount, localQuestProgress.assetCount),
-      ecosystemTokenCount: remote.unlocked.og ? 1 : undefined,
-      kingBurnCount: Math.max(remote.kingBurnCount, localQuestProgress.kingBurnCount),
+      accountId: remote?.accountId ?? localQuestProgress.accountId,
+      funded: Boolean(remote?.funded || localQuestProgress.funded),
+      launchedCount,
+      shoutCount,
+      graduatedCount,
+      swapCount,
+      assetCount: Math.max(remote?.assetCount ?? 0, localQuestProgress.assetCount),
+      ecosystemTokenCount: remote?.unlocked.og ? 1 : undefined,
+      kingBurnCount,
     })
-  }, [remoteQuests.data, localQuestProgress])
+  }, [remoteQuests.data, onChainPilot.data, localQuestProgress])
 
   async function invalidateSorobitsQueries() {
     await Promise.all([
@@ -412,24 +454,24 @@ export function SorobitsPage() {
             </p>
           </div>
           <span className="rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1 text-[11px] font-mono text-slate-300">
-            #{selectedTokenId} · {inspectorOpen ? 'Hide ▲' : 'Inspect ▼'}
+            #{effectiveSelectedTokenId} · {inspectorOpen ? 'Hide ▲' : 'Inspect ▼'}
           </span>
         </summary>
 
         <div className="mt-4 pt-4 border-t border-slate-800/80">
           <div className="flex flex-wrap items-center gap-2">
-            {Array.from({ length: Math.min(Math.max(totalSupply, 1), 8) }, (_, idx) => (
+            {liveTokenIds.map((id) => (
               <button
-                key={idx}
+                key={id}
                 type="button"
-                onClick={() => setSelectedTokenId(idx)}
+                onClick={() => setSelectedTokenId(id)}
                 className={`rounded-lg px-2.5 py-1 font-mono text-xs font-semibold transition ${
-                  selectedTokenId === idx
+                  effectiveSelectedTokenId === id
                     ? 'bg-sky-500 text-slate-950'
                     : 'border border-slate-700 bg-slate-950 text-slate-300 hover:border-sky-500/50'
                 }`}
               >
-                #{idx}
+                #{id}
               </button>
             ))}
             <button

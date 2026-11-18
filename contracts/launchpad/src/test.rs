@@ -302,12 +302,12 @@ fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
     assert_eq!(curve_0.burn_vault_remaining, 0);
     assert_eq!(curve_0.creator_vesting_total, 30_000 * STROOPS);
     assert_eq!(curve_0.creator_claimed, 0);
-    // Treasury received 7 XLM creation fee + 0.50% of 2 XLM initial buy (0.01 XLM)
-    assert_eq!(xlm_tok.balance(&s.treasury), 70_100_000);
+    // Treasury received 7 XLM creation fee + 0.20% Stage-1 buy treasury fee on 2 XLM initial buy (0.004 XLM)
+    assert_eq!(xlm_tok.balance(&s.treasury), 70_040_000);
 
-    // Buyer 1 puts 10 XLM: flat 0.80% fee (50 bps treasury + 30 bps floor)
+    // Stage 1 (<250 XLM, 0-25%): Buyer 1 puts 10 XLM -> 0.30% early-bird fee (20 bps treasury + 10 bps floor)
     let q_small = client.quote_buy(&res.token, &(10 * STROOPS));
-    assert_eq!(q_small.total_fee_bps, 80);
+    assert_eq!(q_small.total_fee_bps, 30);
     let b1 = client.buy_curve(
         &buyer_small,
         &res.token,
@@ -320,17 +320,44 @@ fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
     // Curve transfer lock prevents P2P / Soroswap pair seeding DoS before graduation!
     assert!(tok.try_transfer(&buyer_small, &stranger, &1_000).is_err());
 
-    // Buyer 2 puts 100 XLM (10x Buyer 1): STILL pays flat 80 bps (no anti-whale penalty!)
+    // Stage 1 (<250 XLM): Buyer 2 puts 100 XLM (10x Buyer 1): STILL pays Stage-1 30 bps (no whale surcharge!)
     let q_10x = client.quote_buy(&res.token, &(100 * STROOPS));
-    assert_eq!(q_10x.total_fee_bps, 80);
-    assert_eq!(q_10x.treasury_fee, (100 * STROOPS * 50) / 10_000);
-    assert_eq!(q_10x.floor_bonus, (100 * STROOPS * 30) / 10_000);
+    assert_eq!(q_10x.total_fee_bps, 30);
+    assert_eq!(q_10x.treasury_fee, (100 * STROOPS * 20) / 10_000);
+    assert_eq!(q_10x.floor_bonus, (100 * STROOPS * 10) / 10_000);
     let b2 = client.buy_curve(&buyer_10x, &res.token, &(100 * STROOPS), &q_10x.tokens_out);
 
-    // Selling early on curve (<50% progress) pays 2.50% (250 bps), keeping 2.00% inside floor vault!
+    // Selling early on curve (<250 XLM) pays 1.20% (120 bps), keeping 0.90% inside floor vault!
     let q_sell = client.quote_sell(&res.token, &b2.tokens);
-    assert_eq!(q_sell.total_fee_bps, 250);
+    assert_eq!(q_sell.total_fee_bps, 120);
     assert!(q_sell.floor_bonus > q_sell.treasury_fee);
+
+    // Push past 250 XLM Checkpoint 1 -> wins +5,000 Spark Bonus & enters Stage 2 (0.50% buy / 1.80% sell)!
+    xlm_sac.mint(&buyer_10x, &(300 * STROOPS));
+    let b3 = client.buy_curve(&buyer_10x, &res.token, &(200 * STROOPS), &1);
+    assert_eq!(
+        tok.balance(&buyer_10x),
+        b2.tokens + b3.tokens + (5_000 * STROOPS)
+    );
+    assert_eq!(
+        client.get_curve(&res.token).unwrap().burn_milestone_stage,
+        1
+    );
+
+    let q_mid_buy = client.quote_buy(&res.token, &(10 * STROOPS));
+    assert_eq!(q_mid_buy.total_fee_bps, 50);
+    let q_mid_sell = client.quote_sell(&res.token, &(50_000 * STROOPS));
+    assert_eq!(q_mid_sell.total_fee_bps, 180);
+    assert_eq!(
+        q_mid_sell.floor_bonus,
+        (q_mid_sell.gross_xlm_out * 140) / 10_000
+    );
+
+    // Anti-farming guard: selling back below 250 XLM and re-crossing must NOT award +5,000 again!
+    client.sell_curve(&buyer_10x, &res.token, &b3.tokens, &1);
+    let tok_before_recross = tok.balance(&buyer_10x);
+    let b4 = client.buy_curve(&buyer_10x, &res.token, &(200 * STROOPS), &1);
+    assert_eq!(tok.balance(&buyer_10x), tok_before_recross + b4.tokens);
 
     // Vault solvency check: real contract XLM matches curve.real_xlm_vault exact!
     let curve_after = client.get_curve(&res.token).unwrap();
@@ -462,18 +489,18 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // Whale buys 800 XLM and sells 200k tokens on curve (>=50% progress -> 1.50% sell fee builds buyback reserve!)
+    // Whale buys 800 XLM -> crosses 250 XLM (+5K) & 500 XLM (+10K), entering Stage 3 (1.50% sell / 0.25% sprint buy)!
     let whale_buy = client.buy_curve(&whale, &launch.token, &(800 * STROOPS), &1);
     let sell_q = client.quote_sell(&launch.token, &(200_000 * STROOPS));
     assert_eq!(sell_q.total_fee_bps, 150);
     client.sell_curve(&whale, &launch.token, &(200_000 * STROOPS), &1);
     assert!(whale_buy.tokens > 200_000 * STROOPS);
 
-    // Closer completes graduation cleanly at flat 0.80% fee!
+    // Closer completes graduation cleanly at Stage 3 0.25% sprint fee + wins 25,000 token Graduation Jackpot!
     let closer_bal_before = xlm_tok.balance(&closer);
     let grad_quote = client.quote_buy(&launch.token, &(400 * STROOPS));
     assert!(grad_quote.will_graduate);
-    assert_eq!(grad_quote.total_fee_bps, 80);
+    assert_eq!(grad_quote.total_fee_bps, 25);
     assert!(grad_quote.total_xlm_charged < 400 * STROOPS);
 
     let grad_trade = client.buy_curve(
@@ -498,16 +525,20 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
     assert_eq!(curve_grad.burn_milestone_stage, 2);
     assert_eq!(curve_grad.burn_vault_remaining, 0);
 
-    // Graduation unlocked SEP-41 P2P transfers!
+    // Graduation unlocked SEP-41 P2P transfers & awarded +25,000 token Graduation Jackpot to closer!
     let tok = AstroTokenClient::new(&e, &launch.token);
+    assert_eq!(
+        tok.balance(&closer),
+        grad_quote.tokens_out + (25_000 * STROOPS)
+    );
     assert!(tok.is_transfers_unlocked());
     tok.transfer(&closer, &stranger, &1_000);
     assert_eq!(tok.balance(&stranger), 1_000);
 
     // Soroswap pair received 3,300,000 tokens + >=1,000 XLM, LP locked in Launchpad for 7 years!
-    // Developer / protocol treasury received 0.7% = 70,000 tokens at graduation.
+    // Developer / protocol treasury received 0.30% = 30,000 tokens at graduation (with 40,000 paid across checkpoints).
     assert_eq!(tok.balance(&s.pair), 3_300_000 * STROOPS);
-    assert_eq!(tok.balance(&s.treasury), 70_000 * STROOPS);
+    assert_eq!(tok.balance(&s.treasury), 30_000 * STROOPS);
     assert!(xlm_tok.balance(&s.pair) >= 1_000 * STROOPS);
     assert_eq!(
         MockSoroswapPairClient::new(&e, &s.pair).lp_recipient(),
@@ -1198,7 +1229,7 @@ fn test_50_wallets_lifecycle_buy_sell_stalled_refund_and_graduation_roi() {
     // Verify supply burned organically via Burn-to-Chat shouts (6,550 tokens burned, 0 artificial burn vault)
     let tok_b = AstroTokenClient::new(&e, &res_b.token);
     assert!(tok_b.total_supply() < 10_000_000 * STROOPS);
-    assert_eq!(tok_b.balance(&s.treasury), 70_000 * STROOPS);
+    assert_eq!(tok_b.balance(&s.treasury), 30_000 * STROOPS);
 
     // Verify DEX price & participant ROIs (DEX seeded with 3.3M tokens and >=1,000 XLM)
     let launch_rec = client.get_launch(&res_b.token).unwrap();
@@ -1258,7 +1289,7 @@ fn test_50_wallets_lifecycle_buy_sell_stalled_refund_and_graduation_roi() {
         10_000_000 * STROOPS - tok_b.total_supply()
     );
     std::println!(
-        "[50W-ROI] creator_20xlm->={} ({}% vs 27 XLM total cost, +30k bonus vesting={} stroops pending, +70k dev treasury) | early_w1_25xlm->={} ({}%) | half_seller_w5_25xlm->={} ({}%) | mid_w25_21xlm->={} ({}%) | pre_grad_w{}_21xlm->={} ({}%) | grad_w{}_{}xlm->={} ({}% vs actual debit)",
+        "[50W-ROI] creator_20xlm->={} ({}% vs 27 XLM total cost, +30k bonus vesting={} stroops pending, +30k dev treasury, 40k 3-checkpoint jackpots) | early_w1_25xlm->={} ({}%) | half_seller_w5_25xlm->={} ({}%) | mid_w25_21xlm->={} ({}%) | pre_grad_w{}_21xlm->={} ({}%) | grad_w{}_{}xlm->={} ({}% vs actual debit)",
         creator_val_stroops,
         ((creator_val_stroops - 27 * STROOPS) * 100) / (27 * STROOPS),
         (30_000 * STROOPS * dex_price_num) / dex_price_den,

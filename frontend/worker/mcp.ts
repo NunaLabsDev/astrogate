@@ -20,7 +20,7 @@ export const MCP_TOOLS = [
   {
     name: 'get_protocol_info',
     description:
-      'Returns AstroGate Fair-Flywheel v4.3 contract addresses, fee formulas, anti-MEV bounds, and Sorobits SEP-50 specs.',
+      'Returns AstroGate Fair-Flywheel v4.4 contract addresses, 3-stage fee formulas, Graduation Jackpot rules, anti-MEV bounds, and Sorobits SEP-50 specs.',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -53,7 +53,7 @@ export const MCP_TOOLS = [
   {
     name: 'verify_anti_rug',
     description:
-      'Verifies on-chain anti-rug invariants for a token: renounced ownership (owner() == None), Fair-Flywheel v4.3 registry, curve/LP lock (7-year contract lock or blackhole burn), and supply state.',
+      'Verifies on-chain anti-rug invariants for a token: renounced ownership (owner() == None), Fair-Flywheel v4.4 registry, curve/LP lock (7-year contract lock or blackhole burn), and supply state.',
     inputSchema: {
       type: 'object',
       required: ['tokenId'],
@@ -123,7 +123,7 @@ export const MCP_RESOURCES = [
   {
     uri: 'astrogate://protocol/overview',
     name: 'AstroGate Protocol Overview',
-    description: 'Fair-Flywheel v4.3 contracts, tokenomics, anti-MEV constants, and audit entrypoints',
+    description: 'Fair-Flywheel v4.4 contracts, tokenomics, anti-MEV constants, and audit entrypoints',
     mimeType: 'application/json',
   },
   {

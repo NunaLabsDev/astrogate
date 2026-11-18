@@ -54,7 +54,7 @@ cat <<'EOF' > "${STAGE_DIR}/AGENTS.md"
 
 ## 1. Project Overview
 
-**AstroGate** (`https://github.com/NunaLabsDev/astrogate`) is a zero-user-backend Fair-Flywheel v4.3 Launchpad, Soroswap AMM interface, Sorobits (SEP-50) on-chain `32x32` genomic pixel-art NFT platform, and Telegram Mini App / Bot (`@AstroGateSorobanBot`) built on **Stellar / Soroban**.
+**AstroGate** (`https://github.com/NunaLabsDev/astrogate`) is a zero-user-backend Fair-Flywheel v4.4 Launchpad, Soroswap AMM interface, Sorobits (SEP-50) on-chain `32x32` genomic pixel-art NFT platform, and Telegram Mini App / Bot (`@AstroGateSorobanBot`) built on **Stellar / Soroban**.
 
 - **Smart Contracts (`contracts/`)**: Rust + Soroban SDK (`soroban-sdk`) + OpenZeppelin Stellar (`stellar-tokens = "=0.8.0"`, SEP-41 & SEP-50).
 - **Frontend & SDK (`frontend/src/`)**: Vite + React 19 + TypeScript + Tailwind + `@creit.tech/stellar-wallets-kit` + client-side AES-GCM Hot Vault + `@astrogate/sdk` (`src/sdk/index.ts`).
@@ -66,7 +66,7 @@ cat <<'EOF' > "${STAGE_DIR}/AGENTS.md"
 
 | Path | Ownership & Purpose |
 | :--- | :--- |
-| `contracts/launchpad/` | Fair-Flywheel v4.3 bonding curve (66/33/0.3/0.7), atomic Soroswap graduation, 7-year contract LP lock (`reclaim_expired_lp`), anti-MEV buyback-and-burn, 15d vesting, Burn-to-Chat shouts |
+| `contracts/launchpad/` | Fair-Flywheel v4.4 bonding curve (66/33/0.3/0.4 jackpots/0.3 dev), atomic Soroswap graduation, 7-year contract LP lock (`reclaim_expired_lp`), anti-MEV buyback-and-burn, 15d vesting, Burn-to-Chat shouts |
 | `contracts/token/` | SEP-41 `Capped` + `FungibleBurnable` + `Ownable` token with `lock_until_graduated` transfer lock |
 | `contracts/sorobits/` | SEP-50 NFT contract with on-chain RLE `32x32` SVG renderer, 256-bit genomes, and epigenetic progression |
 | `frontend/src/lib/curve-math.ts` | Runtime-agnostic bonding curve integer math (1:1 parity with `contracts/launchpad/src/contract.rs`) |
@@ -176,7 +176,7 @@ git init -b main >/dev/null
 git config user.name "KawsayRuraq"
 git config user.email "269836211+KawsayRuraq@users.noreply.github.com"
 git add -A
-git commit -m "chore: initial open-source release (AstroGate v4.3 Testnet · Built by NunaLabs)" >/dev/null
+git commit -m "chore: initial open-source release (AstroGate v4.4 Testnet · Built by NunaLabs)" >/dev/null
 
 echo "==> Orphan repository created successfully."
 git log -n 1 --stat=100,80 | tail -n 15

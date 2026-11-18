@@ -229,7 +229,7 @@
                   "i128": "100000000"
                 },
                 {
-                  "i128": "1291473514409"
+                  "i128": "1297893046046"
                 }
               ]
             }
@@ -281,7 +281,7 @@
                   "i128": "1000000000"
                 },
                 {
-                  "i128": "11646396717699"
+                  "i128": "11698508225329"
                 }
               ]
             }
@@ -301,6 +301,181 @@
                     },
                     {
                       "i128": "1000000000"
+                    }
+                  ]
+                }
+              },
+              "sub_invocations": []
+            }
+          ]
+        }
+      ]
+    ],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL",
+              "function_name": "mint",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                },
+                {
+                  "i128": "3000000000"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "function_name": "buy_curve",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                },
+                {
+                  "address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN"
+                },
+                {
+                  "i128": "2000000000"
+                },
+                {
+                  "i128": "1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": [
+            {
+              "function": {
+                "contract_fn": {
+                  "contract_address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL",
+                  "function_name": "transfer",
+                  "args": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                    },
+                    {
+                      "i128": "2000000000"
+                    }
+                  ]
+                }
+              },
+              "sub_invocations": []
+            }
+          ]
+        }
+      ]
+    ],
+    [],
+    [],
+    [],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "function_name": "sell_curve",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                },
+                {
+                  "address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN"
+                },
+                {
+                  "i128": "18059330708092"
+                },
+                {
+                  "i128": "1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": [
+            {
+              "function": {
+                "contract_fn": {
+                  "contract_address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN",
+                  "function_name": "transfer",
+                  "args": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                    },
+                    {
+                      "i128": "18059330708092"
+                    }
+                  ]
+                }
+              },
+              "sub_invocations": []
+            }
+          ]
+        }
+      ]
+    ],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "function_name": "buy_curve",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                },
+                {
+                  "address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN"
+                },
+                {
+                  "i128": "2000000000"
+                },
+                {
+                  "i128": "1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": [
+            {
+              "function": {
+                "contract_fn": {
+                  "contract_address": "CBEPDNVYXQGWB5YUBXKJWYJA7OXTZW5LFLNO5JRRGE6Z6C5OSUZPCCEL",
+                  "function_name": "transfer",
+                  "args": [
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                    },
+                    {
+                      "i128": "2000000000"
                     }
                   ]
                 }
@@ -417,6 +592,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "6277191135259896685"
                 }
               },
               "durability": "temporary",
@@ -555,7 +750,7 @@
                       "symbol": "burn_milestone_stage"
                     },
                     "val": {
-                      "u32": 0
+                      "u32": 1
                     }
                   },
                   {
@@ -595,7 +790,7 @@
                       "symbol": "creator_seed_locked"
                     },
                     "val": {
-                      "i128": "261369443025"
+                      "i128": "262684207689"
                     }
                   },
                   {
@@ -611,7 +806,7 @@
                       "symbol": "curve_xlm_net"
                     },
                     "val": {
-                      "i128": "1111040000"
+                      "i128": "3110640001"
                     }
                   },
                   {
@@ -649,7 +844,7 @@
                       "symbol": "real_xlm_vault"
                     },
                     "val": {
-                      "i128": "1114400000"
+                      "i128": "3143676000"
                     }
                   },
                   {
@@ -665,7 +860,7 @@
                       "symbol": "tokens_sold"
                     },
                     "val": {
-                      "i128": "13199239675133"
+                      "i128": "31318416185779"
                     }
                   }
                 ]
@@ -1047,7 +1242,7 @@
                       "symbol": "trades"
                     },
                     "val": {
-                      "u32": 1
+                      "u32": 4
                     }
                   },
                   {
@@ -1055,7 +1250,7 @@
                       "symbol": "volume_xlm_stroops"
                     },
                     "val": {
-                      "i128": "1000000000"
+                      "i128": "6958108001"
                     }
                   }
                 ]
@@ -1262,6 +1457,66 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "115220454072064130"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "1194852393571756375"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "5806905060045992000"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "8370022561469687789"
                 }
               },
@@ -1292,7 +1547,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "87062129767892"
+                "i128": "68894268021910"
               }
             }
           },
@@ -1319,7 +1574,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "1291473514409"
+                "i128": "1297893046046"
               }
             }
           },
@@ -1346,13 +1601,13 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "11646396717699"
+                "i128": "29807838932044"
               }
             }
           },
           "ext": "v0"
         },
-        "live_until": 4095
+        "live_until": 518400
       },
       {
         "entry": {
@@ -1500,7 +1755,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "75600000"
+                      "i128": "88215999"
                     }
                   },
                   {
@@ -1552,7 +1807,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "1114400000"
+                      "i128": "3143676000"
                     }
                   },
                   {
@@ -1708,7 +1963,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "4000000000"
+                      "i128": "4958108001"
                     }
                   },
                   {

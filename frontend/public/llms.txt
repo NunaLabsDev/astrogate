@@ -3,22 +3,23 @@
 
 AstroGate operates with zero custodial backend: client-encrypted native wallet signatures (`PBKDF2-SHA256` + `AES-GCM-256` vault, linked to Telegram `@username` via Ed25519 proofs with `AGVAULT1:` cross-device sync and exportable `S...` seeds) authorize all writes directly against Stellar Soroban RPC & Horizon.
 
-## Fair-Flywheel v4.3 Tokenomics
+## Fair-Flywheel v4.4 Tokenomics
 - Standard Supply: `10,000,000` tokens (`7` decimals, `1 XLM = 10,000,000` stroops), hard-capped via OpenZeppelin `Capped`, ownership renounced atomically on launch.
 - Creation Fee: `7 XLM` fixed protocol fee + `>= 2 XLM` initial creator curve buy (locked until graduation or 7-day stalled fallback).
 - Allocation:
-  - `66.0%` (`6,600,000`) Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range; flat `0.80%` buy fee, asymmetric `2.50% -> 1.50%` sell fee). P2P transfers locked until graduation.
+  - `66.0%` (`6,600,000`) Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range; softened 3-stage buy fees `0.30% -> 0.50% -> 0.25%`, sell fees `1.20% -> 1.80% -> 1.50%`). P2P transfers locked until graduation.
   - `33.0%` (`3,300,000`) Soroswap DEX Pool Reserve + `>= 1,000 XLM` at graduation (`0%` price cliff), with `100%` of LP tokens time-locked inside the Launchpad contract for `7 years` (`reclaim_expired_lp` thereafter).
   - `0.3%` (`30,000`) 15-day post-graduation creator vesting (`5 × 6,000` every 3 days).
-  - `0.7%` (`70,000`) Developer / Protocol Ecosystem allocation transferred to treasury upon graduation.
+  - `0.40%` (`40,000`) 3-Checkpoint Jackpot Ladder awarded automatically on-chain (`+5,000` Spark at `250 XLM`, `+10,000` King Crown at `500 XLM`, `+25,000` Graduation Jackpot at `1,000 XLM`).
+  - `0.30%` (`30,000`) Developer / Protocol Ecosystem allocation transferred to treasury upon graduation.
 - Organic Deflation (zero idle burn vault): `60%` of surplus curve floor fees dedicated to DEX Buyback & Burn (`trigger_buyback_burn`) + 3-tier Burn-to-Chat (`>= 50` Chat / `>= 500` Hype / `>= 5,000` King via `burn_shout`).
 
 ## Core Network & Contracts (Stellar Testnet)
 - Network: Stellar Testnet (`Test SDF Network ; September 2015`)
 - RPC Endpoint: `https://soroban-testnet.stellar.org` (fallback `https://rpc-testnet.stellar.org`)
 - Horizon API: `https://horizon-testnet.stellar.org`
-- Launchpad Contract (v4.3): `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
-- Launchpad WASM Hash (v4.3): `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7`
+- Launchpad Contract (v4.4): `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+- Launchpad WASM Hash (v4.4): `fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1`
 - Token WASM Hash (v4.2): `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6`
 - Genesis ASTRO Token: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
 - ASTRO/XLM Pair: `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP`

@@ -7,7 +7,7 @@
  * solo muestra lo que este navegador ha visto, no un histórico global.
  */
 import { XLM_DECIMALS } from './xlm'
-import { networkStorageKey } from './network'
+import { contractStorageKey } from './network'
 import { readStorageJson, writeStorageJson } from './storage'
 
 export type ReserveSnapshot = {
@@ -26,7 +26,7 @@ export const SNAPSHOT_BUCKET_MS = 5 * 60_000
 export const MAX_SNAPSHOTS_PER_TOKEN = 288
 export const MAX_TRACKED_TOKENS = 30
 
-const STORAGE_KEY = networkStorageKey('astrogate.reserve-history.v1')
+const STORAGE_KEY = contractStorageKey('astrogate.reserve-history.v1')
 
 /**
  * Caché en memoria + suscriptores. `useSyncExternalStore` exige que

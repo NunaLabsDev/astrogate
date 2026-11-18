@@ -4,7 +4,7 @@
  * pair mappings, and sync state without 24-hour retention limitations.
  */
 
-import { NETWORK_NAME } from './network'
+import { CONTRACT_GENERATION_TAG, NETWORK_NAME } from './network'
 
 export interface StoredTokenRecord {
   id: string
@@ -34,7 +34,9 @@ export interface SyncMeta {
 /** Clave única del registro de sincronización de la factory (compartida con discovery.ts). */
 export const FACTORY_SYNC_META_KEY = 'factory_sync'
 
-const DB_NAME = NETWORK_NAME === 'testnet' ? 'astrogate_db' : `astrogate_${NETWORK_NAME}_db`
+const DB_BASE_NAME =
+  NETWORK_NAME === 'testnet' ? 'astrogate_db' : `astrogate_${NETWORK_NAME}_db`
+const DB_NAME = `${DB_BASE_NAME}_${CONTRACT_GENERATION_TAG}`
 const DB_VERSION = 1
 const TOKENS_STORE = 'tokens'
 const META_STORE = 'sync_meta'

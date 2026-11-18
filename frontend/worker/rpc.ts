@@ -361,24 +361,28 @@ export async function fetchLiveMarketSnapshot(
       const total = Number(countTx.result ?? 0)
       const limit = Math.max(10, Math.min(20, maxItems))
       // Launchpad.get_launches returns newest-first starting at offset 0.
-      const [launchesTx, astroReserve] = await Promise.all([
+      const launchesTx =
         total > 0
-          ? withTimeout(lp.get_launches({ offset: 0, limit }), 4000)
-          : Promise.resolve(null),
-        cfg.network === 'testnet'
-          ? simulatePairXlmReserve(cfg.astroPairId, rpcUrl, cfg)
-          : Promise.resolve(null),
-      ])
+          ? await withTimeout(lp.get_launches({ offset: 0, limit }), 4000)
+          : null
 
       const records = launchesTx?.result ?? []
-      const summaries = await Promise.all(
-        records.map(async (rec): Promise<MarketTokenSummary> => {
+      const rawSummaries = await Promise.all(
+        records.map(async (rec): Promise<MarketTokenSummary | null> => {
+          const cleanName = String(rec.name || '').trim()
+          const cleanSym = String(rec.symbol || '').trim().toUpperCase()
+          if (/^Demo \d{10,}$/i.test(cleanName) || /^(SMOKE|ADVT|E2E\d+)$/i.test(cleanSym)) {
+            return null
+          }
           try {
             const curveTx = await withTimeout(
               lp.get_curve({ token: rec.token }),
               3500,
             )
             const curve = curveTx.result
+            if (curve && curve.burn_vault_remaining > 0n) {
+              return null
+            }
             const graduated = curve ? curve.graduated : Boolean(rec.pair)
             const pairId = curve?.pair ?? rec.pair ?? null
             const dexRes =
@@ -407,6 +411,9 @@ export async function fetchLiveMarketSnapshot(
           }
         }),
       )
+      const summaries = rawSummaries.filter(
+        (item): item is MarketTokenSummary => item !== null,
+      )
 
       // Prioritize active curves close to graduation, then graduated pairs
       summaries.sort((a, b) => {
@@ -417,47 +424,9 @@ export async function fetchLiveMarketSnapshot(
         return b.reserveXlmStroops > a.reserveXlmStroops ? 1 : -1
       })
 
-      if (
-        cfg.network === 'testnet' &&
-        !summaries.some((item) => item.id === cfg.astroTokenId)
-      ) {
-        summaries.push({
-          id: cfg.astroTokenId,
-          name: 'Astro Test',
-          symbol: 'ASTRO',
-          graduated: true,
-          curveXlmNet: 10_000_000_000n,
-          pairId: cfg.astroPairId,
-          reserveXlmStroops: astroReserve ?? 0n,
-        })
-      }
-
       return { items: summaries.slice(0, maxItems), rpcFailed: false }
     })
   } catch {
-    if (cfg.network === 'testnet') {
-      const astroReserve = await simulatePairXlmReserve(
-        cfg.astroPairId,
-        cfg.rpcUrls[0] ?? DEFAULT_RPC_URL,
-        cfg,
-      )
-      if (astroReserve !== null) {
-        return {
-          items: [
-            {
-              id: cfg.astroTokenId,
-              name: 'Astro Test',
-              symbol: 'ASTRO',
-              graduated: true,
-              curveXlmNet: 10_000_000_000n,
-              pairId: cfg.astroPairId,
-              reserveXlmStroops: astroReserve,
-            },
-          ],
-          rpcFailed: false,
-        }
-      }
-    }
     return { items: [], rpcFailed: true }
   }
 }

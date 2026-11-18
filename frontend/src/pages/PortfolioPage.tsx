@@ -489,14 +489,16 @@ export function PortfolioPage() {
           </div>
 
           {(() => {
-            const onChainList =
-              ownedSorobits.data && ownedSorobits.data.length > 0
-                ? ownedSorobits.data
-                : sorobitsSummary.data?.genesis0
-                  ? [sorobitsSummary.data.genesis0]
-                  : []
-            if (onChainList.length === 0) return null
-            const isOwnerList = Boolean(ownedSorobits.data && ownedSorobits.data.length > 0)
+            const onChainList = ownedSorobits.data ?? []
+            if (onChainList.length === 0) {
+              return (
+                <p className="mt-3 text-xs text-slate-400">
+                  {publicKey
+                    ? 'You do not hold any minted Sorobits in this wallet yet. Claim your free AGQ01 Pilot in the Sorobits Hub.'
+                    : 'Connect your wallet to inspect the Sorobits held by your address.'}
+                </p>
+              )
+            }
             return (
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
                 {onChainList.map((item) => (
@@ -515,8 +517,7 @@ export function PortfolioPage() {
                         {item.name}
                       </p>
                       <p className="font-mono text-[10px] text-slate-400">
-                        {isOwnerList ? 'Held by you' : `Genesis #${item.tokenId} Live Ledger Proof`} ·{' '}
-                        {item.soulbound ? 'Soulbound' : 'Tradeable'}
+                        Held by you · {item.soulbound ? 'Soulbound' : 'Tradeable'}
                       </p>
                       <p className="mt-0.5 truncate text-[11px] text-sky-300">
                         {item.attributes

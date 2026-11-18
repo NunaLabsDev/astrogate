@@ -1,18 +1,24 @@
 import { describe, expect, it } from 'vitest'
 import { localAmountOut } from './soroswap'
 import {
-  BASE_CURVE_FEE_BPS,
   BURN_VAULT_TOKENS_ALLOC_BASE,
   calculateSupplySharePercent,
   costToBuyPoolShareStroops,
   costToBuyPoolShareXlm,
   CREATOR_VESTING_ALLOC_BASE,
   CREATOR_VESTING_SCHEDULE,
+  CROWN_JACKPOT_TOKENS,
+  CROWN_JACKPOT_TOKENS_ALLOC_BASE,
   CURVE_TOKENS_ALLOC_BASE,
+  curveMaxBuyXlmStroops,
+  curveNextCheckpointStroops,
+  curveStageInfo,
   DEFAULT_OPTIMIZED_SEED_XLM,
   DEV_TOKENS_ALLOC_BASE,
   DEX_TOKENS_ALLOC_BASE,
   FAIR_INITIAL_SUPPLY_BASE,
+  GRADUATION_JACKPOT_TOKENS,
+  GRADUATION_JACKPOT_TOKENS_ALLOC_BASE,
   GRADUATION_TARGET_XLM,
   graduationProgress,
   localCurveQuoteBuy,
@@ -20,20 +26,29 @@ import {
   poolAllocationBase,
   rugProofStatus,
   SEED_LIQUIDITY_PRESETS,
+  SPARK_JACKPOT_TOKENS,
+  SPARK_JACKPOT_TOKENS_ALLOC_BASE,
   STELLAR_BURN_ADDRESS,
   STROOPS_PER_UNIT,
+  TOTAL_JACKPOT_TOKENS_ALLOC_BASE,
   WHALE_TRADE_SHARE_BPS,
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (Fair-Flywheel v4.3: 66 / 33 / 0.3 / 0.7)', () => {
-  it('reparte 66% curva, 33% DEX, 0.3% vesting creador, 0.7% dev ecosystem sobre 10M (0% burn vault)', () => {
+describe('allocation math (Fair-Flywheel v4.4: 66 / 33 / 0.30 / 0.40 jackpots / 0.30 dev)', () => {
+  it('reparte 66% curva, 33% DEX, 0.30% vesting creador, 0.40% jackpots (5K+10K+25K), 0.30% dev sobre 10M', () => {
     expect(BURN_VAULT_TOKENS_ALLOC_BASE).toBe(0n)
+    expect(
+      SPARK_JACKPOT_TOKENS_ALLOC_BASE +
+        CROWN_JACKPOT_TOKENS_ALLOC_BASE +
+        GRADUATION_JACKPOT_TOKENS_ALLOC_BASE,
+    ).toBe(TOTAL_JACKPOT_TOKENS_ALLOC_BASE)
     expect(
       CURVE_TOKENS_ALLOC_BASE +
         DEX_TOKENS_ALLOC_BASE +
         BURN_VAULT_TOKENS_ALLOC_BASE +
         CREATOR_VESTING_ALLOC_BASE +
+        TOTAL_JACKPOT_TOKENS_ALLOC_BASE +
         DEV_TOKENS_ALLOC_BASE,
     ).toBe(FAIR_INITIAL_SUPPLY_BASE)
     expect(poolAllocationBase(FAIR_INITIAL_SUPPLY_BASE)).toBe(
@@ -51,24 +66,31 @@ describe('allocation math (Fair-Flywheel v4.3: 66 / 33 / 0.3 / 0.7)', () => {
   })
 })
 
-describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.3)', () => {
-  it('aplica fee plano 80 bps (0.50% treasury + 0.30% floor) en compras chicas y grandes', () => {
-    const q = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
-    expect(q).not.toBeNull()
-    expect(q!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
-    expect(q!.treasury_fee).toBe(500_000n)
-    expect(q!.floor_bonus).toBe(300_000n)
-    expect(q!.will_graduate).toBe(false)
-    // At 1,000 vXLM / 13.2M vTok, 10 XLM (9.92 net) buys ~129.6K tokens
-    expect(q!.tokens_out).toBeGreaterThan(125_000n * STROOPS_PER_UNIT)
-    expect(q!.tokens_out).toBeLessThan(135_000n * STROOPS_PER_UNIT)
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.4)', () => {
+  it('aplica fees suavizadas en 3 etapas para compras (0.30% / 0.50% / 0.25%) sin penalizar ballenas', () => {
+    const qEarly = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
+    expect(qEarly).not.toBeNull()
+    expect(qEarly!.total_fee_bps).toBe(30n)
+    expect(qEarly!.treasury_fee).toBe(200_000n)
+    expect(qEarly!.floor_bonus).toBe(100_000n)
+    expect(qEarly!.will_graduate).toBe(false)
+    expect(qEarly!.tokens_out).toBeGreaterThan(125_000n * STROOPS_PER_UNIT)
+    expect(qEarly!.tokens_out).toBeLessThan(135_000n * STROOPS_PER_UNIT)
 
-    const qLarge = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
-    expect(qLarge).not.toBeNull()
-    expect(qLarge!.total_fee_bps).toBe(BASE_CURVE_FEE_BPS)
+    const qLargeEarly = localCurveQuoteBuy(0n, 0n, 200n * STROOPS_PER_UNIT)
+    expect(qLargeEarly).not.toBeNull()
+    expect(qLargeEarly!.total_fee_bps).toBe(30n)
+
+    const qMid = localCurveQuoteBuy(300n * STROOPS_PER_UNIT, 2_000_000n * STROOPS_PER_UNIT, 10n * STROOPS_PER_UNIT)
+    expect(qMid!.total_fee_bps).toBe(50n)
+    expect(curveStageInfo(300n * STROOPS_PER_UNIT, 1).stage).toBe(2)
+
+    const qSprint = localCurveQuoteBuy(550n * STROOPS_PER_UNIT, 4_000_000n * STROOPS_PER_UNIT, 10n * STROOPS_PER_UNIT)
+    expect(qSprint!.total_fee_bps).toBe(25n)
+    expect(curveStageInfo(550n * STROOPS_PER_UNIT, 2).stage).toBe(3)
   })
 
-  it('aplica fee asimétrico anti-sniper en ventas (2.50% temprano, 1.50% tardío) hacia el floor', () => {
+  it('aplica fee suavizado en ventas (1.20% temprano, 1.80% mitad de camino, 1.50% sprint)', () => {
     const earlyBuy = localCurveQuoteBuy(0n, 0n, 100n * STROOPS_PER_UNIT)!
     const earlySell = localCurveQuoteSell(
       earlyBuy.net_xlm_to_curve,
@@ -76,29 +98,58 @@ describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.3)',
       earlyBuy.tokens_out,
     )
     expect(earlySell).not.toBeNull()
-    expect(earlySell!.total_fee_bps).toBe(250n)
+    expect(earlySell!.total_fee_bps).toBe(120n)
     expect(earlySell!.floor_bonus).toBeGreaterThan(earlySell!.treasury_fee)
 
-    const lateSell = localCurveQuoteSell(
+    const midSell = localCurveQuoteSell(
+      350n * STROOPS_PER_UNIT,
+      2_600_000n * STROOPS_PER_UNIT,
+      100_000n * STROOPS_PER_UNIT,
+    )
+    expect(midSell).not.toBeNull()
+    expect(midSell!.total_fee_bps).toBe(180n)
+
+    const sprintSell = localCurveQuoteSell(
       600n * STROOPS_PER_UNIT,
       4_500_000n * STROOPS_PER_UNIT,
       100_000n * STROOPS_PER_UNIT,
     )
-    expect(lateSell).not.toBeNull()
-    expect(lateSell!.total_fee_bps).toBe(150n)
+    expect(sprintSell).not.toBeNull()
+    expect(sprintSell!.total_fee_bps).toBe(150n)
   })
 
-  it('topa la última compra al remanente de 1,000 XLM netos y gradúa 100% de la curva (6.6M)', () => {
-    const q = localCurveQuoteBuy(
-      950n * STROOPS_PER_UNIT,
-      6_250_000n * STROOPS_PER_UNIT,
-      100n * STROOPS_PER_UNIT,
-    )
+  it('calcula curveNextCheckpointStroops exacto sin re-prometer checkpoints ya reclamados', () => {
+    const cp1 = curveNextCheckpointStroops(100n * STROOPS_PER_UNIT, 0)
+    expect(cp1.targetXlm).toBe(250)
+    expect(cp1.rewardTokens).toBe(SPARK_JACKPOT_TOKENS)
+    const q1 = localCurveQuoteBuy(100n * STROOPS_PER_UNIT, 1_000_000n * STROOPS_PER_UNIT, cp1.grossXlmNeededStroops)!
+    expect(100n * STROOPS_PER_UNIT + q1.net_xlm_to_curve).toBeGreaterThanOrEqual(250n * STROOPS_PER_UNIT)
+
+    // Si alguien vendió por debajo de 250 XLM pero burn_milestone_stage ya es 1, el siguiente premio es 500 XLM (+10K)
+    const cpAfterDrop = curveNextCheckpointStroops(200n * STROOPS_PER_UNIT, 1)
+    expect(cpAfterDrop.targetXlm).toBe(500)
+    expect(cpAfterDrop.rewardTokens).toBe(CROWN_JACKPOT_TOKENS)
+
+    const cp3 = curveNextCheckpointStroops(600n * STROOPS_PER_UNIT, 2)
+    expect(cp3.targetXlm).toBe(1_000)
+    expect(cp3.rewardTokens).toBe(GRADUATION_JACKPOT_TOKENS)
+  })
+
+  it('topa la última compra al remanente de 1,000 XLM netos y curveMaxBuyXlmStroops cuadra exacto', () => {
+    const netNow = 950n * STROOPS_PER_UNIT
+    const soldNow = 6_250_000n * STROOPS_PER_UNIT
+    const exactMax = curveMaxBuyXlmStroops(netNow)
+    const exactQuote = localCurveQuoteBuy(netNow, soldNow, exactMax)!
+    expect(exactQuote.will_graduate).toBe(true)
+    expect(exactQuote.total_xlm_charged).toBe(exactMax)
+    expect(exactQuote.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
+
+    const q = localCurveQuoteBuy(netNow, soldNow, 100n * STROOPS_PER_UNIT)
     expect(q).not.toBeNull()
     expect(q!.will_graduate).toBe(true)
     expect(q!.net_xlm_to_curve).toBe(50n * STROOPS_PER_UNIT)
     expect(q!.tokens_out).toBe(350_000n * STROOPS_PER_UNIT)
-    expect(q!.total_xlm_charged).toBeLessThan(100n * STROOPS_PER_UNIT)
+    expect(q!.total_xlm_charged).toBe(exactMax)
   })
 
   it('cotiza venta en curva sin exceder el vault neto', () => {

@@ -2,6 +2,7 @@ import type { Signer } from '@stellar/stellar-sdk/contract'
 import { Keypair } from '@stellar/stellar-sdk'
 
 import { Client as SorobitsClient } from '../contracts/sorobits'
+import { launchpadClient } from './token'
 import {
   executeWithRpcFailover,
   NETWORK_PASSPHRASE,
@@ -38,8 +39,28 @@ export interface SorobitsContractSummary {
   contractId: string
   totalSupply: number
   season1Sealed: boolean
+  liveTokenIds: number[]
   genesis0: SorobitOnChainItem | null
   rpcFailed?: boolean
+}
+
+export interface LaunchpadPilotTelemetry {
+  launches: number
+  graduations: number
+  trades: number
+  shouts: number
+  kingShouts: number
+  burnsTriggered: number
+}
+
+function unwrapSorobitOk<T>(value: unknown): T | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === 'object' && value !== null && 'error' in value) return null
+  return value as T
+}
+
+function isStellarAccount(value: unknown): value is string {
+  return typeof value === 'string' && /^G[A-Z2-7]{55}$/.test(value)
 }
 
 function makeSorobitsClient(rpcUrl = RPC_URL): SorobitsClient {
@@ -69,31 +90,40 @@ export async function fetchSorobitById(
         client.animated_svg({ token_id: tokenId }),
       ])
 
-      const owner = String(ownerTx.result)
-      const rec = recordTx.result
-      const rawUri = String(uriTx.result)
-      const animSvg = String(animTx.result)
+      const owner = unwrapSorobitOk<unknown>(ownerTx.result)
+      const rec = unwrapSorobitOk<Record<string, unknown>>(recordTx.result)
+      const rawUri = unwrapSorobitOk<unknown>(uriTx.result)
+      const rawAnim = unwrapSorobitOk<unknown>(animTx.result)
+      const jsonPrefix = 'data:application/json;utf8,'
+
+      if (
+        !isStellarAccount(owner) ||
+        !rec ||
+        typeof rawUri !== 'string' ||
+        !rawUri.startsWith(jsonPrefix)
+      ) {
+        return null
+      }
+      const animSvg = typeof rawAnim === 'string' ? rawAnim : ''
 
       let name = `Sorobit #${tokenId}`
       let svgMarkup = ''
       let attributes: SorobitAttribute[] = []
 
-      const jsonPrefix = 'data:application/json;utf8,'
-      if (rawUri.startsWith(jsonPrefix)) {
-        const parsed = JSON.parse(rawUri.slice(jsonPrefix.length)) as {
-          name?: string
-          image?: string
-          attributes?: SorobitAttribute[]
-        }
-        if (parsed.name) name = parsed.name
-        if (Array.isArray(parsed.attributes)) attributes = parsed.attributes
-        const svgPrefix = 'data:image/svg+xml;utf8,'
-        if (parsed.image?.startsWith(svgPrefix)) {
-          svgMarkup = parsed.image.slice(svgPrefix.length)
-        }
+      const parsed = JSON.parse(rawUri.slice(jsonPrefix.length)) as {
+        name?: string
+        image?: string
+        attributes?: SorobitAttribute[]
+      }
+      if (parsed.name) name = parsed.name
+      if (Array.isArray(parsed.attributes)) attributes = parsed.attributes
+      const svgPrefix = 'data:image/svg+xml;utf8,'
+      if (parsed.image?.startsWith(svgPrefix)) {
+        svgMarkup = parsed.image.slice(svgPrefix.length)
       }
 
       const staticSvg = svgMarkup || animSvg
+      if (!staticSvg) return null
       return {
         tokenId,
         owner,
@@ -307,34 +337,84 @@ export async function mintCapsuleOnChain(
   }
 }
 
+export async function fetchLaunchpadPilotTelemetry(
+  ownerAddress: string,
+): Promise<LaunchpadPilotTelemetry | null> {
+  if (!isStellarAccount(ownerAddress)) return null
+  try {
+    return await executeWithRpcFailover(async (rpcUrl) => {
+      const tx = await launchpadClient(undefined, rpcUrl).get_pilot({
+        user: ownerAddress,
+      })
+      const rec = unwrapSorobitOk<{
+        launches?: number
+        graduations?: number
+        trades?: number
+        shouts?: number
+        king_shouts?: number
+        burns_triggered?: number
+      }>(tx.result)
+      if (!rec) return null
+      return {
+        launches: Number(rec.launches ?? 0),
+        graduations: Number(rec.graduations ?? 0),
+        trades: Number(rec.trades ?? 0),
+        shouts: Number(rec.shouts ?? 0),
+        kingShouts: Number(rec.king_shouts ?? 0),
+        burnsTriggered: Number(rec.burns_triggered ?? 0),
+      }
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function fetchSorobitsSummary(): Promise<SorobitsContractSummary> {
   if (!SOROBITS_CONTRACT_ID) {
     return {
       contractId: '',
       totalSupply: 0,
       season1Sealed: false,
+      liveTokenIds: [],
       genesis0: null,
     }
   }
   try {
-    const { totalSupply, season1Sealed } = await executeWithRpcFailover(
-      async (rpcUrl) => {
+    const { totalSupply, season1Sealed, liveTokenIds } =
+      await executeWithRpcFailover(async (rpcUrl) => {
         const client = makeSorobitsClient(rpcUrl)
         const [supplyTx, sealedTx] = await Promise.all([
           client.total_supply(),
           client.is_season_sealed({ season: 1 }),
         ])
+        const total = Number(unwrapSorobitOk<number>(supplyTx.result) ?? 0)
+        const sealed = Boolean(unwrapSorobitOk<boolean>(sealedTx.result))
+        const sampleSize = Math.min(total, 8)
+        const idLookups = await Promise.all(
+          Array.from({ length: sampleSize }, (_, index) =>
+            client
+              .get_token_id({ index })
+              .then((tx) => unwrapSorobitOk<number>(tx.result))
+              .catch(() => null),
+          ),
+        )
+        const liveIds = idLookups.filter(
+          (id): id is number => typeof id === 'number' && Number.isFinite(id),
+        )
         return {
-          totalSupply: Number(supplyTx.result ?? 0),
-          season1Sealed: Boolean(sealedTx.result),
+          totalSupply: total,
+          season1Sealed: sealed,
+          liveTokenIds: liveIds,
         }
-      },
-    )
-    const genesis0 = totalSupply > 0 ? await fetchSorobitById(0) : null
+      })
+    const firstId = liveTokenIds[0]
+    const genesis0 =
+      firstId !== undefined ? await fetchSorobitById(firstId) : null
     return {
       contractId: SOROBITS_CONTRACT_ID,
       totalSupply,
       season1Sealed,
+      liveTokenIds,
       genesis0,
       rpcFailed: false,
     }
@@ -343,6 +423,7 @@ export async function fetchSorobitsSummary(): Promise<SorobitsContractSummary> {
       contractId: SOROBITS_CONTRACT_ID,
       totalSupply: 0,
       season1Sealed: false,
+      liveTokenIds: [],
       genesis0: null,
       rpcFailed: true,
     }

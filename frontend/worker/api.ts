@@ -123,7 +123,7 @@ export function buildOpenApiSpec(origin: string) {
       title: 'AstroGate Public Read-Only & Content-Addressed Logo API',
       version: '1.1.0',
       description:
-        'Public, unauthenticated JSON API for inspecting Stellar Soroban Fair-Flywheel v4.3 launches, anti-rug proofs, swap quotes, Sorobits SEP-50 NFTs, on-chain quests, and SHA-256 content-addressed token logos.',
+        'Public, unauthenticated JSON API for inspecting Stellar Soroban Fair-Flywheel v4.4 launches, anti-rug proofs, swap quotes, Sorobits SEP-50 NFTs, on-chain quests, and SHA-256 content-addressed token logos.',
     },
     servers: [{ url: origin }],
     paths: {

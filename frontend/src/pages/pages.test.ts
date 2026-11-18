@@ -38,6 +38,7 @@ vi.mock('../store/wallet', () => ({
 
 import { CreateTokenForm } from '../components/CreateTokenForm'
 import { WalletButton } from '../components/WalletButton'
+import { DexPage } from './DexPage'
 import { DocsPage } from './DocsPage'
 import { HomePage } from './HomePage'
 import { PortfolioPage } from './PortfolioPage'
@@ -67,6 +68,13 @@ describe('Page Components and Lifecycle', () => {
       expect(html).toContain('Launch Coin')
       expect(html).toContain('Search by name')
       expect(html).toContain('Fair')
+    })
+
+    it('renders dedicated /dex Soroswap Graduated Market page', () => {
+      const html = renderWithProviders(createElement(DexPage), '/dex')
+      expect(html).toContain('Soroswap DEX Market')
+      expect(html).toContain('7-Year LP Lock')
+      expect(html).toContain('Graduated Tokens')
     })
 
     it('renders PortfolioPage with 1-click Testnet Demo & Wallet CTAs when disconnected', () => {

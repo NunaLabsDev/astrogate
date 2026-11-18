@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   checkRpcHealth,
+  CONTRACT_GENERATION_TAG,
+  contractStorageKey,
   executeWithRpcFailover,
   isRetryableRpcError,
   NETWORK_NAME,
@@ -10,6 +12,7 @@ import {
   RPC_URL,
   SOROSWAP_FACTORY,
   SOROSWAP_ROUTER,
+  SUPPORTED_LAUNCHPAD_CONTRACTS,
 } from './network'
 
 describe('network configuration', () => {
@@ -21,6 +24,10 @@ describe('network configuration', () => {
     expect(SOROSWAP_FACTORY.startsWith('C')).toBe(true)
     expect(SOROSWAP_ROUTER.startsWith('C')).toBe(true)
     expect(networkStorageKey('astrogate.activity.v1')).toBe('astrogate.activity.v1')
+    expect(contractStorageKey('astrogate.activity.v1')).toBe(
+      `astrogate.${CONTRACT_GENERATION_TAG}.activity.v1`,
+    )
+    expect(SUPPORTED_LAUNCHPAD_CONTRACTS.length).toBeGreaterThanOrEqual(1)
   })
 
   it('performs RPC health check and parses sequence', async () => {

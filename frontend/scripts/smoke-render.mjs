@@ -89,6 +89,14 @@ try {
     throw new Error('la ruta /market no muestra búsqueda y orden')
   }
 
+  const dexHtml = renderApp('/dex')
+  if (
+    !dexHtml.includes('Soroswap DEX Market') ||
+    !dexHtml.includes('7-Year LP Lock')
+  ) {
+    throw new Error('la ruta /dex no renderiza el mercado graduado Soroswap DEX')
+  }
+
   const portfolioHtml = renderApp('/portfolio')
   if (
     !portfolioHtml.includes('Your Portfolio') ||
@@ -254,8 +262,76 @@ try {
     throw new Error('el gráfico de reservas no renderiza')
   }
 
+  // Launchpad CurveStoryChart SSR render check
+  const { CurveStoryChart } = await vite.ssrLoadModule(
+    '/src/components/CurveStoryChart.tsx',
+  )
+  const curveStoryHtml = renderToString(
+    createElement(CurveStoryChart, {
+      curve: {
+        token: 'CTOKEN',
+        creator: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF',
+        graduated: false,
+        graduated_at: 0n,
+        pair: null,
+        lp_minted: 0n,
+        curve_xlm_net: 3_000_000_000n,
+        real_xlm_vault: 3_050_000_000n,
+        tokens_sold: 2_000_000_000_000n,
+        buyback_xlm_reserve: 0n,
+        burn_vault_remaining: 0n,
+        burn_milestone_stage: 0,
+        creator_vesting_total: 300_000_000_000n,
+        creator_claimed: 0n,
+        creator_seed_locked: 100_000_000_000n,
+      },
+      decimals: 7,
+      symbol: 'MOON',
+    }),
+  )
+  if (
+    !curveStoryHtml.includes('Closed Launchpad Arena') ||
+    !curveStoryHtml.includes('40K ladder') ||
+    !curveStoryHtml.includes('MOON')
+  ) {
+    throw new Error('CurveStoryChart no renderiza')
+  }
+
+  // Animated RewardCelebrationModal SSR render check
+  const { RewardCelebrationModal } = await vite.ssrLoadModule(
+    '/src/components/RewardCelebrationModal.tsx',
+  )
+  const celebrationHtml = renderToString(
+    createElement(
+      MemoryRouter,
+      { initialEntries: ['/token/CTOKEN'] },
+      createElement(RewardCelebrationModal, {
+        symbol: 'MOON',
+        onClose: () => {},
+        celebration: {
+          graduated: true,
+          rewardTokens: 25_000,
+          boughtTokensFormatted: '150,000',
+          spentXlmFormatted: '50',
+          wonSpark: false,
+          wonCrown: false,
+          wonGrad: true,
+          reasonTitle: '🎓 Graduated $MOON to Soroswap DEX!',
+          reasonDetail: 'Your 50 XLM buy completed 1,000 XLM and unlocked Soroswap AMM.',
+        },
+      }),
+    ),
+  )
+  if (
+    !celebrationHtml.includes('+25,000 $MOON') ||
+    !celebrationHtml.includes('/badges/pioneer.png') ||
+    !celebrationHtml.includes('Graduated $MOON to Soroswap DEX')
+  ) {
+    throw new Error('RewardCelebrationModal no renderiza correctamente')
+  }
+
   console.log(
-    `render OK (${html.length} + ${createHtml.length} + ${marketHtml.length} + ${portfolioHtml.length} + ${tokenHtml.length} + ${liquidityHtml.length} + ${hypeHtml.length} + ${artHtml.length} + ${chartHtml.length} chars) · rutas y componentes`,
+    `render OK (${html.length} + ${createHtml.length} + ${marketHtml.length} + ${dexHtml.length} + ${portfolioHtml.length} + ${tokenHtml.length} + ${liquidityHtml.length} + ${hypeHtml.length} + ${artHtml.length} + ${chartHtml.length} + ${curveStoryHtml.length} + ${celebrationHtml.length} chars) · rutas y componentes`,
   )
 } catch (err) {
   failed = true

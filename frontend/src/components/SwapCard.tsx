@@ -23,12 +23,21 @@ import {
   withSlippage,
 } from '../lib/soroswap'
 import {
+  CROWN_JACKPOT_TOKENS,
+  CURVE_REAL_XLM_GOAL_STROOPS,
+  curveMaxBuyXlmStroops,
+  curveNextCheckpointStroops,
+  curveStageInfo,
   curveVirtualReserves,
+  GRADUATION_JACKPOT_TOKENS,
   GRADUATION_TARGET_XLM,
   graduationProgressForListing,
   localCurveQuoteBuy,
   localCurveQuoteSell,
   SOROSWAP_SWAP_FEE_PERCENT,
+  SPARK_JACKPOT_TOKENS,
+  STAGE_1_XLM_STROOPS,
+  STAGE_2_XLM_STROOPS,
   whaleThresholdBase,
 } from '../lib/tokenomics'
 import { notifySwapAlert } from '../lib/alerts'
@@ -42,6 +51,7 @@ import { recordActivity } from '../store/activity'
 import { toast } from '../lib/toast'
 import { notifyTelegramPulse, triggerTelegramHaptic } from '../lib/telegram'
 import { TxProgress } from './TxProgress'
+import type { CurveRewardCelebration } from './RewardCelebrationModal'
 
 const inputClass = FORM_INPUT_CLASS
 
@@ -52,6 +62,7 @@ type SwapDone = {
   in: bigint
   out: bigint
   hash?: string
+  celebration?: CurveRewardCelebration
 }
 
 const QUICK_XLM_AMOUNTS = ['5', '10', '25', '100'] as const
@@ -71,7 +82,7 @@ export function SwapCard({
   onOpenLiquidityTools,
 }: {
   token: LaunchpadToken
-  onSwapped?: () => void
+  onSwapped?: (graduated?: boolean, celebration?: CurveRewardCelebration) => void
   onOpenLiquidityTools?: () => void
 }) {
   const {
@@ -88,6 +99,7 @@ export function SwapCard({
   const [slippage, setSlippage] = useState<number>(SLIPPAGE_PERCENT)
   const [showSlippage, setShowSlippage] = useState(false)
   const [confirmHighRisk, setConfirmHighRisk] = useState(false)
+  const [cappedNotice, setCappedNotice] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [swapped, setSwapped] = useState<SwapDone | null>(null)
@@ -106,6 +118,21 @@ export function SwapCard({
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
 
   const isBondingCurve = Boolean(curve.data && !curve.data.graduated)
+  const stageInfo =
+    isBondingCurve && curve.data
+      ? curveStageInfo(curve.data.curve_xlm_net, curve.data.burn_milestone_stage)
+      : null
+  const nextCheckpoint =
+    isBondingCurve && isBuy && curve.data
+      ? curveNextCheckpointStroops(
+          curve.data.curve_xlm_net,
+          curve.data.burn_milestone_stage,
+        )
+      : null
+  const maxBuyStroops =
+    isBondingCurve && isBuy && curve.data
+      ? curveMaxBuyXlmStroops(curve.data.curve_xlm_net)
+      : null
   const curveReserves =
     isBondingCurve && curve.data
       ? curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
@@ -128,6 +155,20 @@ export function SwapCard({
   const sellMaxBalance = tokenBalance.data
 
   const amountIn = parseAmount(amount, inputDecimals)
+
+  function updateBuyOrSellAmount(raw: string) {
+    setConfirmHighRisk(false)
+    if (isBondingCurve && isBuy && maxBuyStroops !== null && maxBuyStroops > 0n) {
+      const parsed = parseAmount(raw, XLM_DECIMALS)
+      if (parsed > maxBuyStroops) {
+        setAmount(formatAmount(maxBuyStroops, XLM_DECIMALS))
+        setCappedNotice(true)
+        return
+      }
+    }
+    setCappedNotice(false)
+    setAmount(raw)
+  }
 
   const curveBuyQuote =
     isBondingCurve && isBuy && curve.data && amountIn > 0n
@@ -163,8 +204,8 @@ export function SwapCard({
       : amountIn
   const curveFeeBps = isBondingCurve
     ? isBuy
-      ? (curveBuyQuote?.total_fee_bps ?? 80n)
-      : (curveSellQuote?.total_fee_bps ?? 80n)
+      ? (curveBuyQuote?.total_fee_bps ?? stageInfo?.buyFeeBps ?? 40n)
+      : (curveSellQuote?.total_fee_bps ?? stageInfo?.sellFeeBps ?? 200n)
     : 30n
 
   const minimum = quoted !== undefined ? withSlippage(quoted, slippage) : null
@@ -220,6 +261,7 @@ export function SwapCard({
     setError(null)
     setSwapped(null)
     setConfirmHighRisk(false)
+    setCappedNotice(false)
   }
 
   async function onSwap(event: React.FormEvent) {
@@ -279,7 +321,9 @@ export function SwapCard({
       return
     }
 
-    const needsSecondTap = (impact !== null && impact >= 15) || slippage >= 10
+    // Never require double confirmation on buys (upward price movement is expected);
+    // keep a single safety tap only when selling with extreme manual slippage (>= 15%).
+    const needsSecondTap = !isBuy && slippage >= 15
     if (needsSecondTap && !confirmHighRisk) {
       setConfirmHighRisk(true)
       triggerTelegramHaptic('medium')
@@ -289,16 +333,18 @@ export function SwapCard({
 
     setBusy(true)
     let hash: string | undefined
+    const preCurve = isBondingCurve ? curve.data : null
     try {
       let actualIn = amountIn
       let received = quotedAmount
       let didGraduate = false
+      let netToCurve = 0n
 
       if (isBondingCurve) {
         const res = isBuy
           ? await buyCurveToken({
               tokenId: token.id,
-              maxXlmIn: amountIn,
+              maxXlmIn: effectiveAmountIn,
               minTokensOut: withSlippage(quotedAmount, slippage),
               signer,
               onHash: (value) => {
@@ -318,6 +364,10 @@ export function SwapCard({
         actualIn = isBuy ? res.trade.xlm : res.trade.tokens
         received = isBuy ? res.trade.tokens : res.trade.xlm
         didGraduate = res.trade.graduated
+        if (isBuy) {
+          const totalFee = res.trade.treasury_fee + res.trade.floor_bonus
+          netToCurve = res.trade.xlm > totalFee ? res.trade.xlm - totalFee : 0n
+        }
       } else {
         const amounts = isBuy
           ? await swapXlmForToken({
@@ -343,7 +393,58 @@ export function SwapCard({
 
       const inFormatted = formatAmount(actualIn, inputDecimals)
       const outFormatted = formatAmount(received, outputDecimals)
-      setSwapped({ direction, in: actualIn, out: received, hash })
+
+      let celebration: CurveRewardCelebration | undefined
+      if (isBondingCurve && isBuy && preCurve) {
+        const eligible = preCurve.burn_vault_remaining === 0n
+        const postNetXlm = didGraduate
+          ? CURVE_REAL_XLM_GOAL_STROOPS
+          : preCurve.curve_xlm_net + netToCurve
+        const wonSpark =
+          eligible &&
+          preCurve.burn_milestone_stage < 1 &&
+          postNetXlm >= STAGE_1_XLM_STROOPS
+        const wonCrown =
+          eligible &&
+          preCurve.burn_milestone_stage < 2 &&
+          postNetXlm >= STAGE_2_XLM_STROOPS
+        const wonGrad = eligible && didGraduate
+        const rewardTokens =
+          (wonSpark ? SPARK_JACKPOT_TOKENS : 0) +
+          (wonCrown ? CROWN_JACKPOT_TOKENS : 0) +
+          (wonGrad ? GRADUATION_JACKPOT_TOKENS : 0)
+
+        if (rewardTokens > 0 || didGraduate) {
+          const reasonTitle = didGraduate
+            ? `🎓 Graduated $${tokenSymbol} to Soroswap DEX!`
+            : wonSpark && wonCrown
+              ? '⚡👑 Double Checkpoint Breakout!'
+              : wonCrown
+                ? '👑 500 XLM King Crown Claimed!'
+                : '⚡ 250 XLM Spark Checkpoint Broken!'
+          const reasonDetail = didGraduate
+            ? `Your ${inFormatted} XLM buy completed the 1,000 XLM bonding curve goal, unlocked Soroswap AMM trading + 7-Year LP Lock, and won +${rewardTokens.toLocaleString('en-US')} $${tokenSymbol} on-chain!`
+            : wonSpark && wonCrown
+              ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} across BOTH 250 XLM (+5K) and 500 XLM (+10K) checkpoints, crowning it King of the Hill!`
+              : wonCrown
+                ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 500 XLM (50% curve), crowning it King of the Hill with +${CROWN_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} bonus!`
+                : `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 250 XLM (25% curve), earning the +${SPARK_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} Spark Bonus!`
+          celebration = {
+            graduated: didGraduate,
+            rewardTokens,
+            boughtTokensFormatted: outFormatted,
+            spentXlmFormatted: inFormatted,
+            wonSpark,
+            wonCrown,
+            wonGrad,
+            reasonTitle,
+            reasonDetail,
+            txHash: hash,
+          }
+        }
+      }
+
+      setSwapped({ direction, in: actualIn, out: received, hash, celebration })
       setAmount('')
       recordActivity({
         kind: 'swap',
@@ -358,12 +459,14 @@ export function SwapCard({
         hash,
       })
       toast.success(
-        didGraduate
-          ? '🎓 Graduated to Soroswap & Swap Completed!'
+        celebration
+          ? celebration.graduated
+            ? `🎓 Graduated to Soroswap & Won +${celebration.rewardTokens.toLocaleString('en-US')} $${tokenSymbol}!`
+            : `🎁 Won +${celebration.rewardTokens.toLocaleString('en-US')} $${tokenSymbol} Bonus!`
           : 'Swap completed',
         {
-          message: didGraduate
-            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} · Soroswap pool live & LP locked 7 years!`
+          message: celebration
+            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} + ${celebration.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} reward`
             : `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol}`,
           hash,
         },
@@ -401,7 +504,7 @@ export function SwapCard({
         explorerUrl: hash ? explorerTxUrl(hash) : undefined,
       })
       if (hash) void notifyTelegramPulse(hash)
-      onSwapped?.()
+      onSwapped?.(didGraduate, celebration)
       triggerTelegramHaptic('success')
       await Promise.all([
         queryClient.invalidateQueries({
@@ -555,7 +658,7 @@ export function SwapCard({
               {amount ? (
                 <button
                   type="button"
-                  onClick={() => setAmount('')}
+                  onClick={() => updateBuyOrSellAmount('')}
                   className="text-xs text-slate-400 hover:text-slate-200 underline"
                 >
                   Clear
@@ -566,16 +669,18 @@ export function SwapCard({
           <input
             className={`${inputClass} mt-1`}
             value={amount}
-            onChange={(e) => {
-              setAmount(e.target.value)
-              setConfirmHighRisk(false)
-            }}
+            onChange={(e) => updateBuyOrSellAmount(e.target.value)}
             placeholder={isBuy ? 'e.g. 10' : 'e.g. 500000'}
             inputMode="decimal"
           />
+          {cappedNotice && maxBuyStroops !== null ? (
+            <p className="mt-1 text-[11px] font-medium text-amber-300">
+              Capped to {formatAmount(maxBuyStroops, XLM_DECIMALS)} XLM (exact remaining amount to graduate &amp; win +{GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} ${tokenSymbol}).
+            </p>
+          ) : null}
         </label>
 
-        {/* Quick Amount Chips — Buy uses fixed safe XLM presets (no MAX button to prevent draining gas wallet) */}
+        {/* Quick Amount Chips — Buy uses safe XLM presets + exact Graduation cap chip */}
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
           <span>
             {isBuy ? 'Balance' : 'Your Token'}:{' '}
@@ -588,17 +693,57 @@ export function SwapCard({
 
           <div className="flex flex-wrap gap-1.5">
             {isBuy ? (
-              QUICK_XLM_AMOUNTS.map((quickXlm) => (
-                <button
-                  key={quickXlm}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => setAmount(quickXlm)}
-                  className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950/30 transition-colors"
-                >
-                  {quickXlm} XLM
-                </button>
-              ))
+              <>
+                {QUICK_XLM_AMOUNTS.map((quickXlm) => (
+                  <button
+                    key={quickXlm}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => updateBuyOrSellAmount(quickXlm)}
+                    className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-emerald-300 hover:border-emerald-500 hover:bg-emerald-950/30 transition-colors"
+                  >
+                    {quickXlm} XLM
+                  </button>
+                ))}
+                {nextCheckpoint &&
+                nextCheckpoint.targetXlm < GRADUATION_TARGET_XLM &&
+                nextCheckpoint.grossXlmNeededStroops > 0n ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setCappedNotice(false)
+                      setAmount(
+                        formatAmount(nextCheckpoint.grossXlmNeededStroops, XLM_DECIMALS),
+                      )
+                    }}
+                    className="inline-flex min-h-[34px] items-center rounded-lg border border-sky-400/50 bg-sky-500/15 px-2.5 py-1 text-xs font-bold text-sky-200 hover:bg-sky-500/25 transition-colors"
+                    title={`Break ${nextCheckpoint.targetXlm} XLM checkpoint & win +${nextCheckpoint.rewardTokens.toLocaleString('en-US')} ${tokenSymbol}`}
+                  >
+                    {nextCheckpoint.targetXlm === 250 ? '⚡' : '👑'} Win +
+                    {(nextCheckpoint.rewardTokens / 1000).toFixed(0)}K at{' '}
+                    {nextCheckpoint.targetXlm} XLM (
+                    {Number(
+                      formatAmount(nextCheckpoint.grossXlmNeededStroops, XLM_DECIMALS),
+                    ).toFixed(1)}{' '}
+                    XLM)
+                  </button>
+                ) : null}
+                {maxBuyStroops !== null && maxBuyStroops > 0n ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setCappedNotice(false)
+                      setAmount(formatAmount(maxBuyStroops, XLM_DECIMALS))
+                    }}
+                    className="inline-flex min-h-[34px] items-center rounded-lg border border-amber-500/50 bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-300 hover:bg-amber-500/25 transition-colors"
+                    title={`Buy exact remaining curve & win +${GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} ${tokenSymbol} jackpot`}
+                  >
+                    🎓 Graduate +25K ({Number(formatAmount(maxBuyStroops, XLM_DECIMALS)).toFixed(1)} XLM)
+                  </button>
+                ) : null}
+              </>
             ) : (
               AMOUNT_PERCENTS.map((pct) => {
                 const slice =
@@ -610,7 +755,7 @@ export function SwapCard({
                     disabled={sellMaxBalance === undefined || sellMaxBalance <= 0n || busy}
                     onClick={() => {
                       if (slice > 0n) {
-                        setAmount(formatAmount(slice, inputDecimals))
+                        updateBuyOrSellAmount(formatAmount(slice, inputDecimals))
                       }
                     }}
                     className="inline-flex min-h-[34px] items-center rounded-lg border border-slate-800 bg-slate-950/80 px-2.5 py-1 text-xs font-semibold text-rose-300 hover:border-rose-500 hover:bg-rose-950/30 transition-colors disabled:opacity-50"
@@ -724,21 +869,58 @@ export function SwapCard({
                   </div>
 
                   {impact !== null && impact >= 0.1 ? (
-                    <p className={`text-xs ${impactClass(impact)}`}>
-                      Price move: ~{impact.toFixed(impact >= 1 ? 1 : 2)}% with this order size.
+                    <p className={`text-xs ${isBuy ? 'text-emerald-300' : impactClass(impact)}`}>
+                      {isBuy
+                        ? `Curve lift: +${impact.toFixed(impact >= 1 ? 1 : 2)}% price boost from this buy.`
+                        : `Sell impact: ~${impact.toFixed(impact >= 1 ? 1 : 2)}% on pool price.`}
                     </p>
                   ) : null}
 
-                  {isBondingCurve && curveBuyQuote?.will_graduate ? (
-                    <div className="mt-1 rounded-lg border border-emerald-500/50 bg-emerald-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200 space-y-0.5">
-                      <div>🎓 This buy graduates ${tokenSymbol} to Soroswap DEX!</div>
-                      {effectiveAmountIn < amountIn ? (
-                        <div className="font-mono text-[11px] text-emerald-300">
-                          Actual XLM charged: {formatAmount(effectiveAmountIn, XLM_DECIMALS)} XLM (excess unspent)
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
+                  {(() => {
+                    if (!isBondingCurve || !curve.data || !curveBuyQuote) return null
+                    const postNetXlm =
+                      curve.data.curve_xlm_net + curveBuyQuote.net_xlm_to_curve
+                    const eligibleCheckpoints = curve.data.burn_vault_remaining === 0n
+                    const wonSpark =
+                      eligibleCheckpoints &&
+                      curve.data.burn_milestone_stage < 1 &&
+                      postNetXlm >= STAGE_1_XLM_STROOPS
+                    const wonCrown =
+                      eligibleCheckpoints &&
+                      curve.data.burn_milestone_stage < 2 &&
+                      postNetXlm >= STAGE_2_XLM_STROOPS
+                    const wonGrad = eligibleCheckpoints && curveBuyQuote.will_graduate
+                    const totalBonus =
+                      (wonSpark ? SPARK_JACKPOT_TOKENS : 0) +
+                      (wonCrown ? CROWN_JACKPOT_TOKENS : 0) +
+                      (wonGrad ? GRADUATION_JACKPOT_TOKENS : 0)
+                    if (totalBonus <= 0 && !curveBuyQuote.will_graduate) return null
+                    return (
+                      <div className="mt-1 rounded-lg border border-amber-400/50 bg-gradient-to-r from-emerald-950/40 to-amber-950/30 px-2.5 py-2 text-xs font-semibold text-emerald-200 space-y-0.5">
+                        {curveBuyQuote.will_graduate ? (
+                          <div>
+                            🎓 This buy graduates ${tokenSymbol} to Soroswap DEX &amp; wins{' '}
+                            <span className="text-amber-300">
+                              +{totalBonus.toLocaleString('en-US')} ${tokenSymbol} Jackpot!
+                            </span>
+                          </div>
+                        ) : (
+                          <div>
+                            🎯 Checkpoint unlocked! This buy wins{' '}
+                            <span className="text-amber-300">
+                              +{totalBonus.toLocaleString('en-US')} ${tokenSymbol} bonus
+                            </span>{' '}
+                            on-chain!
+                          </div>
+                        )}
+                        {effectiveAmountIn < amountIn ? (
+                          <div className="font-mono text-[11px] text-emerald-300">
+                            Exact XLM needed: {formatAmount(effectiveAmountIn, XLM_DECIMALS)} XLM
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
                 </>
               ) : (
                 <p className="text-slate-500 animate-pulse">Calculating live on-chain quote…</p>
@@ -750,10 +932,7 @@ export function SwapCard({
         <div>
           {confirmHighRisk ? (
             <p className="mb-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs font-medium text-amber-200">
-              {impact !== null && impact >= 15
-                ? `Large price move (~${impact.toFixed(1)}%).`
-                : `Wide slippage (${slippage}%).`}{' '}
-              Tap once more to confirm.
+              Wide sell slippage ({slippage}%). Tap once more to confirm.
             </p>
           ) : null}
           {!publicKey ? (
@@ -798,13 +977,13 @@ export function SwapCard({
                     : `💰 Quick Sell ${tokenSymbol} for XLM`}
             </button>
           )}
-          <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
+          <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
             <span>Slippage: {slippage}%</span>
             <span className="text-emerald-400 font-medium">
-              {isBondingCurve
+              {isBondingCurve && stageInfo
                 ? isBuy
-                  ? '0.80% flat buy (0.50% Treasury + 0.30% LP floor)'
-                  : `${(Number(curveFeeBps) / 100).toFixed(2)}% sell (0.50% Treasury + LP/buyback; drops to 1.50% ≥50%)`
+                  ? `${stageInfo.buyFeePercent}% buy · ${stageInfo.badge}`
+                  : `${stageInfo.sellFeePercent}% sell (${stageInfo.sellFloorPercent}% stays in LP/buyback floor)`
                 : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% DEX LP fee · 0% protocol fee`}
             </span>
           </div>
@@ -834,7 +1013,7 @@ export function SwapCard({
       ) : null}
 
       {swapped ? (
-        <div className="mt-4 rounded-lg border border-emerald-900 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-300">
+        <div className="mt-4 rounded-xl border border-emerald-900 bg-emerald-950/40 px-3.5 py-2.5 text-sm text-emerald-300 space-y-2">
           <p>
             Swap executed ✓{' '}
             {formatAmount(
@@ -848,6 +1027,31 @@ export function SwapCard({
             )}{' '}
             {swapped.direction === 'buy' ? tokenSymbol : 'XLM'}
           </p>
+          {swapped.celebration && swapped.celebration.rewardTokens > 0 ? (
+            <div className="flex items-center gap-2.5 rounded-xl border border-amber-400/50 bg-amber-950/35 px-3 py-2 text-xs">
+              <div className="animate-mascot-wave relative shrink-0 flex items-end">
+                <img
+                  src="/badges/pioneer.png"
+                  alt="Reward Mascot"
+                  width={34}
+                  height={34}
+                  className="h-8 w-8 rounded-lg border border-amber-400/60 bg-slate-950"
+                  style={{ imageRendering: 'pixelated' }}
+                />
+                <span aria-hidden="true" className="animate-flag-flutter -ml-1.5 text-sm">
+                  🏁
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="font-black text-amber-300">
+                  +{swapped.celebration.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} Reward!
+                </p>
+                <p className="text-[11px] text-slate-200 truncate">
+                  {swapped.celebration.reasonTitle}
+                </p>
+              </div>
+            </div>
+          ) : null}
           {swapped.hash ? (
             <a
               href={explorerTxUrl(swapped.hash)}

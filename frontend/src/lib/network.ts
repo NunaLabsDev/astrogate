@@ -55,7 +55,7 @@ const NETWORK_PRESETS: Record<
     launchpadContractId:
       'CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK',
     launchpadWasmHash:
-      '9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7',
+      'fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1',
     sorobitsContractId:
       'CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3',
     sorobitsWasmHash:
@@ -172,6 +172,36 @@ export const DEFAULT_SOROBAN_INCLUSION_FEE =
   NETWORK_NAME === 'mainnet' ? '10000' : '1000'
 
 /**
+ * Active Launchpad contract allowlist for the selected network.
+ * Future Mainnet contract migrations can list read-only legacy Launchpad IDs via
+ * `VITE_LEGACY_LAUNCHPAD_CONTRACTS` without mixing external unrelated pairs.
+ */
+export const SUPPORTED_LAUNCHPAD_CONTRACTS: string[] = Array.from(
+  new Set(
+    [
+      LAUNCHPAD_CONTRACT_ID,
+      ...((import.meta.env.VITE_LEGACY_LAUNCHPAD_CONTRACTS as string | undefined)
+        ?.split(',')
+        .map((id) => id.trim())
+        .filter(Boolean) ?? []),
+    ].filter(Boolean),
+  ),
+)
+
+/**
+ * Deterministic contract-generation suffix for contract-derived caches (IndexedDB,
+ * reserve snapshots, creations, activity). Changing Launchpad WASM or contract IDs
+ * cleanly isolates stale test data while preserving user wallets (`networkStorageKey`).
+ */
+export const CONTRACT_GENERATION_TAG = [
+  LAUNCHPAD_CONTRACT_ID.slice(0, 6) || 'lp',
+  LAUNCHPAD_WASM_HASH.slice(0, 6) || 'v44',
+  SOROBITS_CONTRACT_ID.slice(0, 6) || 'sb',
+]
+  .join('_')
+  .toLowerCase()
+
+/**
  * Scopes persistent storage keys by Stellar network so testnet and mainnet
  * state never collide on the same origin while keeping existing testnet keys intact.
  */
@@ -180,6 +210,18 @@ export function networkStorageKey(baseKey: string): string {
   return baseKey.startsWith('astrogate.')
     ? baseKey.replace(/^astrogate\./, `astrogate.${NETWORK_NAME}.`)
     : `${NETWORK_NAME}.${baseKey}`
+}
+
+/**
+ * Scopes contract-dependent caches (token feed, snapshots, creations, activity)
+ * by active network AND contract generation so legacy deployments never pollute UI.
+ * Never use this for Hot Wallet keys (use `networkStorageKey`).
+ */
+export function contractStorageKey(baseKey: string): string {
+  const scopedNetwork = networkStorageKey(baseKey)
+  return scopedNetwork.startsWith('astrogate.')
+    ? scopedNetwork.replace(/^astrogate\./, `astrogate.${CONTRACT_GENERATION_TAG}.`)
+    : `${CONTRACT_GENERATION_TAG}.${scopedNetwork}`
 }
 
 /**

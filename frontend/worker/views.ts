@@ -212,9 +212,9 @@ export function buildWelcomeView(
     `🌊🚀 <b>AstroGate</b> · <code>Stellar Testnet</code>`,
     `${greet}`,
     ``,
-    `<blockquote>Fair-Flywheel v4.3 · 10M fixed supply · 7-year LP lock on Soroswap</blockquote>`,
+    `<blockquote>Fair-Flywheel v4.4 · 10M fixed supply · 40K Checkpoint Jackpots · 7Y LP lock</blockquote>`,
     ``,
-    `⚡ <b>Fair curve:</b> <code>0.80%</code> flat buy fee (zero whale buy penalty)`,
+    `⚡ <b>3-Stage Curve:</b> <code>0.30% → 0.50% → 0.25%</code> buy · +5K / +10K / +25K prizes`,
     `🔥 <b>Real flywheel:</b> Auto DEX Buyback &amp; Burn + Burn-to-Chat`,
     `🧬 <b>Sorobits NFTs:</b> 100% on-chain 32×32 genomic SVG art (SEP-50)`,
     `🔐 <b>Self-custody:</b> Encrypted wallet synced with Telegram CloudStorage`,
@@ -363,7 +363,7 @@ export function buildMarketView(
     rows.push(
       rpcFailed
         ? '⚠️ Soroban RPC timed out right now. Tap Refresh or open the Mini App.'
-        : '🚀 No active curves found yet. Launch the first v4.3 token!',
+        : '🚀 No active curves found yet. Launch the first v4.4 token!',
     )
   } else {
     for (const item of items.slice(0, 4)) {
@@ -454,7 +454,7 @@ export function buildLaunchView(
     `<blockquote>Fixed <b>10,000,000</b> supply · Verified SEP-41 · Renounced ownership</blockquote>`,
     ``,
     `💰 <b>Cost:</b> <code>7 XLM</code> protocol fee + <code>2+ XLM</code> initial seed buy`,
-    `📊 <b>v4.3 Split:</b> <code>66%</code> Curve · <code>33%</code> DEX · <code>0.3%</code> 15d Vest · <code>0.7%</code> Dev`,
+    `📊 <b>v4.4 Split:</b> <code>66%</code> Curve · <code>33%</code> DEX · <code>0.3%</code> Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
     `🔒 <b>Anti-Rug:</b> Creator seed locked until <code>1,000 XLM</code> graduation`,
     `🎓 <b>Graduation:</b> Auto Soroswap pool with <b>LP locked 7 years on-chain</b>`,
     directDeepLink
@@ -481,7 +481,7 @@ export function buildLaunchView(
           ),
         ],
         [
-          cbBtn('⚙️ v4.3 Rules', 'nav:v42:e'),
+          cbBtn('⚙️ v4.4 Rules', 'nav:v42:e'),
           cbBtn('⬅️ Home', 'nav:home:e'),
         ],
       ],
@@ -597,15 +597,15 @@ export function buildV42RulesView(
   hasMainApp = false,
 ): BotRenderedView {
   const text = [
-    `⚙️ <b>Fair-Flywheel v4.3 · On-Chain Mechanics</b>`,
+    `⚙️ <b>Fair-Flywheel v4.4 · On-Chain Mechanics</b>`,
     ``,
-    `<b>1 · Fair Bonding Curve</b>`,
+    `<b>1 · 3-Stage Bonding Curve &amp; 40K Checkpoints</b>`,
     `• Virtual depth <code>1,000 vXLM → 1,000 XLM</code> goal (<code>4.00x</code> curve, <code>0.00%</code> cliff at grad)`,
-    `• Buys: <code>0.80%</code> flat fee (zero whale buy penalty)`,
-    `• Anti-sniper curve sells: <code>2.50%</code> (&lt;50% goal) / <code>1.50%</code> (&ge;50%) → LP floor &amp; buyback`,
+    `• Buys: <code>0.30%</code> (&lt;250 XLM → <code>+5K</code>) · <code>0.50%</code> (250–500 → <code>+10K</code>) · <code>0.25%</code> (500–1K → <code>+25K</code>)`,
+    `• Sells: <code>1.20%</code> / <code>1.80%</code> / <code>1.50%</code> → LP floor &amp; DEX buyback`,
     ``,
     `<b>2 · Supply &amp; 7Y LP Lock</b>`,
-    `• <code>66%</code> Curve · <code>33%</code> DEX (7Y LP Lock) · <code>0.3%</code> 15d Vest · <code>0.7%</code> Dev`,
+    `• <code>66%</code> Curve · <code>33%</code> DEX (7Y LP Lock) · <code>0.3%</code> 15d Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
     `• <code>60%</code> of floor fee surplus powers permissionless Soroswap <b>Buyback &amp; Burn</b>`,
     `• Pre-grad P2P transfer lock closes <code>PairAlreadySeeded</code> DEX frontrunning`,
     ``,
@@ -622,7 +622,7 @@ export function buildV42RulesView(
       inline_keyboard: [
         [
           miniAppBtn(
-            '🚀 Launch on v4.3',
+            '🚀 Launch on v4.4',
             '/create',
             baseUrl,
             inGroup,
@@ -775,7 +775,7 @@ export function buildTokenInspectorView(
         `📈 <b>Bonding Curve:</b> <code>${progressBar(pct, 10)}</code> <b>${pct.toFixed(1)}%</b>`,
         `💎 Vault: <b>${formatXlm(data.curve.curveXlmNet, 2)} / 1,000 XLM</b>`,
         `🪙 Sold: <b>${formatTokensCompact(data.curve.tokensSold, data.decimals)}</b> (${soldPct.toFixed(1)}% curve)`,
-        `⚡ Buy fee: <code>0.80%</code> flat`,
+        `⚡ Curve buy fees: <code>0.30% / 0.50% / 0.25%</code> · +40K Jackpots`,
       )
     }
     lines.push(`👤 Creator: <code>${shortAddr(data.curve.creator)}</code>`)
@@ -1424,7 +1424,7 @@ export function buildGroupWelcomeView(
     text: [
       `👋 <b>Welcome to AstroGate Community, ${safeName}!</b>`,
       ``,
-      `• 🚀 Launch &amp; trade Fair-Flywheel v4.3 tokens on Stellar Soroban`,
+      `• 🚀 Launch &amp; trade Fair-Flywheel v4.4 tokens on Stellar Soroban`,
       `• 💬 Paste any <code>$TICKER</code>, <code>CA…</code>, or <code>GA…</code> — or tag <code>@${botUsername}</code> for help`,
       `• 📡 Automated live alerts stream cleanly in @AstroGateFeed`,
       `• 🛡️ Never share your <code>S…</code> secret seed in any chat`,

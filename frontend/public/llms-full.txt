@@ -1,6 +1,6 @@
 # AstroGate Protocol — Full AI & Auditor Specification (`llms-full.txt`)
 
-> Decentralized Fair-Flywheel v4.3 Token Launchpad, Soroswap AMM Studio, Sorobits (SEP-50) 100% On-Chain Genomic NFTs, Read-Only REST API, MCP Server & Telegram Mini App on Stellar / Soroban.
+> Decentralized Fair-Flywheel v4.4 Token Launchpad, Soroswap AMM Studio, Sorobits (SEP-50) 100% On-Chain Genomic NFTs, Read-Only REST API, MCP Server & Telegram Mini App on Stellar / Soroban.
 
 - **Repository**: `https://github.com/NunaLabsDev/astrogate`
 - **Live Web / Mini App (Testnet)**: `https://astrogate.pages.dev`
@@ -17,8 +17,8 @@
 - **Network**: Stellar Testnet (`Test SDF Network ; September 2015`)
 - **Primary Soroban RPC**: `https://soroban-testnet.stellar.org` (fallback: `https://rpc-testnet.stellar.org`)
 - **Horizon API**: `https://horizon-testnet.stellar.org`
-- **Launchpad Contract (v4.3)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
-  - WASM Hash: `9cb1b5aaad6cc1522fbdb0eff73504e8979826f1c72fd021e124a7dc27ccaee7`
+- **Launchpad Contract (v4.4)**: `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+  - WASM Hash: `fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1`
 - **SEP-41 Token Template WASM Hash (v4.2)**: `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6`
 - **Flagship Token ($ASTRO)**: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
 - **ASTRO / XLM Soroswap Pair**: `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP`
@@ -32,7 +32,7 @@
 
 ---
 
-## 2. Fair-Flywheel v4.3 Constants & Math Parity
+## 2. Fair-Flywheel v4.4 Constants & Math Parity
 
 Source of truth: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/curve-math.ts`.
 
@@ -43,11 +43,12 @@ Source of truth: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/cur
   - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM` start -> `1,000 real XLM` graduation target, `13,200,000` virtual token start; `4.00x` curve range).
   - **33.0% (`3,300,000`)** Soroswap DEX Pool Reserve seeded at graduation alongside `>= 1,000 XLM` (`0%` price cliff), with **100% of minted LP time-locked inside the Launchpad contract for 7 years (`reclaim_expired_lp` thereafter)**.
   - **0.3% (`30,000`)** Post-graduation creator vesting (`5` tranches of `6,000` every `3 days` = `15 days` total via `claim_creator_vesting`).
-  - **0.7% (`70,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` atomically upon graduation.
-- **Bonding Curve Fees**:
-  - **Buy**: Flat `80 bps` (`0.80%` = `50 bps` treasury + `30 bps` pool/buyback floor).
-  - **Sell (< 50% curve progress)**: `250 bps` (`2.50%` = `50 bps` treasury + `200 bps` floor).
-  - **Sell (>= 50% curve progress)**: `150 bps` (`1.50%` = `50 bps` treasury + `100 bps` floor).
+  - **0.40% (`40,000`)** 3-Checkpoint Jackpot Ladder awarded automatically on-chain (`+5,000` Spark at `250 XLM`, `+10,000` King Crown at `500 XLM`, `+25,000` Graduation Jackpot at `1,000 XLM`).
+  - **0.30% (`30,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` atomically upon graduation.
+- **3-Stage Bonding Curve Fees**:
+  - **Stage 1 (`< 250 XLM`, 0–25%)**: Buy `30 bps` (`0.30%` = `20 bps` treasury + `10 bps` floor), Sell `120 bps` (`1.20%` = `30 bps` treasury + `90 bps` floor).
+  - **Stage 2 (`250–500 XLM`, 25–50%)**: Buy `50 bps` (`0.50%` = `30 bps` treasury + `20 bps` floor), Sell `180 bps` (`1.80%` = `40 bps` treasury + `140 bps` floor).
+  - **Stage 3 (`500–1,000 XLM`, 50–100%)**: Buy `25 bps` (`0.25%` = `15 bps` treasury + `10 bps` floor), Sell `150 bps` (`1.50%` = `30 bps` treasury + `120 bps` floor).
 - **Organic Deflation & Anti-MEV DEX Buyback (`trigger_buyback_burn`)**:
   - Permissionless swap of accumulated `buyback_xlm_reserve` on Soroswap followed by `token.burn()`.
   - Capped at `50 bps` (`0.50%`) of pool XLM reserve per call with a `300s` per-token cooldown (`BuybackLastTs`).
@@ -89,7 +90,7 @@ Source of truth: `contracts/launchpad/src/contract.rs` and `frontend/src/lib/cur
 ## 5. Public REST API & MCP Integration
 
 - **REST Endpoints**:
-  - `GET /api/v1/health`: Network config, live contracts, Fair-Flywheel v4.3 parameters, Sorobits limits.
+  - `GET /api/v1/health`: Network config, live contracts, Fair-Flywheel v4.4 parameters, Sorobits limits.
   - `GET /api/v1/tokens`: Active bonding curves and graduated Soroswap pairs with XLM reserves.
   - `GET /api/v1/tokens/:id`: Full token metadata, `CurveState`, `kingShout`, and `recentShouts`.
   - `GET /api/v1/tokens/:id/audit`: Automated on-chain verification (`ownership_renounced`, `launchpad_verified`, `curve_or_lp_lock`, `proof_of_burn_vault`).

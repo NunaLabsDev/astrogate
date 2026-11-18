@@ -9,6 +9,7 @@ import { SplashScreen } from './components/SplashScreen'
 import { ErrorBoundary, PageErrorFallback } from './components/ErrorBoundary'
 import { HomePage } from './pages/HomePage'
 import { MarketPage } from './pages/MarketPage'
+import { DexPage } from './pages/DexPage'
 import { TokenPage } from './pages/TokenPage'
 import { PortfolioPage } from './pages/PortfolioPage'
 import { SorobitsPage } from './pages/SorobitsPage'
@@ -26,6 +27,7 @@ import { useWallet } from './store/wallet'
 
 const NAV_ITEMS = [
   { to: '/', label: 'Market', icon: '🔥' },
+  { to: '/dex', label: 'DEX', icon: '🎓' },
   { to: '/sorobits', label: 'Sorobits', icon: '🧬' },
   { to: '/create', label: 'Launch', icon: '🚀' },
   { to: '/portfolio', label: 'Portfolio', icon: '👛' },
@@ -41,7 +43,7 @@ function navLinkClass(active: boolean) {
 }
 
 function mobileTabClass(active: boolean) {
-  return `flex flex-1 min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1 text-xs font-semibold transition-colors ${
+  return `flex flex-1 min-h-[46px] flex-col items-center justify-center gap-0.5 rounded-2xl px-1 py-1 text-[11px] font-semibold transition-colors ${
     active
       ? 'bg-sky-500/15 text-sky-300 border border-sky-400/30'
       : 'text-slate-400 hover:text-slate-200 border border-transparent'
@@ -100,6 +102,8 @@ export default function App() {
           void navigate(`/token/${startParam}`, { replace: true })
         } else if (startParam === 'market') {
           void navigate('/market', { replace: true })
+        } else if (startParam === 'dex' || startParam === 'graduated') {
+          void navigate('/dex', { replace: true })
         } else if (startParam === 'create' || startParam === 'launch') {
           void navigate('/create', { replace: true })
         } else if (startParam === 'portfolio' || startParam === 'wallet') {
@@ -180,6 +184,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/market" element={<MarketPage />} />
+            <Route path="/dex" element={<DexPage />} />
             <Route path="/token/:id" element={<TokenPage />} />
             <Route path="/sorobits" element={<SorobitsPage />} />
             <Route path="/portfolio" element={<PortfolioPage />} />

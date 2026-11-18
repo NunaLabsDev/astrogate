@@ -36,7 +36,7 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
     emoji: '🚀',
     title: 'Fair Launcher',
     subtitle: 'Sorobits · 2014 Rocket Delta',
-    criteria: 'Launch a Fair-Flywheel v4.3 token on-chain.',
+    criteria: 'Launch a Fair-Flywheel v4.4 token on-chain.',
     imagePath: '/badges/launcher.png',
     tier: 'Silver',
   },

@@ -1,12 +1,12 @@
-//! AstroGate Fair-Flywheel Launchpad Contract (v4.3).
+//! AstroGate Fair-Flywheel Launchpad Contract (v4.4).
 //!
 //! Guarantees fair distribution (`1,000 vXLM -> 1,000 real XLM` goal, `4.00x` curve,
-//! `66%` curve / `33%` DEX / `0.3%` 15-day vesting / `0.7%` ecosystem),
-//! flat `0.80%` curve buys (no whale buy penalty), asymmetric anti-sniper curve sells
-//! (`2.50%` <50% curve / `1.50%` >=50% feeding LP & post-grad Soroswap Buyback-and-Burn),
-//! transfer-locked curve tokens until atomic `0.00%` cliff Soroswap graduation with 7-year
-//! contract LP lock (`reclaim_expired_lp`), creator initial-seed lock until graduation,
-//! and decaying Burn-to-Chat King Shout.
+//! `66%` curve / `33%` DEX / `0.30%` 15-day vesting / `0.40%` 3-checkpoint jackpots / `0.30%` ecosystem),
+//! softened 3-stage curve fees (`0.30% / 0.50% / 0.25%` buys, `1.20% / 1.80% / 1.50%` sells feeding
+//! LP & post-grad Soroswap Buyback-and-Burn), 3-Checkpoint Jackpot Ladder (`+5,000` Spark at `250 XLM`,
+//! `+10,000` King Crown at `500 XLM`, `+25,000` Graduation Jackpot at `1,000 XLM`), transfer-locked curve
+//! tokens until atomic `0.00%` cliff Soroswap graduation with 7-year contract LP lock (`reclaim_expired_lp`),
+//! creator initial-seed lock until graduation, and decaying Burn-to-Chat King Shout.
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address,
@@ -344,14 +344,17 @@ const MIN_XLM_LP_STROOPS: i128 = 20_000_000;
 /// Fixed protocol creation fee (`7 XLM`) transferred directly to treasury on `launch_fair`.
 const CREATION_FEE_STROOPS: i128 = 7 * STROOPS_PER_UNIT;
 
-/// Fair-Flywheel v4.3 constants (10M supply, 7 decimals, 66 / 33 / 0.3 / 0.7 + 7Y LP Lock).
+/// Fair-Flywheel v4.4 constants (10M supply, 7 decimals, 66 / 33 / 0.30 / 0.40 jackpots / 0.30 dev + 7Y LP Lock).
 const FAIR_DECIMALS: u32 = 7;
 const FAIR_INITIAL_SUPPLY: i128 = 10_000_000 * STROOPS_PER_UNIT; // 100_000_000_000_000
-const CURVE_TOKENS_ALLOC: i128 = 6_600_000 * STROOPS_PER_UNIT; // 66.0%
-const DEX_TOKENS_ALLOC: i128 = 3_300_000 * STROOPS_PER_UNIT; // 33.0%
+const CURVE_TOKENS_ALLOC: i128 = 6_600_000 * STROOPS_PER_UNIT; // 66.00%
+const DEX_TOKENS_ALLOC: i128 = 3_300_000 * STROOPS_PER_UNIT; // 33.00%
 const BURN_VAULT_TOKENS_ALLOC: i128 = 0; // 0.0% (no artificial burn vault; organic Buyback & Shout burns only)
-const CREATOR_VESTING_ALLOC: i128 = 30_000 * STROOPS_PER_UNIT; // 0.3% (5 x 6,000 over 15d post-grad)
-const DEV_ECOSYSTEM_ALLOC: i128 = 70_000 * STROOPS_PER_UNIT; // 0.7% (transferred to treasury at graduation)
+const CREATOR_VESTING_ALLOC: i128 = 30_000 * STROOPS_PER_UNIT; // 0.30% (5 x 6,000 over 15d post-grad)
+const SPARK_JACKPOT_ALLOC: i128 = 5_000 * STROOPS_PER_UNIT; // 0.05% (250 XLM checkpoint bonus)
+const CROWN_JACKPOT_ALLOC: i128 = 10_000 * STROOPS_PER_UNIT; // 0.10% (500 XLM King Crown checkpoint bonus)
+const GRADUATION_JACKPOT_ALLOC: i128 = 25_000 * STROOPS_PER_UNIT; // 0.25% (1,000 XLM Graduation Jackpot)
+const DEV_ECOSYSTEM_ALLOC: i128 = 30_000 * STROOPS_PER_UNIT; // 0.30% (transferred to treasury at graduation)
 
 /// Virtual LP parameters (`1,000 vXLM -> 1,000 real XLM goal`, `4.00x` curve, `0.00%` graduation cliff).
 const CURVE_VIRTUAL_XLM_START: i128 = 1_000 * STROOPS_PER_UNIT; // 10_000_000_000
@@ -362,13 +365,24 @@ const CURVE_VIRTUAL_TOKEN_START: i128 = 13_200_000 * STROOPS_PER_UNIT; // 132_00
 /// Launchpad contract for 7 years before dormant pools can be reclaimed by protocol treasury.
 const LP_LOCK_DURATION_SECONDS: u64 = 7 * 365 * 86_400;
 
-/// Curve fees:
-/// - Buys (flat 0.80%): 0.50% treasury + 0.30% pool/buyback floor (zero whale penalty).
-/// - Sells (anti-sniper asymmetric): 2.50% (<50% curve) or 1.50% (>=50% curve) -> 0.50% treasury + 2.00%/1.00% floor/buyback.
-const TREASURY_FEE_BPS: i128 = 50;
-const BUY_FLOOR_FEE_BPS: i128 = 30;
-const SELL_FLOOR_EARLY_BPS: i128 = 200;
-const SELL_FLOOR_LATE_BPS: i128 = 100;
+/// 3-Stage Softened Dynamic Fees & Jackpot Checkpoints:
+/// - Stage 1 (<250 XLM, 0-25%): Buy 0.30% (20+10 bps), Sell 1.20% (30+90 bps) | Goal: +5K at 250 XLM
+/// - Stage 2 (250..500 XLM, 25-50%): Buy 0.50% (30+20 bps), Sell 1.80% (40+140 bps) | Goal: +10K at 500 XLM
+/// - Stage 3 (500..1,000 XLM, 50-100%): Buy 0.25% (15+10 bps), Sell 1.50% (30+120 bps) | Goal: +25K at 1,000 XLM
+const STAGE_1_XLM: i128 = 250 * STROOPS_PER_UNIT;
+const STAGE_2_XLM: i128 = 500 * STROOPS_PER_UNIT;
+const BUY_TREASURY_EARLY_BPS: i128 = 20;
+const BUY_FLOOR_EARLY_BPS: i128 = 10;
+const BUY_TREASURY_MID_BPS: i128 = 30;
+const BUY_FLOOR_MID_BPS: i128 = 20;
+const BUY_TREASURY_SPRINT_BPS: i128 = 15;
+const BUY_FLOOR_SPRINT_BPS: i128 = 10;
+const SELL_TREASURY_EARLY_BPS: i128 = 30;
+const SELL_FLOOR_EARLY_BPS: i128 = 90;
+const SELL_TREASURY_MID_BPS: i128 = 40;
+const SELL_FLOOR_MID_BPS: i128 = 140;
+const SELL_TREASURY_SPRINT_BPS: i128 = 30;
+const SELL_FLOOR_SPRINT_BPS: i128 = 120;
 /// 60% of surplus `floor_bonus` at graduation funds post-grad Soroswap Buyback & Burn; 40% deepens DEX LP.
 const BUYBACK_RESERVE_SHARE_BPS: i128 = 6_000;
 /// Cap each permissionless buyback chunk to <= 0.50% of pool XLM reserve per cooldown window
@@ -1646,8 +1660,31 @@ impl Launchpad {
         curve.curve_xlm_net += quote.net_xlm_to_curve;
         curve.real_xlm_vault += quote.net_xlm_to_curve + quote.floor_bonus;
         curve.tokens_sold += quote.tokens_out;
+
+        // One-time 3-Checkpoint Jackpot Ladder (+5K Spark at 250 XLM, +10K Crown at 500 XLM,
+        // +25K Graduation Jackpot at 1,000 XLM), guarded by `burn_milestone_stage` so checkpoints
+        // cannot be re-farmed across buy/sell oscillations.
+        let mut checkpoint_bonus: i128 = 0;
+        if curve.burn_vault_remaining == 0 {
+            if curve.curve_xlm_net >= STAGE_1_XLM && curve.burn_milestone_stage < 1 {
+                curve.burn_milestone_stage = 1;
+                checkpoint_bonus += SPARK_JACKPOT_ALLOC;
+            }
+            if curve.curve_xlm_net >= STAGE_2_XLM && curve.burn_milestone_stage < 2 {
+                curve.burn_milestone_stage = 2;
+                checkpoint_bonus += CROWN_JACKPOT_ALLOC;
+            }
+            if quote.will_graduate {
+                curve.burn_milestone_stage = 2;
+                checkpoint_bonus += GRADUATION_JACKPOT_ALLOC;
+            }
+        }
+
         if lock_creator_seed {
             curve.creator_seed_locked += quote.tokens_out;
+            if !quote.will_graduate {
+                curve.creator_seed_locked += checkpoint_bonus;
+            }
         }
         let pre_grad_vault = curve.real_xlm_vault;
         if quote.will_graduate {
@@ -1669,7 +1706,12 @@ impl Launchpad {
             xlm_client.transfer(&this, &treasury, &quote.treasury_fee);
         }
         if !lock_creator_seed {
-            tok_client.transfer(&this, buyer, &quote.tokens_out);
+            let immediate_tokens = if quote.will_graduate {
+                quote.tokens_out
+            } else {
+                quote.tokens_out + checkpoint_bonus
+            };
+            tok_client.transfer(&this, buyer, &immediate_tokens);
         }
 
         CurveTradeEvent {
@@ -1704,7 +1746,12 @@ impl Launchpad {
                 xlm_to_dex,
             )?;
 
-            // Release the 0.7% Developer / Protocol Ecosystem allocation directly to treasury on graduation.
+            // Reward the final graduating buyer with Graduation Jackpot (+ any unclaimed checkpoints).
+            if checkpoint_bonus > 0 {
+                tok_client.transfer(&this, buyer, &checkpoint_bonus);
+            }
+
+            // Release the 0.30% Developer / Protocol Ecosystem allocation directly to treasury on graduation.
             if DEV_ECOSYSTEM_ALLOC > 0 {
                 tok_client.transfer(&this, &treasury, &DEV_ECOSYSTEM_ALLOC);
             }
@@ -1790,23 +1837,50 @@ impl Launchpad {
         })
     }
 
-    /// Flat 0.80% buy fee (0.50% treasury + 0.30% LP/buyback floor) — zero penalty on larger buys.
-    fn fee_bps_buy() -> (i128, i128, i128) {
-        (
-            TREASURY_FEE_BPS,
-            BUY_FLOOR_FEE_BPS,
-            TREASURY_FEE_BPS + BUY_FLOOR_FEE_BPS,
-        )
+    /// 3-Stage Softened Buy Fee: 0.30% (<250 XLM), 0.50% (250..500 XLM), 0.25% (500..1,000 XLM sprint).
+    fn fee_bps_buy(curve_xlm_net: i128) -> (i128, i128, i128) {
+        if curve_xlm_net < STAGE_1_XLM {
+            (
+                BUY_TREASURY_EARLY_BPS,
+                BUY_FLOOR_EARLY_BPS,
+                BUY_TREASURY_EARLY_BPS + BUY_FLOOR_EARLY_BPS,
+            )
+        } else if curve_xlm_net < STAGE_2_XLM {
+            (
+                BUY_TREASURY_MID_BPS,
+                BUY_FLOOR_MID_BPS,
+                BUY_TREASURY_MID_BPS + BUY_FLOOR_MID_BPS,
+            )
+        } else {
+            (
+                BUY_TREASURY_SPRINT_BPS,
+                BUY_FLOOR_SPRINT_BPS,
+                BUY_TREASURY_SPRINT_BPS + BUY_FLOOR_SPRINT_BPS,
+            )
+        }
     }
 
-    /// Asymmetric anti-sniper curve sell fee: 2.50% (<50% progress) or 1.50% (>=50% progress).
+    /// 3-Stage Softened Sell Fee: 1.20% (<250 XLM), 1.80% (250..500 XLM), 1.50% (>=500 XLM).
     fn fee_bps_sell(curve_xlm_net: i128) -> (i128, i128, i128) {
-        let floor_bps = if curve_xlm_net < CURVE_REAL_XLM_GOAL / 2 {
-            SELL_FLOOR_EARLY_BPS
+        if curve_xlm_net < STAGE_1_XLM {
+            (
+                SELL_TREASURY_EARLY_BPS,
+                SELL_FLOOR_EARLY_BPS,
+                SELL_TREASURY_EARLY_BPS + SELL_FLOOR_EARLY_BPS,
+            )
+        } else if curve_xlm_net < STAGE_2_XLM {
+            (
+                SELL_TREASURY_MID_BPS,
+                SELL_FLOOR_MID_BPS,
+                SELL_TREASURY_MID_BPS + SELL_FLOOR_MID_BPS,
+            )
         } else {
-            SELL_FLOOR_LATE_BPS
-        };
-        (TREASURY_FEE_BPS, floor_bps, TREASURY_FEE_BPS + floor_bps)
+            (
+                SELL_TREASURY_SPRINT_BPS,
+                SELL_FLOOR_SPRINT_BPS,
+                SELL_TREASURY_SPRINT_BPS + SELL_FLOOR_SPRINT_BPS,
+            )
+        }
     }
 
     fn split_fee(
@@ -1833,14 +1907,14 @@ impl Launchpad {
         let remaining_to_goal = CURVE_REAL_XLM_GOAL - curve.curve_xlm_net;
         let remaining_tokens = CURVE_TOKENS_ALLOC - curve.tokens_sold;
 
-        let (t_bps, f_bps, total_bps) = Self::fee_bps_buy();
+        let (t_bps, f_bps, total_bps) = Self::fee_bps_buy(curve.curve_xlm_net);
         let (treasury_fee_full, floor_bonus_full) = Self::split_fee(max_xlm_in, t_bps, f_bps)?;
         let net_full = max_xlm_in - treasury_fee_full - floor_bonus_full;
 
         if net_full >= remaining_to_goal {
-            // Graduation reached: cap XLM charged strictly to remaining goal + proportional 0.80% fee
+            // Graduation reached: cap XLM charged strictly to remaining goal + proportional stage fee
             let net_xlm_to_curve = remaining_to_goal;
-            let (ct_bps, cf_bps, ctotal_bps) = Self::fee_bps_buy();
+            let (ct_bps, cf_bps, ctotal_bps) = Self::fee_bps_buy(curve.curve_xlm_net);
             let max_fee_room = max_xlm_in - net_xlm_to_curve;
             let denom = (BPS_DENOMINATOR - ctotal_bps) as u128;
             let ideal_gross = ((net_xlm_to_curve as u128)
