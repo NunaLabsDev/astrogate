@@ -1,0 +1,61 @@
+# AstroGate Protocol (`llms.txt`)
+> Decentralized Fair-Flywheel Token Launchpad, Soroswap AMM Interface, Sorobits SEP-50 NFTs & Telegram Mini App on Stellar / Soroban.
+
+AstroGate operates with zero custodial backend: client-encrypted native wallet signatures (`PBKDF2-SHA256` + `AES-GCM-256` vault, linked to Telegram `@username` via Ed25519 proofs with `AGVAULT1:` cross-device sync and exportable `S...` seeds) authorize all writes directly against Stellar Soroban RPC & Horizon.
+
+## Fair-Flywheel v4.4 Tokenomics
+- Standard Supply: `10,000,000` tokens (`7` decimals, `1 XLM = 10,000,000` stroops), hard-capped via OpenZeppelin `Capped`, ownership renounced atomically on launch.
+- Creation Fee: `7 XLM` fixed protocol fee + `>= 2 XLM` initial creator curve buy (locked until graduation or 7-day stalled fallback).
+- Allocation:
+  - `66.0%` (`6,600,000`) Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range; softened 3-stage buy fees `0.30% -> 0.50% -> 0.25%`, sell fees `1.20% -> 1.80% -> 1.50%`). P2P transfers locked until graduation.
+  - `33.0%` (`3,300,000`) Soroswap DEX Pool Reserve + `>= 1,000 XLM` at graduation (`0%` price cliff), with `100%` of LP tokens time-locked inside the Launchpad contract for `7 years` (`reclaim_expired_lp` thereafter).
+  - `0.3%` (`30,000`) 15-day post-graduation creator vesting (`5 × 6,000` every 3 days).
+  - `0.40%` (`40,000`) 3-Checkpoint Jackpot Ladder awarded automatically on-chain (`+5,000` Spark at `250 XLM`, `+10,000` King Crown at `500 XLM`, `+25,000` Graduation Jackpot at `1,000 XLM`).
+  - `0.30%` (`30,000`) Developer / Protocol Ecosystem allocation transferred to treasury upon graduation.
+- Organic Deflation (zero idle burn vault): `60%` of surplus curve floor fees dedicated to DEX Buyback & Burn (`trigger_buyback_burn`) + 3-tier Burn-to-Chat (`>= 50` Chat / `>= 500` Hype / `>= 5,000` King via `burn_shout`).
+
+## Core Network & Contracts (Stellar Testnet)
+- Network: Stellar Testnet (`Test SDF Network ; September 2015`)
+- RPC Endpoint: `https://soroban-testnet.stellar.org` (fallback `https://rpc-testnet.stellar.org`)
+- Horizon API: `https://horizon-testnet.stellar.org`
+- Launchpad Contract (v4.4): `CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`
+- Launchpad WASM Hash (v4.4): `fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1`
+- Token WASM Hash (v4.2): `bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6`
+- Genesis ASTRO Token: `CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE`
+- ASTRO/XLM Pair: `CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP`
+- Sorobits NFT Contract (SEP-50): `CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3`
+- Soroswap Factory: `CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY`
+- Soroswap Router: `CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD`
+- Native XLM SAC: `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC`
+- LP Burn Address: `GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF`
+
+## Repository & Machine Specs
+- GitHub Repository: `https://github.com/NunaLabsDev/astrogate`
+- Full LLM & Auditor Context: `/llms-full.txt`
+- OpenAPI 3.1 Spec: `/openapi.json`
+- Remote MCP Endpoint: `POST /mcp` (local stdio: `cd frontend && npm run mcp`)
+- AI Coding Agent Onboarding: `/AGENTS.md` (and `/CLAUDE.md`)
+- Architecture overview: `/ARCHITECTURE.md`
+- Security audit guide & invariants: `/AUDIT_GUIDE.md`
+- Trust model & security policy: `/SECURITY.md`
+- Trademark & anti-phishing policy: `/TRADEMARK.md`
+- Contracts (Rust / Soroban):
+  - `/contracts/launchpad/src/contract.rs` (Bonding Curve, Graduation, Anti-MEV Buyback, Vesting, Burn-to-Chat, Admin Governance)
+  - `/contracts/token/src/contract.rs` (SEP-41 Capped Burnable Token + Curve Transfer Lock + TTL extension)
+  - `/contracts/sorobits/src/contract.rs` & `/contracts/sorobits/src/engine.rs` (SEP-50 RLE Pixel Art + 256-bit Genomes)
+- Frontend & Crypto Vault:
+  - `/frontend/src/lib/network.ts` (`NETWORK_PRESETS`, multi-RPC failover)
+  - `/frontend/src/lib/hot-wallet/` & `/frontend/src/lib/wallet-directory.ts` (PBKDF2-SHA256 210k + AES-GCM-256 with publicKey AAD, Primary `@username` Ed25519 link, `AGVAULT1:` sync, RAM zeroing)
+  - `/frontend/src/lib/tokenomics.ts`, `/frontend/src/lib/token.ts`, `/frontend/src/lib/soroswap.ts`
+- Cloudflare Worker & Telegram Bot:
+  - `/frontend/worker/index.ts`, `/frontend/worker/events.ts`, `/frontend/worker/rpc.ts`, `/frontend/worker/quests.ts`, `/frontend/worker/wallet.ts`, `/frontend/worker/telegram-auth.ts`
+  - Automated broadcasts route exclusively to `@AstroGateFeed` (community chat stays command-only and spam-free).
+
+## SDK Integration (`frontend/src/sdk/index.ts`)
+Read-only and quoting functions for autonomous agents:
+- `getMarketTokens({ maxTokens })`
+- `getTokenDetails(tokenId)`
+- `quoteSwap({ tokenId, amountIn, direction, slippagePercent })`
+- `verifyAntiRug(tokenId)`
+- `fetchTokenEvents(tokenId, { maxEvents })`
+- `checkRpcHealth()`

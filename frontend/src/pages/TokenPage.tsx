@@ -1,0 +1,1682 @@
+import { useMemo, useState } from 'react'
+import { Link, useParams } from 'react-router'
+import { useQueryClient } from '@tanstack/react-query'
+import { useTokenInfo } from '../hooks/useTokenInfo'
+import { useTokenBalance } from '../hooks/useTokenBalance'
+import { useSoroswapPool } from '../hooks/useSoroswapPool'
+import { useCurveState } from '../hooks/useCurveState'
+import { useReserveHistory } from '../hooks/useReserveHistory'
+import { useTokenEvents } from '../hooks/useTokenEvents'
+import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
+import { useWallet } from '../store/wallet'
+import { useWatchlist } from '../store/watchlist'
+import { useCopy } from '../hooks/useCopy'
+import {
+  formatAmount,
+  sanitizeHttpUrl,
+  sanitizeTelegramUrl,
+  sanitizeTwitterUrl,
+  shortAddress,
+} from '../lib/format'
+import { explorerContractUrl, explorerAccountUrl, explorerTxUrl } from '../lib/explorer'
+import { classifyTokenEvent } from '../lib/token-events'
+import {
+  tokenPriceInXlmNumber,
+  formatTokenPrice,
+  formatUsdPrice,
+  SOROSWAP_MINIMUM_LIQUIDITY,
+} from '../lib/soroswap'
+import { TokenArt } from '../components/TokenArt'
+import { SwapCard } from '../components/SwapCard'
+import {
+  RewardCelebrationModal,
+  type CurveRewardCelebration,
+} from '../components/RewardCelebrationModal'
+import { ReserveChart } from '../components/ReserveChart'
+import { CurveStoryChart } from '../components/CurveStoryChart'
+import { TokenHypeBar } from '../components/TokenHypeBar'
+import { LiquidityForm } from '../components/LiquidityForm'
+import { LiquidityPosition } from '../components/LiquidityPosition'
+import { TransferCard } from '../components/TransferCard'
+import { BurnCard } from '../components/BurnCard'
+import { MintCard } from '../components/MintCard'
+import { ShareButton } from '../components/ShareButton'
+import { NotFoundPage } from './NotFoundPage'
+import { useTokenMetadata } from '../hooks/useTokenMetadata'
+import { useLpBurnInfo } from '../hooks/useLpBurnInfo'
+import { useTokenShouts } from '../hooks/useTokenShouts'
+import { isValidContractAddress } from '../lib/address'
+import { analyzeTokenHolders, type HolderRiskLevel } from '../lib/holders'
+import {
+  calculateSupplySharePercent,
+  curveVirtualReserves,
+  DEVELOPER_TREASURY_ADDRESS,
+  GRADUATION_JACKPOT_TOKENS,
+  GRADUATION_TARGET_XLM,
+  graduationProgressForListing,
+  MILESTONE_2_PAIR_XLM,
+  rugProofStatus,
+  SOROSWAP_SWAP_FEE_PERCENT,
+  STELLAR_BURN_ADDRESS,
+  STROOPS_PER_UNIT,
+  whaleThresholdBase,
+  type RugProofStatus,
+} from '../lib/tokenomics'
+import {
+  claimCreatorVesting,
+  extendTokenTtl,
+  refundStalledLaunch,
+  triggerBuybackBurn,
+  triggerMilestoneBurn,
+  type LaunchpadToken,
+} from '../lib/token'
+import { getTelegramWebApp, telegramMiniAppUrl } from '../lib/telegram'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS } from '../lib/xlm'
+import { useXlmBalance } from '../hooks/useXlmBalance'
+import { errorMessage } from '../lib/format'
+import { toast } from '../lib/toast'
+
+function formatGroupedAmount(amount: bigint, decimals: number): string {
+  const plain = formatAmount(amount, decimals)
+  const [whole, frac] = plain.split('.')
+  const grouped = Number(whole).toLocaleString('en-US')
+  return frac ? `${grouped}.${frac.slice(0, 2)}` : grouped
+}
+
+/** Badge honesto: solo "Rug-Proof" cuando la quema de LP está verificada. */
+function SecurityBadge({ status }: { status: RugProofStatus }) {
+  switch (status) {
+    case 'verified':
+      return (
+        <span
+          className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 flex items-center gap-1"
+          title="Verified on-chain: ownership renounced and 100% of withdrawable LP held by the burn address"
+        >
+          <span>🛡️</span> Rug-Proof
+        </span>
+      )
+    case 'lp-not-burned':
+      return (
+        <span
+          className="rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300"
+          title="Minting is renounced, but LP tokens exist outside the burn address: their holders can withdraw liquidity"
+        >
+          ⚠️ LP not burned
+        </span>
+      )
+    case 'unknown':
+      return (
+        <span
+          className="rounded-full bg-slate-500/15 border border-slate-500/30 px-2 py-0.5 text-[10px] font-semibold text-slate-300"
+          title="External SEP-41 token (no get_owner): anti-rug guarantees cannot be verified"
+        >
+          External token
+        </span>
+      )
+    default:
+      return null
+  }
+}
+
+function HolderRiskBadge({
+  risk,
+  label,
+  topSinglePct,
+}: {
+  risk: HolderRiskLevel
+  label: string
+  topSinglePct: number
+}) {
+  const styles: Record<HolderRiskLevel, string> = {
+    low: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300',
+    medium: 'bg-amber-500/15 border-amber-500/30 text-amber-300',
+    high: 'bg-rose-500/15 border-rose-500/40 text-rose-300',
+  }
+  const icon = risk === 'low' ? '🟢' : risk === 'medium' ? '🟡' : '🔴'
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold flex items-center gap-1 ${styles[risk]}`}
+      title={`Largest observed wallet outside AMM pool: ${topSinglePct.toFixed(1)}% of total supply`}
+    >
+      <span>{icon}</span> {label}
+    </span>
+  )
+}
+
+export function TokenPage() {
+  const { id = '' } = useParams<{ id: string }>()
+  const isMockToken = typeof window === 'undefined' && id.startsWith('C')
+  const validId = isValidContractAddress(id) || isMockToken
+  const queryId = validId ? id : ''
+
+  const queryClient = useQueryClient()
+  const publicKey = useWallet((state) => state.publicKey)
+  const requireSignerOrPrompt = useWallet((state) => state.requireSignerOrPrompt)
+  const openWalletModal = useWallet((state) => state.openWalletModal)
+  const info = useTokenInfo(queryId)
+  const userBalance = useTokenBalance(publicKey, queryId)
+  const xlmBalance = useXlmBalance(publicKey)
+  const creatorBalance = useTokenBalance(info.data?.creator ?? null, queryId)
+  const pool = useSoroswapPool(queryId || null)
+  const curve = useCurveState(queryId || null)
+  const isBondingCurve = Boolean(curve.data && !curve.data.graduated)
+  const effectivePool = useMemo(() => {
+    if (isBondingCurve && curve.data) {
+      const v = curveVirtualReserves(
+        curve.data.curve_xlm_net,
+        curve.data.tokens_sold,
+      )
+      return {
+        exists: true,
+        pairId: '',
+        reserveToken: v.virtualTokens,
+        reserveXlm: v.virtualXlm,
+      }
+    }
+    return pool.data
+  }, [isBondingCurve, curve.data, pool.data])
+  const history = useReserveHistory(queryId, effectivePool)
+  const events = useTokenEvents(queryId)
+  const shouts = useTokenShouts(queryId)
+  const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
+  const meta = useTokenMetadata(queryId)
+  const lpBurn = useLpBurnInfo(pool.data?.pairId)
+  const isFav = useWatchlist((s) => s.favorites.includes(id))
+  const toggleFav = useWatchlist((s) => s.toggle)
+  const { copied, copy } = useCopy()
+  const [openAdvanced, setOpenAdvanced] = useState(
+    () => typeof window !== 'undefined' && window.location.hash === '#advanced-tools',
+  )
+  const [activeTab, setActiveTab] = useState<
+    'thread' | 'trades' | 'holders' | 'audit'
+  >('thread')
+  const [extendingTtl, setExtendingTtl] = useState(false)
+  const [mountNowSecs] = useState(() => BigInt(Math.floor(Date.now() / 1000)))
+  const [justGraduated, setJustGraduated] = useState(false)
+  const [rewardCelebration, setRewardCelebration] =
+    useState<CurveRewardCelebration | null>(null)
+  const [showRewardModal, setShowRewardModal] = useState(false)
+  const [dexPanelTab, setDexPanelTab] = useState<'swap' | 'liquidity' | 'tools'>('swap')
+  const [busyFlywheel, setBusyFlywheel] = useState<
+    'milestone' | 'vesting' | 'buyback' | 'refund' | null
+  >(null)
+  const isDeveloperTreasury = Boolean(
+    publicKey &&
+      DEVELOPER_TREASURY_ADDRESS &&
+      publicKey === DEVELOPER_TREASURY_ADDRESS,
+  )
+
+  const holderAnalysis = useMemo(
+    () =>
+      analyzeTokenHolders({
+        totalSupply: info.data?.totalSupply ?? 0n,
+        reserveToken: isBondingCurve
+          ? info.data && curve.data && info.data.totalSupply > curve.data.tokens_sold
+            ? info.data.totalSupply - curve.data.tokens_sold
+            : 0n
+          : (pool.data?.reserveToken ?? 0n),
+        pairId: isBondingCurve ? null : pool.data?.pairId,
+        isBondingCurve,
+        minHealthyPoolPercent: curve.data ? 20 : 50,
+        creator: info.data?.creator,
+        creatorBalance: creatorBalance.data,
+        userAddress: publicKey,
+        userBalance: userBalance.data,
+        events: events.data,
+      }),
+    [
+      info.data,
+      curve.data,
+      isBondingCurve,
+      pool.data?.reserveToken,
+      pool.data?.pairId,
+      creatorBalance.data,
+      publicKey,
+      userBalance.data,
+      events.data,
+    ],
+  )
+
+  async function onExtendTtl() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setExtendingTtl(true)
+    try {
+      const { hash } = await extendTokenTtl({ tokenId: id, signer })
+      toast.success('90-day TTL refreshed on-chain', { hash })
+    } catch (err) {
+      toast.error('Could not extend TTL', { message: errorMessage(err) })
+    } finally {
+      setExtendingTtl(false)
+    }
+  }
+
+  async function onTriggerMilestoneBurn() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('milestone')
+    try {
+      const { burned, hash } = await triggerMilestoneBurn({ tokenId: id, signer })
+      toast.success('🔥 Milestone Proof-of-Burn executed!', {
+        message: `Burned ${formatAmount(burned, token.decimals)} $${token.symbol} permanently`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
+      ])
+    } catch (err) {
+      toast.error('Milestone burn unavailable', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onClaimCreatorVesting() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('vesting')
+    try {
+      const { claimed, hash } = await claimCreatorVesting({ tokenId: id, signer })
+      toast.success('⏳ Creator vesting tranche claimed!', {
+        message: `Received ${formatAmount(claimed, token.decimals)} $${token.symbol}`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+      ])
+    } catch (err) {
+      toast.error('Nothing unlocked yet', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onTriggerBuybackBurn() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('buyback')
+    try {
+      const { burned, hash } = await triggerBuybackBurn({ tokenId: id, signer })
+      toast.success('🔥 Soroswap Buyback & Burn executed!', {
+        message: `Bought & burned ${formatAmount(burned, token.decimals)} $${token.symbol}`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['soroswap-pool', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
+      ])
+    } catch (err) {
+      toast.error('Buyback burn unavailable', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onRefundStalledLaunch() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('refund')
+    try {
+      const { refunded, hash } = await refundStalledLaunch({ tokenId: id, signer })
+      toast.success('🌊 Stalled curve XLM refunded!', {
+        message: `Returned ${formatAmount(refunded, XLM_DECIMALS)} XLM to creator wallet`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
+      ])
+    } catch (err) {
+      toast.error('Refund unavailable yet', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  const token: LaunchpadToken = {
+    id,
+    decimals: info.data?.decimals ?? 7,
+    symbol: info.data?.symbol,
+  }
+
+  const canRefundStalled = Boolean(
+    curve.data &&
+      !curve.data.graduated &&
+      publicKey === curve.data.creator &&
+      curve.data.creator_seed_locked > 0n &&
+      curve.data.real_xlm_vault > 0n &&
+      (curve.data.tokens_sold === curve.data.creator_seed_locked ||
+        curve.data.tokens_sold === 0n) &&
+      info.data?.launchTimestamp !== undefined &&
+      info.data.launchTimestamp > 0n &&
+      mountNowSecs >=
+        info.data.launchTimestamp + 604_800n,
+  )
+
+  const tradePairScope = isBondingCurve ? null : pool.data?.pairId
+
+  const trades = useMemo(() => {
+    if (!events.data) return []
+    return events.data.filter((ev) => {
+      const role = classifyTokenEvent(ev, tradePairScope)
+      return role === 'buy' || role === 'sell'
+    })
+  }, [events.data, tradePairScope])
+
+  if (!validId) return <NotFoundPage />
+
+  if (info.isPending) {
+    return (
+      <div className="space-y-4 animate-pulse">
+        <p className="sr-only">Reading token {shortAddress(id)} on testnet…</p>
+        {/* Matched Hero Skeleton (exact internal structure for 0 CLS) */}
+        <div className="liquid-glass rounded-2xl p-3.5 sm:p-5 border border-sky-500/20 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-12 w-12 shrink-0 rounded-xl bg-slate-800" />
+              <div className="space-y-1.5">
+                <div className="h-7 w-36 rounded bg-slate-800" />
+                <div className="h-4 w-28 rounded bg-slate-800/70" />
+              </div>
+            </div>
+            <div className="space-y-1.5 text-right">
+              <div className="h-6 w-24 rounded bg-slate-800 ml-auto" />
+              <div className="h-4 w-16 rounded bg-slate-800/70 ml-auto" />
+            </div>
+          </div>
+          <div className="min-h-[60px] sm:min-h-[28px] w-full rounded-lg bg-slate-800/50" />
+          <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+            <div className="h-4 w-full rounded bg-slate-800/60" />
+            <div className="h-1.5 w-full rounded-full bg-slate-800/60" />
+          </div>
+        </div>
+
+        {/* Matched 2x2 Telemetry Skeleton */}
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="h-[86px] sm:h-[96px] rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4"
+            >
+              <div className="h-3 w-16 rounded bg-slate-800" />
+              <div className="mt-2 h-5 w-24 rounded bg-slate-800/80" />
+              <div className="mt-1.5 h-3 w-14 rounded bg-slate-800/50" />
+            </div>
+          ))}
+        </div>
+
+        {/* Matched Main Arena Skeleton */}
+        <div className="grid gap-4 lg:grid-cols-12 items-start">
+          <div className="h-[468px] rounded-2xl border border-slate-800 bg-slate-900/40 lg:col-span-5 order-first lg:order-last" />
+          <div className="h-[340px] rounded-2xl border border-slate-800 bg-slate-900/40 lg:col-span-7" />
+        </div>
+      </div>
+    )
+  }
+
+  if (info.isError) {
+    return (
+      <section className="rounded-2xl border border-rose-900 bg-rose-950/30 p-6">
+        <h1 className="text-xl font-bold text-rose-200">
+          Unable to load token
+        </h1>
+        <p className="mt-2 text-sm text-slate-400">
+          {id} does not appear to be a valid contract on testnet, or RPC timed out.
+        </p>
+        <div className="mt-4 flex gap-3">
+          <button
+            type="button"
+            onClick={() => void info.refetch()}
+            className="min-h-[40px] rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400"
+          >
+            Retry
+          </button>
+          <Link
+            to="/market"
+            className="inline-flex min-h-[40px] items-center rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:text-white"
+          >
+            Back to Market
+          </Link>
+        </div>
+      </section>
+    )
+  }
+
+  const priceNumber = effectivePool ? tokenPriceInXlmNumber(effectivePool, token.decimals) : 0
+  const priceUsd = priceNumber > 0 ? priceNumber * xlmUsd : 0
+  const liquidity =
+    isBondingCurve && curve.data
+      ? curve.data.curve_xlm_net
+      : (pool.data?.reserveXlm ?? 0n)
+  const liquidityXlmNum = Number(liquidity) / 10 ** XLM_DECIMALS
+  const liquidityUsd = liquidityXlmNum * xlmUsd
+  const totalSupplyWhole =
+    Number(info.data.totalSupply) / 10 ** info.data.decimals
+  const marketCapXlm = priceNumber > 0 ? totalSupplyWhole * priceNumber : 0
+  const marketCapUsd = marketCapXlm * xlmUsd
+
+  const reserveToken = effectivePool?.reserveToken ?? 0n
+  const circulatingWalletsBase =
+    !isBondingCurve && info.data.totalSupply > reserveToken
+      ? info.data.totalSupply - reserveToken
+      : (curve.data?.tokens_sold ?? 0n)
+  const launchpadCustodyBase =
+    isBondingCurve && info.data.totalSupply > circulatingWalletsBase
+      ? info.data.totalSupply - circulatingWalletsBase
+      : 0n
+  const poolSupplyPct =
+    isBondingCurve && info.data.totalSupply > 0n
+      ? calculateSupplySharePercent(launchpadCustodyBase, info.data.totalSupply)
+      : reserveToken > 0n && info.data.totalSupply > 0n
+        ? calculateSupplySharePercent(reserveToken, info.data.totalSupply)
+        : 0
+  const walletsSupplyPct =
+    circulatingWalletsBase > 0n && info.data.totalSupply > 0n
+      ? calculateSupplySharePercent(circulatingWalletsBase, info.data.totalSupply)
+      : 0
+  const burnedSupplyBase =
+    info.data.initialSupply && info.data.initialSupply > info.data.totalSupply
+      ? info.data.initialSupply - info.data.totalSupply
+      : 0n
+  const whaleThreshold = whaleThresholdBase(token.decimals)
+
+  const userBalBase = userBalance.data ?? 0n
+  const userBalValueXlm =
+    userBalBase > 0n && effectivePool?.exists && effectivePool.reserveToken > 0n
+      ? (userBalBase * effectivePool.reserveXlm) / effectivePool.reserveToken
+      : 0n
+
+  const owner = info.data.owner
+  const isOwner = Boolean(publicKey && owner === publicKey)
+  const security = rugProofStatus({
+    owner,
+    ownerSupported: info.data.ownerSupported,
+    pool: pool.data,
+    lpFullyBurned: lpBurn.data?.fullyBurned,
+  })
+
+  const grad = graduationProgressForListing({
+    pool: effectivePool ?? { exists: false, pairId: '', reserveToken: 0n, reserveXlm: 0n },
+    curve: curve.data,
+  })
+  const graduationPercent = Math.min(100, Math.round(grad.percent))
+
+  const safeTelegram = sanitizeTelegramUrl(meta.data?.telegram)
+  const safeWebsite = sanitizeHttpUrl(meta.data?.website)
+  const safeTwitter = sanitizeTwitterUrl(meta.data?.twitter)
+  const shareUrl =
+    typeof window !== 'undefined'
+      ? getTelegramWebApp()
+        ? telegramMiniAppUrl(id)
+        : window.location.href
+      : `/token/${id}`
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      {showRewardModal && rewardCelebration ? (
+        <RewardCelebrationModal
+          celebration={rewardCelebration}
+          symbol={token.symbol ?? 'TOKEN'}
+          onClose={() => setShowRewardModal(false)}
+        />
+      ) : null}
+
+      {(justGraduated && !isBondingCurve) ||
+      (rewardCelebration && rewardCelebration.rewardTokens > 0) ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-400/60 bg-gradient-to-r from-emerald-950/70 via-slate-900/90 to-amber-950/60 p-4 shadow-xl"
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="animate-mascot-wave relative shrink-0 flex items-end">
+              <img
+                src="/badges/pioneer.png"
+                alt="Sorobits Pioneer Mascot"
+                width={44}
+                height={44}
+                className="h-11 w-11 rounded-xl border border-amber-400/70 bg-slate-950"
+                style={{ imageRendering: 'pixelated' }}
+              />
+              <span aria-hidden="true" className="animate-flag-flutter -ml-2 text-lg">
+                🏁
+              </span>
+            </div>
+            <div className="space-y-0.5 min-w-0">
+              <p className="text-sm sm:text-base font-black text-emerald-300">
+                {rewardCelebration?.reasonTitle ??
+                  `🎓 Graduated to Soroswap DEX! 🏆 +${GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} $${token.symbol} Jackpot Awarded!`}
+              </p>
+              <p className="text-xs text-slate-300">
+                {rewardCelebration?.reasonDetail ??
+                  `$${token.symbol} left the closed Launchpad curve and is now a live Soroswap AMM token with P2P transfers & LP tools unlocked.`}
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {rewardCelebration ? (
+              <button
+                type="button"
+                onClick={() => setShowRewardModal(true)}
+                className="rounded-xl border border-amber-400/60 bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-200 hover:bg-amber-500/30 transition"
+              >
+                🎉 Replay Reward
+              </button>
+            ) : null}
+            {!isBondingCurve ? (
+              <Link
+                to="/dex"
+                className="rounded-xl bg-emerald-400 px-3.5 py-2 text-xs font-black text-slate-950 hover:bg-emerald-300 transition"
+              >
+                Explore Soroswap DEX Market →
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {/* 1. Minimalist TMA-Proportioned Hero Header (Zero CLS) */}
+      <div
+        className={`liquid-glass rounded-2xl p-3.5 sm:p-5 shadow-xl space-y-3 border ${
+          isBondingCurve
+            ? 'border-sky-500/25'
+            : 'border-emerald-500/35 bg-gradient-to-br from-emerald-950/20 via-slate-900/70 to-slate-950/80'
+        }`}
+      >
+        {/* Top Row: Avatar + Name/Symbol + Spot Price */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="relative h-12 w-12 shrink-0 rounded-xl overflow-hidden bg-slate-950 border border-sky-500/30 shadow-md">
+              <TokenArt
+                id={id}
+                symbol={token.symbol}
+                logoUrl={meta.data?.logoUrl}
+                className="h-full w-full"
+              />
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <h1 className="truncate text-lg sm:text-2xl font-black text-white tracking-tight">
+                  {info.data.name}
+                </h1>
+                <span className="shrink-0 rounded-md bg-sky-500/20 border border-sky-500/30 px-1.5 py-0.5 font-mono text-xs font-bold text-sky-300">
+                  ${token.symbol}
+                </span>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400 truncate">
+                {meta.data?.description || (isBondingCurve ? 'Fair-Flywheel Bonding Curve' : 'Stellar Soroban SEP-41')}
+              </p>
+            </div>
+          </div>
+
+          <div className="shrink-0 text-right font-mono tabular-nums">
+            <p className="text-base sm:text-xl font-black text-white whitespace-nowrap">
+              {priceNumber > 0 ? `${formatTokenPrice(priceNumber)} XLM` : '—'}
+            </p>
+            <p className="min-h-[16px] text-xs text-slate-400 whitespace-nowrap">
+              {priceUsd > 0 ? `≈ $${formatUsdPrice(priceUsd)}` : 'Pending price'}
+            </p>
+          </div>
+        </div>
+
+        {/* Middle Row: Static action pills first (so async badges never shift Copy/Watch/Share) */}
+        <div className="min-h-[60px] sm:min-h-[28px] flex flex-wrap items-center gap-1.5 text-xs">
+          <button
+            type="button"
+            onClick={() => void copy(id)}
+            className="h-7 shrink-0 font-mono text-slate-300 hover:text-white transition inline-flex items-center gap-1 bg-slate-900/60 px-2 py-0.5 rounded-lg border border-slate-800 text-xs whitespace-nowrap"
+            title="Copy full contract address"
+          >
+            <span>{shortAddress(id)}</span>
+            <span>{copied ? '✓' : '📋'}</span>
+          </button>
+
+          <button
+            type="button"
+            aria-pressed={isFav}
+            onClick={() => toggleFav(id)}
+            className={`h-7 shrink-0 rounded-lg border px-2 py-0.5 text-xs whitespace-nowrap transition ${
+              isFav
+                ? 'border-amber-400/60 bg-amber-500/15 text-amber-300 font-semibold'
+                : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-amber-200'
+            }`}
+            title={isFav ? 'Remove from watchlist' : 'Add to watchlist'}
+          >
+            {isFav ? '★ Saved' : '☆ Watch'}
+          </button>
+
+          <ShareButton
+            text={`Check out $${token.symbol ?? 'TOKEN'} on AstroGate:`}
+            url={shareUrl}
+            label="Share"
+            compact
+          />
+
+          <a
+            href={explorerContractUrl(id)}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-slate-400 hover:text-slate-200 hover:underline px-1 whitespace-nowrap"
+          >
+            Explorer ↗
+          </a>
+
+          <span className="shrink-0">
+            <SecurityBadge status={security} />
+          </span>
+          {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
+            <span
+              className="shrink-0 rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[11px] font-semibold text-sky-300 flex items-center gap-1 whitespace-nowrap"
+              title="Mint renounced & reserves locked in Launchpad v4.3 Virtual Bonding Curve"
+            >
+              ⚡ Fair Curve
+            </span>
+          ) : null}
+          <span className="shrink-0 whitespace-nowrap">
+            <HolderRiskBadge
+              risk={holderAnalysis.riskLevel}
+              label={holderAnalysis.riskLabel}
+              topSinglePct={holderAnalysis.topSingleWalletPercent}
+            />
+          </span>
+          {isOwner ? (
+            <span className="shrink-0 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[11px] font-semibold text-amber-300 whitespace-nowrap">
+              Creator
+            </span>
+          ) : null}
+
+          {safeTelegram ? (
+            <a
+              href={safeTelegram}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-sky-400 hover:text-sky-300 hover:underline px-1 whitespace-nowrap"
+            >
+              TG ↗
+            </a>
+          ) : null}
+          {safeTwitter ? (
+            <a
+              href={safeTwitter}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-slate-300 hover:text-white hover:underline px-1 whitespace-nowrap"
+            >
+              X ↗
+            </a>
+          ) : null}
+          {safeWebsite ? (
+            <a
+              href={safeWebsite}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-cyan-300 hover:text-cyan-200 hover:underline px-1 whitespace-nowrap"
+            >
+              Web ↗
+            </a>
+          ) : null}
+        </div>
+
+        {/* Bottom Row: Fixed-height Graduation Bar (absorbs status without mounting extra banner cards) */}
+        <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums">
+            <span className="truncate font-sans font-medium text-slate-300">
+              {grad.graduated
+                ? '🎓 Graduated on Soroswap DEX'
+                : grad.stage === 'heating'
+                  ? `🔥 Heating up (${Math.max(0, GRADUATION_TARGET_XLM - grad.currentXlm).toFixed(1)} XLM left)`
+                  : '⚡ Race to Soroswap DEX'}
+            </span>
+            <span
+              className={`shrink-0 font-bold ${
+                grad.graduated ? 'text-emerald-300' : 'text-amber-300'
+              }`}
+            >
+              {graduationPercent}% · {grad.currentXlm.toFixed(0)}/{GRADUATION_TARGET_XLM.toLocaleString('en-US')} XLM
+            </span>
+          </div>
+          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                grad.graduated
+                  ? 'bg-gradient-to-r from-emerald-400 to-teal-300'
+                  : 'bg-gradient-to-r from-sky-400 via-indigo-400 to-amber-400'
+              }`}
+              style={{ width: `${Math.max(2, graduationPercent)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Market Telemetry Strip (strict tabular-nums + uniform compact tiles) */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4 font-mono tabular-nums">
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            Market Cap
+          </p>
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-white">
+            {marketCapUsd > 0 ? `$${formatUsdPrice(marketCapUsd)}` : '—'}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">
+            {marketCapXlm > 0 ? `${marketCapXlm.toFixed(1)} XLM` : 'No pool'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            {isBondingCurve ? 'Curve Vault' : 'Liquidity'}
+          </p>
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-emerald-300">
+            {effectivePool?.exists
+              ? `${formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM`
+              : '0 XLM'}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">
+            {liquidityUsd > 0 ? `≈ $${formatUsdPrice(liquidityUsd)}` : 'Empty'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            {isBondingCurve ? 'Remaining Supply' : 'Pool Reserve'}
+          </p>
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-sky-300">
+            {isBondingCurve && curve.data
+              ? `${formatGroupedAmount(
+                  curveVirtualReserves(curve.data.curve_xlm_net, curve.data.tokens_sold)
+                    .remainingCurveTokens,
+                  token.decimals,
+                )}`
+              : pool.data?.exists
+                ? `${formatGroupedAmount(reserveToken, token.decimals)}`
+                : '0'}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">
+            {isBondingCurve && curve.data
+              ? `${formatAmount(curve.data.tokens_sold, token.decimals)} sold`
+              : pool.data?.exists
+                ? `${poolSupplyPct.toFixed(1)}% in pool`
+                : 'No pool'}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-800/80 bg-slate-900/40 p-3 sm:p-4">
+          <p className="text-xs font-medium text-slate-400 font-sans">
+            Your Balance
+          </p>
+          <p className="mt-1 truncate text-base sm:text-lg font-bold text-white">
+            {!publicKey
+              ? '—'
+              : userBalance.isPending
+                ? '…'
+                : `${formatGroupedAmount(userBalBase, token.decimals)}`}
+          </p>
+          <p className="mt-0.5 truncate text-xs text-slate-400">
+            {!publicKey
+              ? 'Wallet needed'
+              : userBalValueXlm > 0n
+                ? `≈ ${formatAmount(userBalValueXlm, XLM_DECIMALS)} XLM`
+                : `$${token.symbol}`}
+          </p>
+        </div>
+      </div>
+
+      {/* 2. Main Arena: Story/DEX Chart + Chat on Left, Trade Terminal on Right */}
+      <div className="grid gap-6 lg:grid-cols-12 items-start">
+        {/* Left Column: Curve Story (Launchpad) OR Pair History (Graduated Soroswap DEX) + Tabs */}
+        <div className="min-w-0 space-y-4 lg:col-span-7">
+          {isBondingCurve && curve.data ? (
+            <CurveStoryChart
+              curve={curve.data}
+              symbol={token.symbol}
+              decimals={token.decimals}
+              events={events.data}
+              xlmUsd={xlmUsd}
+            />
+          ) : (
+            <ReserveChart
+              history={history}
+              symbol={token.symbol}
+              decimals={token.decimals}
+              events={events.data}
+              pool={effectivePool}
+              curve={curve.data}
+              totalSupply={info.data.totalSupply}
+              xlmUsd={xlmUsd}
+            />
+          )}
+
+          {/* Stalled Launch Creator Rescue (shown only to creator after 7 days with 0 external holders) */}
+          {isBondingCurve && canRefundStalled && curve.data ? (
+            <div className="rounded-2xl border border-emerald-500/30 bg-slate-900/50 p-4 space-y-2 text-xs">
+              <p className="font-bold text-emerald-300">
+                🌊 Stalled Launch Refund Available (7d)
+              </p>
+              <p className="text-slate-300">
+                No external traders remain in this curve after 7 days. Recover your full curve vault XLM or rescue your seed tokens.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onRefundStalledLaunch()}
+                  className="min-h-[38px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                >
+                  {busyFlywheel === 'refund'
+                    ? 'Refunding Vault…'
+                    : `🌊 Refund ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM`}
+                </button>
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onClaimCreatorVesting()}
+                  className="min-h-[38px] rounded-xl bg-sky-500 px-3 py-2 font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-50"
+                >
+                  {busyFlywheel === 'vesting' ? 'Rescuing…' : '⏳ Rescue Seed Tokens'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Graduated Token Section: Creator 15d Vesting (0.3%) shown only after graduation */}
+          {!isBondingCurve && curve.data?.graduated ? (
+            <div className="rounded-2xl border border-sky-500/30 bg-slate-900/50 p-4 space-y-2 text-xs sm:text-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-sky-300">
+                  ⏳ Creator 15d Vesting (0.3%)
+                </span>
+                <span className="font-mono text-slate-400">
+                  {formatAmount(curve.data.creator_claimed, token.decimals)} /{' '}
+                  {formatAmount(curve.data.creator_vesting_total, token.decimals)}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                {formatAmount(curve.data.creator_vesting_total, token.decimals)} ${token.symbol} bonus unlocks across 5 tranches every 3 days post-graduation{curve.data.creator_seed_locked > 0n ? ` (+ ${formatAmount(curve.data.creator_seed_locked, token.decimals)} paid seed ready to claim)` : ''}.
+              </p>
+              {publicKey === curve.data.creator &&
+              (curve.data.creator_claimed < curve.data.creator_vesting_total ||
+                curve.data.creator_seed_locked > 0n) ? (
+                <button
+                  type="button"
+                  disabled={busyFlywheel !== null}
+                  onClick={() => void onClaimCreatorVesting()}
+                  className="w-full min-h-[40px] rounded-xl bg-sky-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-sky-400 disabled:opacity-50 transition"
+                >
+                  {busyFlywheel === 'vesting'
+                    ? 'Claiming Tranche…'
+                    : curve.data.creator_seed_locked > 0n
+                      ? '⏳ Claim Seed & Unlocked Vesting'
+                      : '⏳ Claim Unlocked Creator Vesting'}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* Developer-Only Panel: 7-Year LP Lock & Protocol Buyback/Milestone Controls */}
+          {isDeveloperTreasury && curve.data && !isBondingCurve ? (
+            <details
+              open={
+                Boolean(
+                  (curve.data.graduated &&
+                    curve.data.burn_milestone_stage === 1 &&
+                    pool.data?.exists &&
+                    pool.data.reserveXlm >=
+                      BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT) ||
+                    curve.data.buyback_xlm_reserve > 0n,
+                )
+              }
+              className="rounded-2xl border border-amber-500/35 bg-slate-900/60 p-4 text-xs"
+            >
+              <summary className="cursor-pointer select-none font-semibold text-amber-300 flex items-center justify-between gap-2">
+                <span>🛡️ Developer Console · 7Y LP Lock &amp; Buyback</span>
+                <span className="font-mono text-xs text-slate-400">
+                  7Y LP Locked ✓
+                </span>
+              </summary>
+
+              <div className="mt-3 pt-3 border-t border-slate-800/80 space-y-2">
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  66% curve / 33% Soroswap DEX (LP contract-locked 7 years at graduation) / 0.30% creator / 0.25% graduation jackpot / 0.45% ecosystem.
+                </p>
+                {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
+                  <button
+                    type="button"
+                    disabled={busyFlywheel !== null}
+                    onClick={() => void onTriggerBuybackBurn()}
+                    className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
+                  >
+                    {busyFlywheel === 'buyback'
+                      ? 'Executing DEX Buyback…'
+                      : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
+                  </button>
+                ) : null}
+                {curve.data.graduated &&
+                curve.data.burn_milestone_stage === 1 &&
+                curve.data.burn_vault_remaining > 0n ? (
+                  <button
+                    type="button"
+                    disabled={
+                      busyFlywheel !== null ||
+                      !pool.data?.exists ||
+                      pool.data.reserveXlm < BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                    }
+                    onClick={() => void onTriggerMilestoneBurn()}
+                    className="w-full min-h-[40px] rounded-xl bg-amber-500 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-400 disabled:opacity-45 transition"
+                  >
+                    {busyFlywheel === 'milestone'
+                      ? 'Burning Milestone 2…'
+                      : pool.data?.exists &&
+                          pool.data.reserveXlm >= BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT
+                        ? '🔥 Trigger Milestone 2 Burn'
+                        : `Locked until ${MILESTONE_2_PAIR_XLM.toLocaleString('en-US')} XLM Depth`}
+                  </button>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Tabbed Interactive Section: Thread | Live Trades | Holders & Risk | Audit & Contract */}
+          <div className="space-y-3">
+            <div
+              role="tablist"
+              aria-label="Token detail sections"
+              className="flex flex-wrap items-center gap-2 border-b border-slate-800/80 pb-2"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'thread'}
+                onClick={() => setActiveTab('thread')}
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'thread'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>💬 Thread</span>
+                {shouts.data && shouts.data.length > 0 ? (
+                  <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-mono text-amber-300">
+                    {shouts.data.length}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'trades'}
+                onClick={() => setActiveTab('trades')}
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'trades'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>⚡ Live Trades</span>
+                <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[10px] font-mono text-slate-300">
+                  {trades.length}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'holders'}
+                onClick={() => setActiveTab('holders')}
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'holders'
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>👥 Holders &amp; Risk</span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    holderAnalysis.riskLevel === 'low'
+                      ? 'bg-emerald-400'
+                      : holderAnalysis.riskLevel === 'medium'
+                        ? 'bg-amber-400'
+                        : 'bg-rose-400'
+                  }`}
+                />
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'audit'}
+                onClick={() => setActiveTab('audit')}
+                className={`rounded-xl px-3.5 py-2 min-h-[38px] text-xs font-bold transition flex items-center gap-1.5 ${
+                  activeTab === 'audit'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 shadow-sm'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>🛡️ Audit &amp; Contract</span>
+              </button>
+            </div>
+
+            {activeTab === 'thread' ? (
+              <TokenHypeBar
+                tokenId={id}
+                symbol={token.symbol ?? 'TOKEN'}
+                pairId={pool.data?.pairId}
+                decimals={token.decimals}
+                spotPriceXlm={priceNumber}
+                xlmUsd={xlmUsd}
+                onBuyClick={() => {
+                  document
+                    .getElementById('swap-card')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }}
+              />
+            ) : activeTab === 'holders' ? (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-4 text-xs">
+                <div
+                  className={`rounded-xl border p-3.5 space-y-1.5 ${
+                    holderAnalysis.riskLevel === 'low'
+                      ? 'border-emerald-500/30 bg-emerald-950/20 text-emerald-200'
+                      : holderAnalysis.riskLevel === 'medium'
+                        ? 'border-amber-500/30 bg-amber-950/20 text-amber-200'
+                        : 'border-rose-500/40 bg-rose-950/25 text-rose-200'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-bold text-sm">
+                      {holderAnalysis.riskLevel === 'low'
+                        ? '🟢'
+                        : holderAnalysis.riskLevel === 'medium'
+                          ? '🟡'
+                          : '🔴'}{' '}
+                      {holderAnalysis.riskLabel}
+                    </span>
+                    <span className="font-mono text-[11px] opacity-90">
+                      Top Wallet: {holderAnalysis.topSingleWalletPercent.toFixed(2)}% · Top 10: {holderAnalysis.top10WalletsPercent.toFixed(2)}%
+                    </span>
+                  </div>
+                  <p className="text-[11px] opacity-90 leading-relaxed">
+                    {holderAnalysis.riskSummary}
+                  </p>
+                </div>
+
+                {/* Supply Distribution Bar */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-slate-300">
+                    <span>
+                      🟩 {isBondingCurve ? 'Launchpad Vault' : 'Pool AMM'}:{' '}
+                      <strong>{poolSupplyPct.toFixed(1)}%</strong>
+                    </span>
+                    <span>
+                      🟨 Creator: <strong>{holderAnalysis.creatorSharePercent.toFixed(2)}%</strong>
+                    </span>
+                    <span>
+                      🟦 Traders / Outside:{' '}
+                      <strong>
+                        {Math.max(
+                          0,
+                          walletsSupplyPct - holderAnalysis.creatorSharePercent,
+                        ).toFixed(2)}
+                        %
+                      </strong>
+                    </span>
+                  </div>
+                  <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-900 border border-slate-800">
+                    <div
+                      className="bg-emerald-500"
+                      style={{ width: `${Math.max(0, Math.min(100, poolSupplyPct))}%` }}
+                      title={`AMM Pool: ${poolSupplyPct.toFixed(2)}%`}
+                    />
+                    <div
+                      className="bg-amber-400"
+                      style={{
+                        width: `${Math.max(0, Math.min(100 - poolSupplyPct, holderAnalysis.creatorSharePercent))}%`,
+                      }}
+                      title={`Creator: ${holderAnalysis.creatorSharePercent.toFixed(2)}%`}
+                    />
+                    <div
+                      className="bg-sky-400"
+                      style={{
+                        width: `${Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            walletsSupplyPct - holderAnalysis.creatorSharePercent,
+                          ),
+                        )}%`,
+                      }}
+                      title="External Trader Wallets"
+                    />
+                  </div>
+                </div>
+
+                {/* Top Observed Addresses */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 border-b border-slate-800/80 pb-1.5">
+                    <span>Observed Custody &amp; Top Wallets</span>
+                    <span>Balance · Supply %</span>
+                  </div>
+                  {holderAnalysis.holders.length === 0 ? (
+                    <p className="py-4 text-center text-slate-500">
+                      No holder movements observed in recent ledger window.
+                    </p>
+                  ) : (
+                    <div className="divide-y divide-slate-800/50 max-h-64 overflow-y-auto font-mono">
+                      {holderAnalysis.holders.slice(0, 15).map((entry) => {
+                        const tagBadge =
+                          entry.tag === 'pool'
+                            ? { text: 'AMM Pool', cls: 'bg-emerald-500/20 text-emerald-300' }
+                            : entry.tag === 'creator'
+                              ? { text: 'Creator', cls: 'bg-amber-500/20 text-amber-300' }
+                              : entry.tag === 'burn'
+                                ? { text: 'Burned', cls: 'bg-slate-700/40 text-slate-300' }
+                                : { text: 'Wallet', cls: 'bg-sky-500/20 text-sky-300' }
+                        const url =
+                          entry.tag === 'pool'
+                            ? explorerContractUrl(entry.address)
+                            : explorerAccountUrl(entry.address)
+                        return (
+                          <div
+                            key={entry.address}
+                            className="py-2 flex items-center justify-between gap-2 text-[11px]"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold shrink-0 ${tagBadge.cls}`}>
+                                {tagBadge.text}
+                              </span>
+                              <a
+                                href={url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="truncate text-slate-300 hover:text-sky-300 hover:underline"
+                              >
+                                {shortAddress(entry.address)} ↗
+                              </a>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <span className="text-white font-semibold">
+                                {formatGroupedAmount(entry.balance, token.decimals)}
+                              </span>{' '}
+                              <span className="text-slate-400">
+                                ({entry.sharePercent.toFixed(2)}%)
+                              </span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-500">
+                  Live estimate built directly from Soroswap pool reserves, creator balance, and recent RPC SEP-41 transfer events without a centralized indexer.
+                </p>
+              </div>
+            ) : activeTab === 'audit' ? (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-4 text-xs">
+                <div className="grid gap-2.5 sm:grid-cols-2">
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
+                    <p className="text-slate-400">Launchpad Registry</p>
+                    <p className="mt-1 font-semibold text-white">
+                      {info.data.verifiedLaunchpad
+                        ? '✓ AstroGate Fair Launch (On-Chain)'
+                        : 'Soroswap External Discovery'}
+                    </p>
+                    {info.data.creator ? (
+                      <a
+                        href={explorerAccountUrl(info.data.creator)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block font-mono text-[11px] text-sky-400 hover:underline"
+                      >
+                        Creator {shortAddress(info.data.creator)} ↗
+                      </a>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
+                    <p className="text-slate-400">Mint Ownership</p>
+                    <p className="mt-1 font-semibold text-white">
+                      {!info.data.ownerSupported
+                        ? 'Unknown (no get_owner)'
+                        : info.data.owner === null ||
+                            info.data.owner === STELLAR_BURN_ADDRESS
+                          ? '✓ Renounced Forever (0 supply inflation)'
+                          : `⚠️ Active: ${shortAddress(info.data.owner)}`}
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
+                    <p className="text-slate-400">Soroswap LP Lock</p>
+                    <p className="mt-1 font-semibold text-white">
+                      {lpBurn.isPending
+                        ? 'Verifying LP burn…'
+                        : lpBurn.data?.fullyBurned
+                          ? '✓ 100% Withdrawable LP Burned'
+                          : lpBurn.data
+                            ? `${lpBurn.data.burnedPercent.toFixed(1)}% in burn address`
+                            : 'No AMM pair'}
+                    </p>
+                    {lpBurn.data ? (
+                      <div className="mt-1.5 space-y-1">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-900">
+                          <div
+                            className={`h-full rounded-full ${
+                              lpBurn.data.fullyBurned
+                                ? 'bg-emerald-400'
+                                : 'bg-amber-400'
+                            }`}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, lpBurn.data.burnedPercent))}%`,
+                            }}
+                          />
+                        </div>
+                        <p className="font-mono text-[10px] text-slate-400">
+                          {formatAmount(lpBurn.data.burnedLp, XLM_DECIMALS)} /{' '}
+                          {formatAmount(lpBurn.data.totalSupply, XLM_DECIMALS)} LP @{' '}
+                          <a
+                            href={explorerAccountUrl(STELLAR_BURN_ADDRESS)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sky-400 hover:underline"
+                          >
+                            {shortAddress(STELLAR_BURN_ADDRESS)} ↗
+                          </a>
+                        </p>
+                        <p className="font-mono text-[10px] text-slate-500">
+                          + {SOROSWAP_MINIMUM_LIQUIDITY.toString()} stroops locked permanently in Pair
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3">
+                    <p className="text-slate-400">Live Supply & Contracts</p>
+                    <p className="mt-1 font-mono font-semibold text-white">
+                      {formatGroupedAmount(info.data.totalSupply, info.data.decimals)} ${token.symbol}
+                    </p>
+                    {burnedSupplyBase > 0n ? (
+                      <p className="mt-0.5 font-mono text-[10px] text-amber-300">
+                        🔥 {formatGroupedAmount(burnedSupplyBase, info.data.decimals)} burned permanently
+                      </p>
+                    ) : null}
+                    {pool.data?.pairId ? (
+                      <a
+                        href={explorerContractUrl(pool.data.pairId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block font-mono text-[11px] text-sky-400 hover:underline"
+                      >
+                        Pair {shortAddress(pool.data.pairId)} ↗
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Where Tokens & XLM Live Breakdown */}
+                <div className="rounded-xl border border-slate-800/80 bg-slate-950/50 p-3.5 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-slate-200">
+                      📊 Token & XLM Custody Breakdown
+                    </p>
+                    {info.data.initialSupply ? (
+                      <span className="font-mono text-[11px] text-slate-400">
+                        Initial Cap:{' '}
+                        {formatGroupedAmount(info.data.initialSupply, info.data.decimals)}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1.5 font-mono text-[11px]">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">
+                        {isBondingCurve
+                          ? 'Launchpad Curve + DEX/Burn Custody'
+                          : 'Soroswap AMM Pool (Tradable)'}
+                      </span>
+                      <span className="text-emerald-300 font-semibold">
+                        {formatGroupedAmount(
+                          isBondingCurve ? launchpadCustodyBase : reserveToken,
+                          token.decimals,
+                        )}{' '}
+                        ${token.symbol} ({poolSupplyPct.toFixed(2)}%) +{' '}
+                        {formatGroupedAmount(liquidity, XLM_DECIMALS)} XLM
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Holder Wallets (Creator + Buyers)</span>
+                      <span className="text-sky-300 font-semibold">
+                        {formatGroupedAmount(circulatingWalletsBase, token.decimals)} ${token.symbol} (
+                        {walletsSupplyPct.toFixed(2)}%)
+                      </span>
+                    </div>
+                    {info.data.xlmLpAmount !== undefined && info.data.tokenLpAmount !== undefined ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-slate-400">Genesis Pool Seed</span>
+                        <span className="text-slate-300">
+                          {formatGroupedAmount(info.data.tokenLpAmount, info.data.decimals)} ${token.symbol} +{' '}
+                          {formatAmount(info.data.xlmLpAmount, XLM_DECIMALS)} XLM
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Swap Fee Flow</span>
+                      <span className="text-slate-300">
+                        {isBondingCurve
+                          ? '0.30% / 0.50% / 0.25% Buy · 1.20%–1.80% Sell · 40K Jackpot Ladder'
+                          : `${SOROSWAP_SWAP_FEE_PERCENT.toFixed(2)}% LP → Pool · 0% Protocol Fee · 0% Transfer Tax`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-slate-400">Developer Treasury</span>
+                      <a
+                        href={explorerAccountUrl(DEVELOPER_TREASURY_ADDRESS)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-mono text-sky-400 hover:text-sky-300"
+                      >
+                        {shortAddress(DEVELOPER_TREASURY_ADDRESS)} ↗
+                      </a>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
+                  <span className="text-[11px] text-slate-400">
+                    Keep Soroban token & registry state alive for 90 days.
+                  </span>
+                  <button
+                    type="button"
+                    disabled={extendingTtl}
+                    onClick={() => void onExtendTtl()}
+                    className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-semibold text-slate-200 hover:border-sky-500 hover:text-sky-300 disabled:opacity-50"
+                  >
+                    {extendingTtl ? 'Extending TTL…' : '⏳ Refresh 90-Day TTL'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 shadow-sm space-y-2">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 text-[11px] font-mono text-slate-400">
+                  <span>Action · Amount</span>
+                  <span>Trader · Ledger · Tx</span>
+                </div>
+                {trades.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-6">
+                    No on-chain swaps recorded yet. Trade to initiate the curve!
+                  </p>
+                ) : (
+                  <div className="divide-y divide-slate-800/50 max-h-72 overflow-y-auto">
+                    {trades.map((ev) => {
+                      const isBuy = classifyTokenEvent(ev, tradePairScope) === 'buy'
+                      const isWhale = ev.amount >= whaleThreshold
+                      return (
+                        <div
+                          key={ev.id}
+                          className="py-2 flex items-center justify-between gap-2 text-xs font-mono"
+                        >
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isBuy
+                                  ? 'bg-emerald-500/20 text-emerald-300'
+                                  : 'bg-rose-500/20 text-rose-300'
+                              }`}
+                            >
+                              {isBuy ? '🟢 BUY' : '🔴 SELL'}
+                            </span>
+                            <span className="text-white font-bold">
+                              {formatAmount(ev.amount, token.decimals)} ${token.symbol}
+                            </span>
+                            {isWhale ? (
+                              <span
+                                className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300"
+                                title="Trade ≥ 1% of fair-launch supply"
+                              >
+                                🐋 Whale
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-2 text-slate-400 text-[11px] shrink-0">
+                            <span>by {shortAddress((isBuy ? ev.to : ev.from) ?? '')}</span>
+                            <span className="text-slate-500">#{ev.ledger}</span>
+                            {ev.txHash ? (
+                              <a
+                                href={explorerTxUrl(ev.txHash)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-sky-400 hover:text-sky-300 underline"
+                              >
+                                tx ↗
+                              </a>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column (first on mobile/Telegram): Closed Launchpad Curve OR Full 3-Tab Graduated Soroswap DEX Terminal */}
+        <div className="min-w-0 space-y-4 lg:col-span-5 lg:sticky lg:top-20 order-first lg:order-last">
+          {!isBondingCurve ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2 rounded-2xl border border-emerald-500/35 bg-emerald-950/25 px-3.5 py-2 text-xs">
+                <span className="font-bold text-emerald-300">
+                  🎓 Soroswap DEX Market Active
+                </span>
+                <Link
+                  to="/dex"
+                  className="font-semibold text-sky-300 hover:underline"
+                >
+                  Open DEX Market →
+                </Link>
+              </div>
+              <div
+                role="tablist"
+                aria-label="Graduated Soroswap DEX tools"
+                className="grid grid-cols-3 gap-1.5 rounded-2xl border border-emerald-500/30 bg-slate-900/75 p-1.5"
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'swap'}
+                  onClick={() => setDexPanelTab('swap')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'swap'
+                      ? 'bg-emerald-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  ⚡ Swap DEX
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'liquidity'}
+                  onClick={() => setDexPanelTab('liquidity')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'liquidity'
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  💧 Pool &amp; LP
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={dexPanelTab === 'tools'}
+                  onClick={() => setDexPanelTab('tools')}
+                  className={`min-h-[40px] rounded-xl px-2.5 py-2 text-xs font-bold transition ${
+                    dexPanelTab === 'tools'
+                      ? 'bg-amber-500 text-slate-950 shadow-sm'
+                      : 'text-slate-300 hover:bg-slate-800/70'
+                  }`}
+                >
+                  🔥 Send &amp; Burn
+                </button>
+              </div>
+
+              {dexPanelTab === 'swap' ? (
+                <>
+                  <SwapCard
+                    token={token}
+                    onOpenLiquidityTools={() => setDexPanelTab('liquidity')}
+                  />
+                  <LiquidityPosition token={token} />
+                </>
+              ) : dexPanelTab === 'liquidity' ? (
+                <div className="space-y-3">
+                  <LiquidityPosition token={token} />
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-emerald-300">
+                        💧 Add Soroswap Pool Liquidity
+                      </span>
+                      <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 font-mono text-[10px] text-emerald-300">
+                        Earn 0.30% LP Fees
+                      </span>
+                    </div>
+                    <LiquidityForm token={token} />
+                  </div>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  <TransferCard token={token} />
+                  <BurnCard token={token} />
+                  {isOwner ? <MintCard token={token} /> : null}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <SwapCard
+                token={token}
+                onSwapped={(didGrad, celebration) => {
+                  if (didGrad) setJustGraduated(true)
+                  if (celebration) {
+                    setRewardCelebration(celebration)
+                    setShowRewardModal(true)
+                  }
+                }}
+                onOpenLiquidityTools={() => setOpenAdvanced(true)}
+              />
+              <div className="rounded-2xl border border-sky-500/25 bg-slate-900/60 px-3.5 py-3 text-xs text-slate-300 leading-relaxed space-y-1">
+                <p className="font-bold text-sky-300">
+                  🔒 Closed Launchpad System · Goal: 1,000 XLM (≈ ${formatUsdPrice(1_000 * xlmUsd)} USDC)
+                </p>
+                <p>
+                  Trades stay inside this bonding curve until 1,000 XLM with 3 on-chain prizes (+5K at 250 XLM, +10K at 500 XLM, +{GRADUATION_JACKPOT_TOKENS.toLocaleString('en-US')} at 1,000 XLM). At graduation, ${token.symbol} moves automatically to <strong className="text-emerald-300">Soroswap DEX</strong>!
+                </p>
+              </div>
+              <details
+                id="advanced-tools"
+                open={openAdvanced}
+                onToggle={(e) => setOpenAdvanced(e.currentTarget.open)}
+                className="group rounded-2xl border border-slate-800/80 bg-slate-950/40 p-3.5 transition-all"
+              >
+                <summary className="flex cursor-pointer select-none items-center justify-between text-xs font-bold text-slate-400 hover:text-white">
+                  <span className="flex items-center gap-1.5">
+                    <span>🔥</span> Burn Tokens
+                  </span>
+                  <span className="text-[10px] text-slate-500 transition-transform group-open:rotate-180">
+                    ▼
+                  </span>
+                </summary>
+
+                <div className="mt-4 space-y-4 border-t border-slate-800/80 pt-4">
+                  <div className="rounded-xl border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200 leading-relaxed">
+                    🔒 <strong>Closed Curve Mode:</strong> P2P transfers and Soroswap LP pools unlock automatically upon graduation at{' '}
+                    <span className="font-mono font-semibold">1,000 XLM</span>.
+                  </div>
+                  <div className="grid gap-3">
+                    <BurnCard token={token} />
+                    {isOwner ? <MintCard token={token} /> : null}
+                  </div>
+                </div>
+              </details>
+            </>
+          )}
+
+          {owner ? (
+            <div className="text-[11px] font-mono text-slate-500 px-1">
+              Owner:{' '}
+              <a
+                href={explorerAccountUrl(owner)}
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-slate-400"
+              >
+                {shortAddress(owner)}
+              </a>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}

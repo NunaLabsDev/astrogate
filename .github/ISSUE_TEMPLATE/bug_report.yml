@@ -1,0 +1,42 @@
+name: Bug Report (Testnet / UI / Bot / API)
+description: Report a reproducible bug in the dApp, contracts, REST API, MCP server, or Telegram bot.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never paste Stellar secret seeds (`S...`), `.env` contents, or wallet private keys!
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - Web dApp / UI
+        - Hot Wallet Vault / External Wallet
+        - Smart Contracts (Soroban Testnet)
+        - Public REST API (/api/v1/*) or MCP (/mcp)
+        - Telegram Mini App / @AstroGateSorobanBot
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to Reproduce
+      placeholder: |
+        1. Open /token/...
+        2. Enter ...
+        3. Observe error ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. Actual Behavior
+    validations:
+      required: true
+  - type: input
+    id: tx_hash
+    attributes:
+      label: Sanitized Testnet Tx Hash or Route (Optional)
+      placeholder: e.g. 64-char hex tx hash on Stellar Testnet

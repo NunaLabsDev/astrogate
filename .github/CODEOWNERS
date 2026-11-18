@@ -1,0 +1,23 @@
+# AstroGate Code Owners (https://github.com/NunaLabsDev/astrogate)
+# Enforce maintainer review on critical protocol, crypto vault, worker, and CI paths.
+
+* @KawsayRuraq
+
+# Smart contracts (Rust / Soroban)
+/contracts/ @KawsayRuraq
+
+# Client-side Hot Wallet cryptography, transaction signing, and curve math parity
+/frontend/src/lib/hot-wallet/ @KawsayRuraq
+/frontend/src/lib/signer.ts @KawsayRuraq
+/frontend/src/lib/curve-math.ts @KawsayRuraq
+/frontend/src/lib/tokenomics.ts @KawsayRuraq
+/frontend/src/lib/xlm.ts @KawsayRuraq
+
+# Cloudflare Worker auth, Telegram bot, REST API, and MCP endpoints
+/frontend/worker/ @KawsayRuraq
+
+# Security headers, CSP parity, CI/CD, and release workflows
+/frontend/public/_headers @KawsayRuraq
+/frontend/vercel.json @KawsayRuraq
+/frontend/nginx.conf @KawsayRuraq
+/.github/ @KawsayRuraq

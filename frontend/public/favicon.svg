@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <radialGradient id="space" cx="50%" cy="45%" r="60%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="65%" stop-color="#090d1f"/>
+      <stop offset="100%" stop-color="#030712"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="45%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+    <linearGradient id="neon" x1="15%" y1="0%" x2="85%" y2="100%">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="50%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <circle cx="128" cy="128" r="120" fill="url(#space)" stroke="url(#metal)" stroke-width="8"/>
+  <circle cx="128" cy="128" r="104" stroke="url(#neon)" stroke-width="6"/>
+  <path d="M62 192L74 176V108C74 78 98 54 128 54C158 54 182 78 182 108V176L194 192H62Z" fill="#0f172a" stroke="url(#neon)" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M90 192V116C90 95 107 78 128 78C149 78 166 95 166 116V192" stroke="#38bdf8" stroke-width="7" stroke-linecap="round"/>
+  <path d="M128 118L150 164L128 150L106 164L128 118Z" fill="url(#neon)" stroke="#e0f2fe" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M128 32L133 43L144 48L133 53L128 64L123 53L112 48L123 43Z" fill="#7dd3fc"/>
+  <path d="M128 84L131 94L141 97L131 100L128 110L125 100L115 97L125 94Z" fill="#e0f2fe"/>
+  <circle cx="106" cy="108" r="4.5" fill="#7dd3fc"/>
+  <circle cx="150" cy="108" r="4.5" fill="#7dd3fc"/>
+</svg>

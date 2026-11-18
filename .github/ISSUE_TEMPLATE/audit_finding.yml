@@ -1,0 +1,44 @@
+name: Audit Finding / Hardening Proposal (Non-Critical)
+description: Submit a Low/Informational audit note, invariant check, gas/UX improvement, or documentation gap.
+title: "[Audit] "
+labels: ["audit", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        > **Stop if this is Critical or High severity!**
+        > Do **not** submit exploitable vulnerabilities publicly. Use **Private Vulnerability Reporting**:
+        > `https://github.com/NunaLabsDev/astrogate/security/advisories/new`
+  - type: checkboxes
+    id: non_exploitable
+    attributes:
+      label: Disclosure Safety Check
+      options:
+        - label: I confirm this report is Informational / Low severity or already mitigated, and does NOT expose an exploitable zero-day or secret key.
+          required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Audited Module
+      options:
+        - contracts/launchpad
+        - contracts/token
+        - contracts/sorobits
+        - frontend/src/lib/hot-wallet
+        - frontend/src/lib (tokenomics, soroswap, xlm, rpc)
+        - frontend/worker (Telegram bot, REST API, MCP)
+        - Documentation / CI / Tests
+    validations:
+      required: true
+  - type: textarea
+    id: finding
+    attributes:
+      label: Finding / Observation & File References
+      description: Cite exact file paths, function names, and the invariant or edge case observed.
+    validations:
+      required: true
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Proposed Fix / Test Coverage
+      description: Describe the recommended patch or new unit/integration test.
