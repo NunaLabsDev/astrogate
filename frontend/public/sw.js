@@ -84,6 +84,18 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
 
+  // Never intercept or cache Worker API, MCP, OpenAPI, health, or webhook routes
+  if (
+    url.pathname === '/api' ||
+    url.pathname.startsWith('/api/') ||
+    url.pathname === '/telegram/webhook' ||
+    url.pathname === '/mcp' ||
+    url.pathname === '/openapi.json' ||
+    url.pathname === '/health'
+  ) {
+    return
+  }
+
   if (request.mode === 'navigate') {
     event.respondWith(
       (async () => {
