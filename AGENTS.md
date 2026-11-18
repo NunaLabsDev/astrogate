@@ -12,6 +12,7 @@ Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios
 - Frontend: Vite + React 19 + TypeScript (Scaffold Stellar), Tailwind + shadcn/ui.
 - Wallet: @creit.tech/stellar-wallets-kit.
 - Deploy frontend: Cloudflare Pages (`https://astrogate.pages.dev`). Datos: RPC público testnet.
+- Repositorio GitHub oficial: `https://github.com/NunaLabsDev/astrogate.git` (organización `NunaLabsDev`, cuenta `KawsayRuraq`). Todo push público a GitHub debe ir a `NunaLabsDev/astrogate` mediante `./scripts/prepare-opensource-export.sh` (nunca al repo legado `ruwaq/astro-launchpad`).
 
 ## Reglas
 1. No reinventar AMM: usar Soroswap factory/router.

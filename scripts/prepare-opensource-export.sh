@@ -7,6 +7,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STAGE_DIR="${1:-${ROOT_DIR}/.opensource-stage}"
+COMMIT_MSG="${2:-$(git -C "${ROOT_DIR}" log -1 --pretty=%s 2>/dev/null || echo 'chore: open-source release (AstroGate Testnet · Built by NunaLabs)')}"
+REMOTE_URL="https://github.com/NunaLabsDev/astrogate.git"
 
 echo "==> Preparing clean NunaLabsDev open-source export in: ${STAGE_DIR}"
 rm -rf "${STAGE_DIR}"
@@ -175,9 +177,22 @@ fi
 git init -b main >/dev/null
 git config user.name "KawsayRuraq"
 git config user.email "269836211+KawsayRuraq@users.noreply.github.com"
-git add -A
-git commit -m "chore: initial open-source release (AstroGate v4.4 Testnet · Built by NunaLabs)" >/dev/null
+git remote add origin "${REMOTE_URL}"
 
-echo "==> Orphan repository created successfully."
-git log -n 1 --stat=100,80 | tail -n 15
-echo "==> Next: git remote add origin https://github.com/NunaLabsDev/astrogate.git && git push -u origin main"
+if git fetch --depth=1 origin main >/dev/null 2>&1; then
+  git update-ref refs/heads/main FETCH_HEAD
+  git add -A
+  if git diff --cached --quiet; then
+    echo "==> Sanitized tree matches origin/main; nothing new to commit."
+  else
+    git commit -m "${COMMIT_MSG}" >/dev/null
+    echo "==> Fast-forward commit created on top of origin/main."
+  fi
+else
+  git add -A
+  git commit -m "${COMMIT_MSG}" >/dev/null
+  echo "==> Orphan repository created successfully (remote main unreachable)."
+fi
+
+git log -n 2 --stat=100,80 | tail -n 20
+echo "==> Next: git -C ${STAGE_DIR} push -u origin main"
