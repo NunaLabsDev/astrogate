@@ -388,24 +388,35 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
   notes.push(`Soroswap Pair verified: ${pool.pairId}`)
   notes.push(`Canonical Stellar Burn Address: ${STELLAR_BURN_ADDRESS}`)
 
-  // Verify LP Token Burn (descontando MINIMUM_LIQUIDITY bloqueado por el par)
+  // Verify LP Lock / Burn (distinguishing 7Y Launchpad contract lock vs canonical burn address)
   let lpBurned = false
   try {
-    const { burnedLp: burnBalance, totalSupply, fullyBurned } =
-      await fetchBurnedLpInfo(pool.pairId)
+    const {
+      burnedLp: burnBalance,
+      contractLockedLp,
+      deadBurnLp,
+      totalSupply,
+      fullyBurned,
+    } = await fetchBurnedLpInfo(pool.pairId)
 
     if (fullyBurned) {
       lpBurned = true
-      notes.push(
-        `100% of withdrawable LP verified burned in ${STELLAR_BURN_ADDRESS} (${burnBalance.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
-      )
+      if (contractLockedLp >= deadBurnLp && contractLockedLp > 0n) {
+        notes.push(
+          `100% of withdrawable LP time-locked 7 years inside Launchpad contract (${contractLockedLp.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
+        )
+      } else {
+        notes.push(
+          `100% of withdrawable LP verified burned in ${STELLAR_BURN_ADDRESS} (${burnBalance.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
+        )
+      }
     } else if (burnBalance > 0n && totalSupply > 0n) {
       const pct = (burnBalance * 100n) / totalSupply
       notes.push(
-        `Partial LP burn: ${pct.toString()}% held by burn address (${burnBalance.toString()} / ${totalSupply.toString()}).`,
+        `Partial LP lock/burn: ${pct.toString()}% secured (${burnBalance.toString()} / ${totalSupply.toString()}).`,
       )
     } else {
-      notes.push('No LP tokens detected in canonical burn address.')
+      notes.push('No LP tokens detected in Launchpad 7Y vault or canonical burn address.')
     }
   } catch (err) {
     notes.push(

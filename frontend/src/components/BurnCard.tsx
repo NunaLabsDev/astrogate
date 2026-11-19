@@ -10,6 +10,7 @@ import { recordActivity } from '../store/activity'
 import { errorMessage, formatAmount, parseAmount } from '../lib/format'
 import { explorerTxUrl } from '../lib/explorer'
 import { invalidateTokenData } from '../lib/query'
+import { DEFAULT_SOROBAN_INCLUSION_FEE, enqueueAccountTx } from '../lib/tx-queue'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
@@ -72,12 +73,17 @@ export function BurnCard({ token }: { token: LaunchpadToken }) {
     setBusy(true)
     let hash: string | undefined
     try {
-      const client = tokenClient(token.id, signer)
-      const tx = await client.burn({
-        from: publicKey,
-        amount: amountBase,
+      const sentTx = await enqueueAccountTx(publicKey, async () => {
+        const client = tokenClient(token.id, signer)
+        const tx = await client.burn(
+          {
+            from: publicKey,
+            amount: amountBase,
+          },
+          { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+        )
+        return tx.signAndSend()
       })
-      const sentTx = await tx.signAndSend()
       hash = sentTx.sendTransactionResponse?.hash
       setBurned({ amount: amountBase, hash })
       setAmount('')

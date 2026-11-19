@@ -195,8 +195,26 @@ export function errorMessage(error: unknown): string {
   ) {
     return 'Milestone condition not yet reached (requires >= 1,800 XLM DEX depth or next 3-day vesting tranche).'
   }
-  if (lower.includes('transfers locked until graduation')) {
+  if (
+    raw.includes('Error(Contract, #506)') ||
+    lower.includes('transfers locked until graduation')
+  ) {
     return 'P2P transfers & DEX LP additions are locked during the bonding curve phase until the token graduates at 1,000 XLM.'
+  }
+  if (raw.includes('Error(Contract, #500)')) {
+    return 'Token decimals exceed the maximum supported precision (18).'
+  }
+  if (raw.includes('Error(Contract, #501)') || raw.includes('Error(Contract, #502)')) {
+    return 'Token name and symbol must each be 1..32 bytes.'
+  }
+  if (raw.includes('Error(Contract, #503)')) {
+    return 'Initial token supply must be strictly positive.'
+  }
+  if (
+    raw.includes('Error(Contract, #504)') ||
+    raw.includes('Error(Contract, #505)')
+  ) {
+    return 'Launchpad transfer gate configuration error.'
   }
   if (lower.includes('expired') || lower.includes('deadline')) {
     return 'Transaction timed out (deadline expired). Please try again.'

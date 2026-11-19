@@ -2906,6 +2906,18 @@
                       "key": {
                         "vec": [
                           {
+                            "symbol": "InstantMintAllowed"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
                             "symbol": "Metadata"
                           }
                         ]
@@ -2944,6 +2956,18 @@
                         "vec": [
                           {
                             "symbol": "SeasonActive"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "StorageVersion"
                           }
                         ]
                       },

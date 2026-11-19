@@ -49,6 +49,13 @@ pub struct SorobitRecord {
 pub struct ByteWriter {
     buf: [u8; 16_384],
     len: usize,
+    overflow: bool,
+}
+
+impl Default for ByteWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ByteWriter {
@@ -56,22 +63,31 @@ impl ByteWriter {
         Self {
             buf: [0u8; 16_384],
             len: 0,
+            overflow: false,
         }
     }
 
     #[inline]
     pub fn push_byte(&mut self, b: u8) {
-        if self.len >= self.buf.len() {
-            panic!("svg buffer capacity exceeded");
+        if self.overflow || self.len >= self.buf.len() {
+            self.overflow = true;
+            return;
         }
         self.buf[self.len] = b;
         self.len += 1;
     }
 
     pub fn push_bytes(&mut self, src: &[u8]) {
-        let end = self.len + src.len();
+        if self.overflow {
+            return;
+        }
+        let Some(end) = self.len.checked_add(src.len()) else {
+            self.overflow = true;
+            return;
+        };
         if end > self.buf.len() {
-            panic!("svg buffer capacity exceeded");
+            self.overflow = true;
+            return;
         }
         self.buf[self.len..end].copy_from_slice(src);
         self.len = end;
@@ -109,8 +125,16 @@ impl ByteWriter {
         }
     }
 
-    pub fn to_soroban_string(&self, e: &Env) -> String {
-        String::from_bytes(e, &self.buf[..self.len])
+    #[inline]
+    pub fn is_overflowed(&self) -> bool {
+        self.overflow
+    }
+
+    pub fn to_soroban_string(&self, e: &Env) -> Option<String> {
+        if self.overflow {
+            return None;
+        }
+        Some(String::from_bytes(e, &self.buf[..self.len]))
     }
 
     #[inline]
@@ -503,7 +527,7 @@ pub fn validate_rle_render_budget(bytes: &[u8], pal45: &[u8; PALETTE_BYTES]) -> 
         return false;
     }
     write_svg(&mut w, &grid, pal45, true);
-    w.len() <= MAX_SVG_BUDGET
+    !w.is_overflowed() && w.len() <= MAX_SVG_BUDGET
 }
 
 /// Resolves full 32x32 grid from Season 1 compiled constants cleanly.

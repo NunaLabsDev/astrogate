@@ -39,22 +39,25 @@ stateDiagram-v2
   - Unlocks P2P transfers on the token (`unlock_transfers`).
   - Verifies Soroswap pair does not already hold liquidity (`pair.total_supply() > 0 || (r0 > 0 && r1 > 0)`), preventing 1-stroop `pair.sync()` griefing while still defeating pre-seeded LP dilution.
   - Transfers `>= 1,000 XLM` + `3,300,000` tokens (`33%`) directly into the Soroswap Pair, calls `deposit(&this)` so LP stays locked in the Launchpad contract for 7 years, awards `25,000` (`0.25%`) Graduation Jackpot to the final buyer, and releases `30,000` (`0.30%`) to `treasury`.
+- **Pre-Graduation Checkpoints & State Safety**:
+  - Pre-graduation Spark (`+5K`) and Crown (`+10K`) bonuses escrow in `DataKey::CheckpointReward(token, winner)` until graduation (`claim_checkpoint_reward`), blocking pre-graduation curve dumping.
+  - `with_reentrancy_guard` and strict CEI ordering protect all state-mutating external-call entrypoints (`burn_shout` scales by `10^decimals`, `update_pilot` requires `DataKey::Curve`, and stalled refunds / 30d empty-curve sweeps verify `zero_external_supply`).
 - **Post-Graduation Flywheel & Anti-MEV**:
   - `reclaim_expired_lp`: allows reclaiming expired contract-locked LP to `treasury` only after `graduated_at + 7 * 365 * 86_400` (`220,752,000s`).
-  - `trigger_buyback_burn`: permissionless Soroswap XLM -> Token swap + immediate `token.burn()`, chunk-capped at `50 bps` (`0.50%`) of pool XLM reserve with a `300s` per-token cooldown (`BuybackLastTs`) to prevent sandwich MEV extraction.
+  - `trigger_buyback_burn` / `trigger_buyback_burn_min`: permissionless Soroswap XLM -> Token swap + immediate `token.burn()`, chunk-capped at `50 bps` (`0.50%`) of pool XLM reserve and `250 XLM` absolute (`BUYBACK_MAX_ABSOLUTE_CHUNK_XLM`) with a `300s` per-token cooldown (`BuybackLastTs`) and checked slippage verification to prevent sandwich MEV extraction.
   - `claim_creator_vesting`: `30,000` tokens (`0.3%`, `5` tranches of `6,000` every `3` days) + creator's initial `launch_fair` paid seed unlocked at graduation (or `7 days` after launch if stalled).
-- **Governance & Safety**:
-  - Admin address initialized to `treasury`, supports 2-step `transfer_admin`/`accept_admin`, emergency `set_paused` (pauses new launches only; exits/sells/claims remain open), `set_treasury`, `set_token_wasm_hash`, and `upgrade`.
+- **Governance, Pure Reads & 48h Upgrade Timelock**:
+  - Admin address supports 2-step `transfer_admin`/`accept_admin`/`cancel_admin_transfer`, emergency `set_paused` (pauses new launches only; exits/sells/claims remain open), `set_treasury`, `set_token_wasm_hash`, governance event emissions, `StorageVersion = 1`, pure read getters, `extend_pilot_ttl`, and mandatory 48-hour timelocked `schedule_upgrade`/`cancel_upgrade`/`execute_upgrade` (replacing immediate `upgrade`).
 
 ### 2.2 `contracts/token` (`astro-token`)
-- Built on OpenZeppelin `stellar-tokens 0.8.0` (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`).
-- **Curve Transfer Lock**: During active curve (`lock_until_graduated(gate)`), `transfer` and `transfer_from` reject P2P movements (only the Launchpad gate can move curve tokens). `burn` and `burn_from` stay enabled so `burn_shout` works on the curve. Once `unlock_transfers()` executes at graduation, standard SEP-41 transfers open permanently.
+- Built on OpenZeppelin `stellar-tokens 0.8.0` (`Capped`, `TotalSupply`, `FungibleBurnable`, `Ownable`), using typed `TokenError` (`#500..=#506`) via `panic_with_error!` (zero raw `panic!`/`expect` in production paths).
+- **Curve Transfer Lock**: During active curve (`lock_until_graduated(gate)`), `transfer` and `transfer_from` reject P2P movements (only the Launchpad gate can move curve tokens). `burn` and `burn_from` stay enabled so `burn_shout` works on the curve. Once `unlock_transfers()` executes at graduation, standard SEP-41 transfers open permanently. Both transitions emit `TransfersLockedEvent` / `TransfersUnlockedEvent`.
 - **TTL Preservation**: `extend_ttl` bumps instance TTL, `TotalSupply`, creator/lock metadata; `approve` also refreshes TTLs.
 
 ### 2.3 `contracts/sorobits` (`astro-sorobits-contract`)
-- SEP-50 NFT contract rendering deterministic `32×32` pixel SVG (`render_svg`, `animated_svg`) from RLE-compressed trait bitmaps (`validate_rle_render_budget` bounds `<= 720` runs and `<= 12,800` SVG bytes).
-- Edition-0 Genesis Archetypes (`AGQ01–AGQ08`) + generative `BytesN<32>` genomes with compatibility sanitization and role-gated epigenetic `rank_tier` / `xp_score` progression.
-- `tokens_of_page(owner, offset, limit)` paginated enumeration and `extend_token_ttl` asset TTL refreshing.
+- SEP-50 NFT contract rendering deterministic `32×32` pixel SVG (`render_svg`, `animated_svg`) from RLE-compressed trait bitmaps (`validate_rle_render_budget` bounds `<= 720` runs and `<= 12,800` SVG bytes); `ByteWriter` sets `overflow: bool` returning `SvgBudgetExceeded` instead of panicking, and SVG/URI/`get_sorobit` getters use pure `peek_record` reads.
+- Edition-0 Genesis Archetypes (`AGQ01–AGQ08`) + generative `BytesN<32>` genomes with 2-step commit-reveal randomness (`commit_capsule`/`reveal_capsule`, `commit_forge`/`reveal_forge`, `InstantMintAllowed = false`), `TokenXpBaseline` anti-XP-laundering snapshots across transfers, soulbound `burn`/`burn_from` rejection, bounded `set_capsule_fee` (`<= 1,000 XLM`) and layer/palette IDs (`<= 15`), `is_season_sealed` guard in `set_active_season`, `StorageVersion = 1`, and 48-hour timelocked `schedule_upgrade`/`cancel_upgrade`/`execute_upgrade`.
+- `tokens_of` capped at `50`, `tokens_of_page(owner, offset, limit)` paginated enumeration, `extend_user_ttl`, and `extend_token_ttl` asset/baseline TTL refreshing.
 
 ---
 
@@ -62,12 +65,13 @@ stateDiagram-v2
 
 - **100% Native Self-Custodial Wallet (`src/lib/hot-wallet/`, `src/lib/wallet-directory.ts`)**:
   - Zero external wallet extensions required in the main UX: users create or unlock a native Stellar wallet directly inside Telegram Mini App or Web browsers under a single PIN.
-  - Keypairs are encrypted client-side with `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256`, binding the account `publicKey` as GCM `additionalData` (AAD).
+  - Keypairs are encrypted client-side with `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256`, binding the account `publicKey` as GCM `additionalData` (AAD; legacy no-AAD fallback disabled on Mainnet), enforcing `validateVaultPin` (`6`-char Testnet / `12`-char Mainnet minimum PINs).
   - Unlocks only into volatile memory (`sessionKeys`), clears temporary byte arrays after derivation/import, verifies `Keypair.fromSecret(secret).publicKey() === record.meta.publicKey`, enforces brute-force cooldowns, and auto-locks after `15 minutes` of inactivity (`HOT_IDLE_AUTO_LOCK_MS`).
   - **Multi-Wallet + `@username` Primary Routing**: Supports up to `10` connected sub-wallets (`MAX_HOT_WALLETS`) with `setPrimaryHotAccount` to designate which `G...` receives P2P transfers/tips addressed to `@username`. Users remain 100% sovereign and can reveal/export any individual `S...` key to manage it externally or import existing `S...` accounts.
-  - **Cross-Device Sync (Telegram ↔ Web)**: Syncs ciphertext to `Telegram.WebApp.CloudStorage` inside Telegram, syncs `AGVAULT1:` encrypted bundles to `/api/v1/wallet/vault` when `initData` is verified, and allows manual `AGVAULT1:<base64>` export/import across browsers.
-  - **Ed25519 Username Binding**: `signTelegramWalletLink` signs `astrogate:link:v1:<network>:<tgUserId>:<username>:<primaryPublicKey>:<wallets>:<timestamp>` with the Primary wallet so `TransferCard` (`resolveUsernameOrAddress`) can send directly to `@username` handles.
-- **Stellar Reserve Validation (`src/lib/xlm.ts`)**:
+  - **Cross-Device Sync (Telegram ↔ Web)**: Syncs ciphertext to `Telegram.WebApp.CloudStorage` inside Telegram (`IS_MAINNET` disables automatic cloud uploads), syncs `AGVAULT1:` encrypted bundles to `/api/v1/wallet/vault` when `initData` is verified, and allows manual `AGVAULT1:<base64>` export/import across browsers.
+  - **Ed25519 Username Binding**: `signTelegramWalletLink` signs `astrogate:link:v1:<network>:<tgUserId>:<username>:<primaryPublicKey>:<wallets>:<timestamp>` with the Primary wallet plus per-wallet `walletSignatures` across secondary addresses so `TransferCard` (`resolveUsernameOrAddress`, requiring `verifiedTelegram === true`) can send directly to `@username` handles.
+- **Per-Account TX Queue & Stellar Reserve Validation (`src/lib/tx-queue.ts`, `src/lib/xlm.ts`)**:
+  - `enqueueAccountTx` serializes concurrent write transactions per public key with explicit `DEFAULT_SOROBAN_INCLUSION_FEE` so rapid actions never collide on Stellar sequence numbers.
   - Reads exact `subentry_count`, `num_sponsoring`, `num_sponsored`, and `selling_liabilities` from Horizon to enforce `(2 + subentries + sponsoring - sponsored) * 0.5 XLM + liabilities + 0.5 XLM` fee headroom before signing.
 - **Multi-RPC Failover (`src/lib/network.ts`)**:
   - `executeWithRpcFailover` rotates healthy endpoints on 429/5xx/timeouts with bounded backoff; `Soroswap` and `Sorobits` modules read directly from chain (`Pair.token_0()`, `Pair.token_1()`, `Pair.get_reserves()`).
@@ -85,10 +89,11 @@ stateDiagram-v2
   - **`@AstroGateFeed`** (`TELEGRAM_FEED_CHAT_ID`): Receives ALL automated spam-filtered protocol alerts (`launch`, buys/sells `>= 2 XLM`, `>= 80%` near-graduation pushes, graduations, DEX buybacks, Stage-2 milestones, Burn-to-Chat shouts, Sorobits mints & rank evolutions).
   - **`@AstroGateCommunity`** (`TELEGRAM_COMMUNITY_CHAT_ID`): **Zero automated broadcasts** (`community: false` for all parsed contract events). Responds strictly to interactive commands (`/market`, `/king`, `/token`, `/wallet`, `/wallet @user`, `/quests`, `/sorobits`, etc.), `$TICKER` lookups, and secret-seed auto-deletion guards.
 - **Wallet Directory & Encrypted Sync API (`frontend/worker/wallet.ts`, `api.ts`, `mcp.ts`)**:
-  - `POST /api/v1/wallet/link`: Verifies `X-Telegram-Init-Data` (300s window), `±300s` signature timestamp, Ed25519 signature over the canonical link message (`decodeStellarPublicKey` + WebCrypto `Ed25519` with `@stellar/stellar-sdk` fallback), anti-replay nonce (`wnonce:` in KV), and fail-closed `S...` secret leak check before storing network-scoped links.
+  - `POST /api/v1/wallet/link`: Rate-limited per IP (`20/300s`), requires `X-Telegram-Init-Data` HMAC-SHA256 verification whenever `tgUserId > 0`, protects both `unameKey` and `uidKey` against unverified overwrites, checks `±300s` signature timestamps, verifies Ed25519 signatures for primary and all secondary wallets (`walletSignatures`), enforces KV anti-replay nonces (`wnonce:`), and blocks `S...` secret leaks fail-closed before storing network-scoped links.
   - `GET /api/v1/wallet/resolve?q=...`: Resolves `@username`, `G...`, or numeric `tgUserId` to its `primaryPublicKey` (never returns `encryptedVaultBundle`; `Cache-Control: no-store`). Also exposed to AI agents via MCP tool `resolve_wallet`.
   - `GET /api/v1/wallet/vault`: Requires verified `X-Telegram-Init-Data` (300s window) and returns the authenticated user's `AGVAULT1` encrypted bundle and link metadata.
+  - `POST /api/v1/logos` & `/mcp`: Logo uploads enforce allowed `Origin`, per-IP rate limits (`10/600s`), anti-polyglot scanning (`<svg`/`<script`/HTML), and `Content-Security-Policy: default-src 'none'; sandbox` on responses; `/mcp` caps JSON-RPC batches at `10` items and `ai.ts` sanitizes interpolated token fields and strips external non-bot links.
 - **Security Controls**:
   - Webhook requests require constant-time verification of `X-Telegram-Bot-Api-Secret-Token`.
-  - `/api/telegram/pulse` enforces an explicit CORS origin allowlist (no wildcard `*.workers.dev`), optional `Telegram.WebApp.initData` HMAC-SHA256 verification (`verifyTelegramInitData` in `telegram-auth.ts`), 5-second per-IP rate limiting, and a 180-ledger tx recency window.
-  - Supports Cloudflare KV (`ASTRO_KV`) for persistent event deduplication, wallet directory indexes, anti-replay nonces, and cursor tracking across Worker isolates.
+  - `/api/telegram/pulse` enforces an explicit CORS origin allowlist (no wildcard `*.workers.dev`), optional `Telegram.WebApp.initData` HMAC-SHA256 verification (`verifyTelegramInitData` in `telegram-auth.ts`), 5-second per-IP rate limiting, KV `txHash` deduplication (`pulse:tx:<hash>`, TTL `300s`), and a 180-ledger tx recency window.
+  - Supports Cloudflare KV (`ASTRO_KV`) for persistent event deduplication, rate limits, wallet directory indexes, anti-replay nonces, and cursor tracking across Worker isolates.

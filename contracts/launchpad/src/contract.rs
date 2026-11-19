@@ -9,8 +9,8 @@
 //! creator initial-seed lock until graduation, and decaying Burn-to-Chat King Shout.
 
 use soroban_sdk::{
-    contract, contracterror, contractevent, contractimpl, contracttype, token, xdr::ToXdr, Address,
-    Bytes, BytesN, ContractExecutable, Env, String, Vec,
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, token,
+    xdr::ToXdr, Address, Bytes, BytesN, ContractExecutable, Env, String, Vec,
 };
 
 #[contracterror]
@@ -184,6 +184,14 @@ pub struct ShoutRecord {
     pub timestamp: u64,
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingUpgradeData {
+    pub wasm_hash: BytesN<32>,
+    pub scheduled_at: u64,
+    pub execute_after: u64,
+}
+
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TokenLaunchedEvent {
@@ -265,6 +273,91 @@ pub struct ShoutEvent {
     pub ledger: u32,
 }
 
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PausedChangedEvent {
+    pub paused: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryUpdatedEvent {
+    #[topic]
+    pub new_treasury: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TokenWasmHashUpdatedEvent {
+    pub new_wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CreationFeeUpdatedEvent {
+    pub new_fee_stroops: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferProposedEvent {
+    #[topic]
+    pub pending_admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferAcceptedEvent {
+    #[topic]
+    pub new_admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminTransferCancelledEvent {
+    #[topic]
+    pub cancelled_admin: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeScheduledEvent {
+    pub wasm_hash: BytesN<32>,
+    pub execute_after: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeCancelledEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeExecutedEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckpointRewardEscrowedEvent {
+    #[topic]
+    pub token: Address,
+    #[topic]
+    pub winner: Address,
+    pub reward: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckpointRewardClaimedEvent {
+    #[topic]
+    pub token: Address,
+    #[topic]
+    pub winner: Address,
+    pub reward: i128,
+}
+
 #[contracttype]
 #[derive(Clone)]
 enum DataKey {
@@ -275,12 +368,15 @@ enum DataKey {
     Treasury,
     Admin,
     PendingAdmin,
+    StorageVersion,
+    PendingUpgrade,
     LaunchesPaused,
     CreationFee,
     LaunchCount,
     LaunchByIndex(u32),
     TokenIndex(Address),
     Curve(Address),
+    CheckpointReward(Address, Address),
     TokenShouts(Address),
     KingShout(Address),
     BuybackLastTs(Address),
@@ -386,9 +482,12 @@ const SELL_FLOOR_SPRINT_BPS: i128 = 120;
 /// 60% of surplus `floor_bonus` at graduation funds post-grad Soroswap Buyback & Burn; 40% deepens DEX LP.
 const BUYBACK_RESERVE_SHARE_BPS: i128 = 6_000;
 /// Cap each permissionless buyback chunk to <= 0.50% of pool XLM reserve per cooldown window
-/// so round-trip Soroswap fees (0.60%) make sandwich MEV mathematically unprofitable.
+/// (with an absolute 250 XLM ceiling per swap) so round-trip Soroswap fees (0.60%) make sandwich MEV unprofitable.
 const BUYBACK_MAX_CHUNK_BPS: i128 = 50;
+const BUYBACK_MAX_ABSOLUTE_CHUNK_XLM: i128 = 250 * STROOPS_PER_UNIT;
 const BUYBACK_COOLDOWN_SECONDS: u64 = 300;
+const UPGRADE_TIMELOCK_SECONDS: u64 = 48 * 3_600;
+const STORAGE_VERSION_V1: u32 = 1;
 
 /// Milestone 2 burn trigger: Soroswap pair real XLM reserve >= 1,800 XLM.
 const MILESTONE_2_PAIR_XLM: i128 = 1_800 * STROOPS_PER_UNIT;
@@ -397,9 +496,9 @@ const MILESTONE_2_PAIR_XLM: i128 = 1_800 * STROOPS_PER_UNIT;
 const VESTING_INTERVAL_SECONDS: u64 = 3 * 86_400;
 const VESTING_PHASES: u64 = 5;
 
-/// 3-tier Burn-to-Chat: minimum 50 tokens, King Shout >= 5,000 tokens with 24h half-life decay.
-const MIN_SHOUT_BURN: i128 = 50 * STROOPS_PER_UNIT;
-const KING_SHOUT_MIN_BURN: i128 = 5_000 * STROOPS_PER_UNIT;
+/// 3-tier Burn-to-Chat: minimum 50 whole tokens, King Shout >= 5,000 whole tokens with 24h half-life decay.
+const SHOUT_MIN_WHOLE: i128 = 50;
+const KING_SHOUT_MIN_WHOLE: i128 = 5_000;
 const KING_SHOUT_DECAY_SECONDS: u64 = 86_400;
 
 const MAX_OFFCHAIN_META_BYTES: u32 = 512;
@@ -421,6 +520,9 @@ impl Launchpad {
         burn_address: Address,
         treasury: Address,
     ) {
+        if token_wasm_hash == BytesN::from_array(e, &[0u8; 32]) || factory == xlm_sac {
+            panic_with_error!(e, LaunchpadError::InvalidMetadata);
+        }
         e.storage().instance().set(&DataKey::Factory, &factory);
         e.storage().instance().set(&DataKey::XlmSac, &xlm_sac);
         e.storage()
@@ -433,6 +535,9 @@ impl Launchpad {
         e.storage().instance().set(&DataKey::Admin, &treasury);
         e.storage().instance().set(&DataKey::LaunchesPaused, &false);
         e.storage().instance().set(&DataKey::LaunchCount, &0u32);
+        e.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION_V1);
         Self::extend_ttl(e);
     }
 
@@ -443,6 +548,7 @@ impl Launchpad {
             .instance()
             .set(&DataKey::LaunchesPaused, &paused);
         Self::extend_ttl(e);
+        PausedChangedEvent { paused }.publish(e);
         Ok(())
     }
 
@@ -453,16 +559,21 @@ impl Launchpad {
             .instance()
             .set(&DataKey::Treasury, &new_treasury);
         Self::extend_ttl(e);
+        TreasuryUpdatedEvent { new_treasury }.publish(e);
         Ok(())
     }
 
     /// Updates the token WASM hash used for future token deployments (admin only).
     pub fn set_token_wasm_hash(e: &Env, new_wasm_hash: BytesN<32>) -> Result<(), LaunchpadError> {
         Self::require_admin_auth(e)?;
+        if new_wasm_hash == BytesN::from_array(e, &[0u8; 32]) {
+            return Err(LaunchpadError::InvalidMetadata);
+        }
         e.storage()
             .instance()
             .set(&DataKey::TokenWasmHash, &new_wasm_hash);
         Self::extend_ttl(e);
+        TokenWasmHashUpdatedEvent { new_wasm_hash }.publish(e);
         Ok(())
     }
 
@@ -477,18 +588,43 @@ impl Launchpad {
             .instance()
             .set(&DataKey::CreationFee, &new_fee_stroops);
         Self::extend_ttl(e);
+        CreationFeeUpdatedEvent { new_fee_stroops }.publish(e);
         Ok(())
     }
 
     /// Starts a 2-step admin transfer to `new_admin` (7-day acceptance window for multisigs).
     pub fn transfer_admin(e: &Env, new_admin: Address) -> Result<(), LaunchpadError> {
-        Self::require_admin_auth(e)?;
+        let current_admin = Self::require_admin_auth(e)?;
+        if new_admin == current_admin {
+            return Err(LaunchpadError::InvalidMetadata);
+        }
         let key = DataKey::PendingAdmin;
         e.storage().temporary().set(&key, &new_admin);
         e.storage()
             .temporary()
             .extend_ttl(&key, 7 * DAY_IN_LEDGERS, 7 * DAY_IN_LEDGERS);
         Self::extend_ttl(e);
+        AdminTransferProposedEvent {
+            pending_admin: new_admin,
+        }
+        .publish(e);
+        Ok(())
+    }
+
+    /// Cancels a pending 2-step admin transfer before acceptance (admin only).
+    pub fn cancel_admin_transfer(e: &Env) -> Result<(), LaunchpadError> {
+        Self::require_admin_auth(e)?;
+        let pending: Address = e
+            .storage()
+            .temporary()
+            .get(&DataKey::PendingAdmin)
+            .ok_or(LaunchpadError::Unauthorized)?;
+        e.storage().temporary().remove(&DataKey::PendingAdmin);
+        Self::extend_ttl(e);
+        AdminTransferCancelledEvent {
+            cancelled_admin: pending,
+        }
+        .publish(e);
         Ok(())
     }
 
@@ -503,21 +639,96 @@ impl Launchpad {
         e.storage().instance().set(&DataKey::Admin, &pending);
         e.storage().temporary().remove(&DataKey::PendingAdmin);
         Self::extend_ttl(e);
+        AdminTransferAcceptedEvent { new_admin: pending }.publish(e);
         Ok(())
     }
 
-    /// Upgrades Launchpad WASM bytecode in place (admin only).
-    pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) -> Result<(), LaunchpadError> {
+    /// Schedules a Launchpad WASM bytecode upgrade behind a mandatory 48-hour timelock (admin only).
+    pub fn schedule_upgrade(e: &Env, new_wasm_hash: BytesN<32>) -> Result<(), LaunchpadError> {
         Self::require_admin_auth(e)?;
-        e.deployer()
-            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
+        if new_wasm_hash == BytesN::from_array(e, &[0u8; 32]) {
+            return Err(LaunchpadError::InvalidMetadata);
+        }
+        let key = DataKey::PendingUpgrade;
+        if e.storage().persistent().has(&key) {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
+        let now = e.ledger().timestamp();
+        let execute_after = now.saturating_add(UPGRADE_TIMELOCK_SECONDS);
+        let pending = PendingUpgradeData {
+            wasm_hash: new_wasm_hash.clone(),
+            scheduled_at: now,
+            execute_after,
+        };
+        e.storage().persistent().set(&key, &pending);
+        Self::bump_persistent(e, &key);
+        Self::extend_ttl(e);
+        UpgradeScheduledEvent {
+            wasm_hash: new_wasm_hash,
+            execute_after,
+        }
+        .publish(e);
         Ok(())
     }
 
-    /// Fair-Flywheel v4.3 launch: deploys fixed 10M token with P2P transfers locked until
+    /// Cancels a previously scheduled Launchpad WASM upgrade (admin only).
+    pub fn cancel_upgrade(e: &Env) -> Result<(), LaunchpadError> {
+        Self::require_admin_auth(e)?;
+        let key = DataKey::PendingUpgrade;
+        let pending: PendingUpgradeData = e
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(LaunchpadError::MilestoneNotReached)?;
+        e.storage().persistent().remove(&key);
+        Self::extend_ttl(e);
+        UpgradeCancelledEvent {
+            wasm_hash: pending.wasm_hash,
+        }
+        .publish(e);
+        Ok(())
+    }
+
+    /// Executes a scheduled Launchpad WASM upgrade once the 48-hour timelock has elapsed (admin only).
+    pub fn execute_upgrade(e: &Env) -> Result<(), LaunchpadError> {
+        Self::require_admin_auth(e)?;
+        let key = DataKey::PendingUpgrade;
+        let pending: PendingUpgradeData = e
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(LaunchpadError::MilestoneNotReached)?;
+        if e.ledger().timestamp() < pending.execute_after {
+            return Err(LaunchpadError::MilestoneNotReached);
+        }
+        e.storage().persistent().remove(&key);
+        Self::extend_ttl(e);
+        UpgradeExecutedEvent {
+            wasm_hash: pending.wasm_hash.clone(),
+        }
+        .publish(e);
+        e.deployer()
+            .update_current_contract(ContractExecutable::Wasm(pending.wasm_hash));
+        Ok(())
+    }
+
+    /// Returns the currently scheduled WASM upgrade awaiting timelock expiry, if any.
+    pub fn get_pending_upgrade(e: &Env) -> Option<PendingUpgradeData> {
+        e.storage().persistent().get(&DataKey::PendingUpgrade)
+    }
+
+    /// Returns the initialized schema storage version for upgrade migrations.
+    pub fn get_storage_version(e: &Env) -> u32 {
+        e.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(STORAGE_VERSION_V1)
+    }
+
+    /// Fair-Flywheel v4.4 launch: deploys fixed 10M token with P2P transfers locked until
     /// graduation, renounces mint authority, initializes the `1,000 vXLM -> 1,000 XLM` curve
-    /// (`66/33/0.3/0.7`), and executes the creator's initial atomic buy (`>= 2 XLM`, locked
-    /// inside contract until graduation).
+    /// (`66/33/0.30/0.40 jackpots/0.30`), and executes the creator's initial atomic buy
+    /// (`>= 2 XLM`, locked inside contract until graduation).
     pub fn launch_fair(e: &Env, params: FairLaunchParams) -> Result<LaunchResult, LaunchpadError> {
         params.creator.require_auth();
         Self::require_not_paused(e)?;
@@ -535,102 +746,104 @@ impl Launchpad {
             return Err(LaunchpadError::InvalidAmount);
         }
 
-        Self::extend_ttl(e);
-        let this = e.current_contract_address();
-        let xlm_sac = Self::require_xlm_sac(e)?;
-        let treasury = Self::require_treasury(e)?;
-        // Charge configurable creation fee atomically straight to treasury.
-        let creation_fee = Self::get_creation_fee(e);
-        if creation_fee > 0 {
-            token::Client::new(e, &xlm_sac).transfer(&params.creator, &treasury, &creation_fee);
-        }
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let this = e.current_contract_address();
+            let xlm_sac = Self::require_xlm_sac(e)?;
+            let treasury = Self::require_treasury(e)?;
+            // Charge configurable creation fee atomically straight to treasury.
+            let creation_fee = Self::get_creation_fee(e);
+            if creation_fee > 0 {
+                token::Client::new(e, &xlm_sac).transfer(&params.creator, &treasury, &creation_fee);
+            }
 
-        let wasm_hash = Self::require_token_wasm_hash(e)?;
-        let token_addr = Self::deploy_capped_token(
-            e,
-            &params.creator,
-            &this,
-            wasm_hash,
-            params.name.clone(),
-            params.symbol.clone(),
-            FAIR_DECIMALS,
-            FAIR_INITIAL_SUPPLY,
-            params.salt,
-            true,
-        );
+            let wasm_hash = Self::require_token_wasm_hash(e)?;
+            let token_addr = Self::deploy_capped_token(
+                e,
+                &params.creator,
+                &this,
+                wasm_hash,
+                params.name.clone(),
+                params.symbol.clone(),
+                FAIR_DECIMALS,
+                FAIR_INITIAL_SUPPLY,
+                params.salt,
+                true,
+            );
 
-        let curve = CurveState {
-            token: token_addr.clone(),
-            creator: params.creator.clone(),
-            graduated: false,
-            graduated_at: 0,
-            pair: None,
-            lp_minted: 0,
-            curve_xlm_net: 0,
-            real_xlm_vault: 0,
-            tokens_sold: 0,
-            buyback_xlm_reserve: 0,
-            burn_vault_remaining: BURN_VAULT_TOKENS_ALLOC,
-            burn_milestone_stage: 0,
-            creator_vesting_total: CREATOR_VESTING_ALLOC,
-            creator_claimed: 0,
-            creator_seed_locked: 0,
-        };
-        let curve_key = DataKey::Curve(token_addr.clone());
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
+            let curve = CurveState {
+                token: token_addr.clone(),
+                creator: params.creator.clone(),
+                graduated: false,
+                graduated_at: 0,
+                pair: None,
+                lp_minted: 0,
+                curve_xlm_net: 0,
+                real_xlm_vault: 0,
+                tokens_sold: 0,
+                buyback_xlm_reserve: 0,
+                burn_vault_remaining: BURN_VAULT_TOKENS_ALLOC,
+                burn_milestone_stage: 0,
+                creator_vesting_total: CREATOR_VESTING_ALLOC,
+                creator_claimed: 0,
+                creator_seed_locked: 0,
+            };
+            let curve_key = DataKey::Curve(token_addr.clone());
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
 
-        let index = Self::get_launch_count(e);
-        let record = LaunchRecord {
-            index,
-            creator: params.creator.clone(),
-            token: token_addr.clone(),
-            pair: None,
-            name: params.name,
-            symbol: params.symbol,
-            decimals: FAIR_DECIMALS,
-            initial_supply: FAIR_INITIAL_SUPPLY,
-            token_lp_amount: DEX_TOKENS_ALLOC,
-            xlm_lp_amount: params.xlm_lp_amount,
-            lp_minted: 0,
-            meta: params.meta,
-            ledger: e.ledger().sequence(),
-            timestamp: e.ledger().timestamp(),
-        };
-        Self::save_launch_record(e, index, &token_addr, &record);
-        Self::update_pilot(e, &params.creator, |p| {
-            p.launches = p.launches.saturating_add(1);
-        });
+            let index = Self::get_launch_count(e);
+            let record = LaunchRecord {
+                index,
+                creator: params.creator.clone(),
+                token: token_addr.clone(),
+                pair: None,
+                name: params.name,
+                symbol: params.symbol,
+                decimals: FAIR_DECIMALS,
+                initial_supply: FAIR_INITIAL_SUPPLY,
+                token_lp_amount: DEX_TOKENS_ALLOC,
+                xlm_lp_amount: params.xlm_lp_amount,
+                lp_minted: 0,
+                meta: params.meta,
+                ledger: e.ledger().sequence(),
+                timestamp: e.ledger().timestamp(),
+            };
+            Self::save_launch_record(e, index, &token_addr, &record);
+            Self::update_pilot(e, &params.creator, |p| {
+                p.launches = p.launches.saturating_add(1);
+            });
 
-        TokenLaunchedEvent {
-            creator: params.creator.clone(),
-            token: token_addr.clone(),
-            initial_supply: FAIR_INITIAL_SUPPLY,
-            xlm_initial: params.xlm_lp_amount,
-            is_curve: true,
-        }
-        .publish(e);
+            TokenLaunchedEvent {
+                creator: params.creator.clone(),
+                token: token_addr.clone(),
+                initial_supply: FAIR_INITIAL_SUPPLY,
+                xlm_initial: params.xlm_lp_amount,
+                is_curve: true,
+            }
+            .publish(e);
 
-        // Execute creator's initial fair buy on the virtual curve atomically (tokens held until grad)
-        let trade = Self::execute_curve_buy(
-            e,
-            &params.creator,
-            &token_addr,
-            params.xlm_lp_amount,
-            1,
-            true,
-        )?;
+            // Execute creator's initial fair buy on the virtual curve atomically (tokens held until grad)
+            let trade = Self::execute_curve_buy(
+                e,
+                &params.creator,
+                &token_addr,
+                params.xlm_lp_amount,
+                1,
+                true,
+            )?;
 
-        Ok(LaunchResult {
-            token: token_addr,
-            pair: trade.pair,
-            lp_minted: if trade.graduated {
-                Self::get_curve(e, record.token)
-                    .map(|c| c.lp_minted)
-                    .unwrap_or(0)
-            } else {
-                0
-            },
+            Ok(LaunchResult {
+                token: token_addr,
+                pair: trade.pair,
+                lp_minted: if trade.graduated {
+                    Self::get_curve(e, record.token)
+                        .map(|c| c.lp_minted)
+                        .unwrap_or(0)
+                } else {
+                    0
+                },
+            })
         })
     }
 
@@ -669,8 +882,8 @@ impl Launchpad {
         Self::compute_sell_quote(&curve, token_amount)
     }
 
-    /// Buys tokens from the bonding curve up to `max_xlm_in` (flat `0.80%` fee).
-    /// Automatically unlocks transfers, seeds Soroswap LP, and burns Milestone 1 vault tokens at 1,000 net XLM.
+    /// Buys tokens from the bonding curve up to `max_xlm_in` (3-stage soft dynamic buy fee).
+    /// Automatically unlocks transfers and seeds Soroswap LP at 1,000 net XLM.
     pub fn buy_curve(
         e: &Env,
         buyer: Address,
@@ -682,8 +895,10 @@ impl Launchpad {
         if max_xlm_in <= 0 || min_tokens_out < 0 {
             return Err(LaunchpadError::InvalidAmount);
         }
-        Self::extend_ttl(e);
-        Self::execute_curve_buy(e, &buyer, &token, max_xlm_in, min_tokens_out, false)
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            Self::execute_curve_buy(e, &buyer, &token, max_xlm_in, min_tokens_out, false)
+        })
     }
 
     /// Sells tokens back to the bonding curve before graduation with slippage protection.
@@ -698,214 +913,267 @@ impl Launchpad {
         if token_amount <= 0 || min_xlm_out < 0 {
             return Err(LaunchpadError::InvalidAmount);
         }
-        Self::extend_ttl(e);
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
 
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        if curve.graduated {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
-        if token_amount > curve.tokens_sold {
-            return Err(LaunchpadError::InvalidAmount);
-        }
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if curve.graduated {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            if token_amount > curve.tokens_sold {
+                return Err(LaunchpadError::InvalidAmount);
+            }
 
-        let quote = Self::compute_sell_quote(&curve, token_amount)?;
-        if quote.net_xlm_out <= 0 || quote.gross_xlm_out > curve.curve_xlm_net {
-            return Err(LaunchpadError::InvalidAmount);
-        }
-        if quote.net_xlm_out < min_xlm_out {
-            return Err(LaunchpadError::SlippageExceeded);
-        }
+            let quote = Self::compute_sell_quote(&curve, token_amount)?;
+            if quote.net_xlm_out <= 0 || quote.gross_xlm_out > curve.curve_xlm_net {
+                return Err(LaunchpadError::InvalidAmount);
+            }
+            if quote.net_xlm_out < min_xlm_out {
+                return Err(LaunchpadError::SlippageExceeded);
+            }
 
-        // Effects: update state before external token transfers
-        curve.curve_xlm_net -= quote.gross_xlm_out;
-        curve.tokens_sold -= token_amount;
-        if curve.tokens_sold == 0 {
-            // Retain any sub-unit rounding dust inside real_xlm_vault as pool floor backing
-            curve.curve_xlm_net = 0;
-        }
-        let vault_outflow = quote.net_xlm_out + quote.treasury_fee;
-        if vault_outflow > curve.real_xlm_vault {
-            return Err(LaunchpadError::InvalidAmount);
-        }
-        curve.real_xlm_vault -= vault_outflow;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
+            // Effects: update state before external token transfers
+            curve.curve_xlm_net = curve
+                .curve_xlm_net
+                .checked_sub(quote.gross_xlm_out)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            curve.tokens_sold = curve
+                .tokens_sold
+                .checked_sub(token_amount)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            if curve.tokens_sold == 0 {
+                // Retain any sub-unit rounding dust inside real_xlm_vault as pool floor backing
+                curve.curve_xlm_net = 0;
+            }
+            let vault_outflow = quote
+                .net_xlm_out
+                .checked_add(quote.treasury_fee)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            curve.real_xlm_vault = curve
+                .real_xlm_vault
+                .checked_sub(vault_outflow)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
 
-        // Interactions
-        let this = e.current_contract_address();
-        let xlm_sac = Self::require_xlm_sac(e)?;
-        let treasury = Self::require_treasury(e)?;
-        let xlm_client = token::Client::new(e, &xlm_sac);
+            // Interactions
+            let this = e.current_contract_address();
+            let xlm_sac = Self::require_xlm_sac(e)?;
+            let treasury = Self::require_treasury(e)?;
+            let xlm_client = token::Client::new(e, &xlm_sac);
 
-        token::Client::new(e, &token).transfer(&seller, &this, &token_amount);
-        if quote.treasury_fee > 0 {
-            xlm_client.transfer(&this, &treasury, &quote.treasury_fee);
-        }
-        xlm_client.transfer(&this, &seller, &quote.net_xlm_out);
+            token::Client::new(e, &token).transfer(&seller, &this, &token_amount);
+            if quote.treasury_fee > 0 {
+                xlm_client.transfer(&this, &treasury, &quote.treasury_fee);
+            }
+            xlm_client.transfer(&this, &seller, &quote.net_xlm_out);
 
-        Self::bump_launch_record_ttl(e, &token);
-        Self::update_pilot(e, &seller, |p| {
-            p.trades = p.trades.saturating_add(1);
-            p.volume_xlm_stroops = p.volume_xlm_stroops.saturating_add(quote.net_xlm_out);
-        });
+            Self::bump_launch_record_ttl(e, &token);
+            Self::update_pilot(e, &seller, |p| {
+                p.trades = p.trades.saturating_add(1);
+                p.volume_xlm_stroops = p.volume_xlm_stroops.saturating_add(quote.net_xlm_out);
+            });
 
-        CurveTradeEvent {
-            token,
-            trader: seller,
-            is_buy: false,
-            xlm_amount: quote.net_xlm_out,
-            token_amount,
-            treasury_fee: quote.treasury_fee,
-            floor_bonus: quote.floor_bonus,
-            curve_xlm_net: curve.curve_xlm_net,
-            tokens_sold: curve.tokens_sold,
-        }
-        .publish(e);
+            CurveTradeEvent {
+                token,
+                trader: seller,
+                is_buy: false,
+                xlm_amount: quote.net_xlm_out,
+                token_amount,
+                treasury_fee: quote.treasury_fee,
+                floor_bonus: quote.floor_bonus,
+                curve_xlm_net: curve.curve_xlm_net,
+                tokens_sold: curve.tokens_sold,
+            }
+            .publish(e);
 
-        Ok(TradeResult {
-            tokens: token_amount,
-            xlm: quote.net_xlm_out,
-            treasury_fee: quote.treasury_fee,
-            floor_bonus: quote.floor_bonus,
-            graduated: false,
-            pair: None,
+            Ok(TradeResult {
+                tokens: token_amount,
+                xlm: quote.net_xlm_out,
+                treasury_fee: quote.treasury_fee,
+                floor_bonus: quote.floor_bonus,
+                graduated: false,
+                pair: None,
+            })
         })
     }
 
     /// Legacy milestone burn entrypoint (active only on v4.2 tokens with `burn_vault_remaining > 0`).
     pub fn trigger_milestone_burn(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
-        Self::extend_ttl(e);
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
 
-        if !curve.graduated || curve.burn_milestone_stage != 1 || curve.burn_vault_remaining <= 0 {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
-        let pair_addr = curve
-            .pair
-            .clone()
-            .ok_or(LaunchpadError::InvalidCurveState)?;
-        let xlm_sac = Self::require_xlm_sac(e)?;
+            if !curve.graduated
+                || curve.burn_milestone_stage != 1
+                || curve.burn_vault_remaining <= 0
+            {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            let pair_addr = curve
+                .pair
+                .clone()
+                .ok_or(LaunchpadError::InvalidCurveState)?;
+            let xlm_sac = Self::require_xlm_sac(e)?;
 
-        let pair_client = SoroswapPairClient::new(e, &pair_addr);
-        let token0 = pair_client.token_0();
-        let (r0, r1) = pair_client.get_reserves();
-        let reserve_xlm = if token0 == xlm_sac { r0 } else { r1 };
-        if reserve_xlm < MILESTONE_2_PAIR_XLM {
-            return Err(LaunchpadError::MilestoneNotReached);
-        }
+            let pair_client = SoroswapPairClient::new(e, &pair_addr);
+            let token0 = pair_client.token_0();
+            let (r0, r1) = pair_client.get_reserves();
+            let reserve_xlm = if token0 == xlm_sac { r0 } else { r1 };
+            if reserve_xlm < MILESTONE_2_PAIR_XLM {
+                return Err(LaunchpadError::MilestoneNotReached);
+            }
 
-        let burned_amount = curve.burn_vault_remaining;
-        curve.burn_vault_remaining = 0;
-        curve.burn_milestone_stage = 2;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
+            let burned_amount = curve.burn_vault_remaining;
+            curve.burn_vault_remaining = 0;
+            curve.burn_milestone_stage = 2;
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
 
-        let this = e.current_contract_address();
-        token::Client::new(e, &token).burn(&this, &burned_amount);
-        let total_supply_after = SupplyTokenClient::new(e, &token).total_supply();
-        Self::bump_launch_record_ttl(e, &token);
+            let this = e.current_contract_address();
+            token::Client::new(e, &token).burn(&this, &burned_amount);
+            let total_supply_after = SupplyTokenClient::new(e, &token).total_supply();
+            Self::bump_launch_record_ttl(e, &token);
 
-        MilestoneBurnEvent {
-            token: token.clone(),
-            stage: 2,
-            burned_amount,
-            total_supply_after,
-        }
-        .publish(e);
+            MilestoneBurnEvent {
+                token: token.clone(),
+                stage: 2,
+                burned_amount,
+                total_supply_after,
+            }
+            .publish(e);
 
-        if curve.buyback_xlm_reserve > 0 {
-            let _ = Self::execute_buyback_burn_internal(e, &curve_key, &mut curve, &token);
-        }
+            if curve.buyback_xlm_reserve > 0 {
+                let _ = Self::execute_buyback_burn_internal(e, &curve_key, &mut curve, &token, 1);
+            }
 
-        Ok(burned_amount)
+            Ok(burned_amount)
+        })
     }
 
     /// Permissionlessly swaps the graduated `buyback_xlm_reserve` on Soroswap DEX
     /// for real circulating tokens and permanently burns them via `token.burn()`.
     pub fn trigger_buyback_burn(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
-        Self::extend_ttl(e);
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        if !curve.graduated {
-            return Err(LaunchpadError::InvalidCurveState);
+        Self::trigger_buyback_burn_min(e, token, 1)
+    }
+
+    /// Slippage-protected Soroswap DEX buyback-and-burn requiring at least `min_tokens_burned`.
+    pub fn trigger_buyback_burn_min(
+        e: &Env,
+        token: Address,
+        min_tokens_burned: i128,
+    ) -> Result<i128, LaunchpadError> {
+        if min_tokens_burned <= 0 {
+            return Err(LaunchpadError::InvalidAmount);
         }
-        if curve.buyback_xlm_reserve <= 0 {
-            return Err(LaunchpadError::MilestoneNotReached);
-        }
-        Self::execute_buyback_burn_internal(e, &curve_key, &mut curve, &token)
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if !curve.graduated {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            if curve.buyback_xlm_reserve <= 0 {
+                return Err(LaunchpadError::MilestoneNotReached);
+            }
+            Self::execute_buyback_burn_internal(
+                e,
+                &curve_key,
+                &mut curve,
+                &token,
+                min_tokens_burned,
+            )
+        })
     }
 
     /// Sweeps stranded floor fee dust to treasury when an ungraduated curve
-    /// has zero active circulating curve liability (`tokens_sold == 0`, all
-    /// circulating curve tokens were burned, or an abandoned curve `>= 30 days` old
-    /// where all external traders exited so `tokens_sold == creator_seed_locked`).
+    /// has zero external circulating curve liability. For `>= 30 days` abandoned curves
+    /// where `creator_seed_locked > 0`, cleanly refunds `curve_xlm_net` back to the
+    /// creator and sweeps only surplus fee dust to treasury (never returning phantom tokens).
     pub fn sweep_empty_curve_fees(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
-        Self::extend_ttl(e);
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        let this = e.current_contract_address();
-
-        if !curve.graduated
-            && curve.creator_seed_locked > 0
-            && curve.tokens_sold == curve.creator_seed_locked
-        {
-            let launched_at = Self::get_launch(e, token.clone())
-                .map(|r| r.timestamp)
-                .unwrap_or(u64::MAX);
-            if e.ledger().timestamp() < launched_at.saturating_add(30 * 86_400) {
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if curve.graduated || curve.real_xlm_vault <= 0 {
                 return Err(LaunchpadError::InvalidCurveState);
             }
-            let returned_seed = curve.creator_seed_locked;
-            let creator = curve.creator.clone();
-            curve.creator_seed_locked = 0;
-            curve.tokens_sold = 0;
+
+            let this = e.current_contract_address();
+            let zero_external_supply = Self::zero_external_supply(e, &this, &token);
+            let xlm_sac = Self::require_xlm_sac(e)?;
+            let treasury = Self::require_treasury(e)?;
+            let xlm_client = token::Client::new(e, &xlm_sac);
+
+            if curve.creator_seed_locked > 0 {
+                if curve.tokens_sold != curve.creator_seed_locked && !zero_external_supply {
+                    return Err(LaunchpadError::InvalidCurveState);
+                }
+                let launched_at = Self::get_launch(e, token.clone())
+                    .map(|r| r.timestamp)
+                    .unwrap_or(u64::MAX);
+                if e.ledger().timestamp() < launched_at.saturating_add(30 * 86_400) {
+                    return Err(LaunchpadError::InvalidCurveState);
+                }
+
+                let creator = curve.creator.clone();
+                let creator_refund = curve.curve_xlm_net.min(curve.real_xlm_vault).max(0);
+                let treasury_dust = curve.real_xlm_vault.saturating_sub(creator_refund);
+                if creator_refund <= 0 && treasury_dust <= 0 {
+                    return Err(LaunchpadError::InvalidCurveState);
+                }
+
+                curve.creator_seed_locked = 0;
+                curve.tokens_sold = 0;
+                curve.curve_xlm_net = 0;
+                curve.real_xlm_vault = 0;
+                e.storage().persistent().set(&curve_key, &curve);
+                Self::bump_persistent(e, &curve_key);
+
+                if creator_refund > 0 {
+                    xlm_client.transfer(&this, &creator, &creator_refund);
+                }
+                if treasury_dust > 0 {
+                    xlm_client.transfer(&this, &treasury, &treasury_dust);
+                }
+                Self::bump_launch_record_ttl(e, &token);
+                return Ok(treasury_dust);
+            }
+
+            let zero_curve_state = curve.tokens_sold == 0 && curve.curve_xlm_net == 0;
+            if !zero_curve_state && !zero_external_supply {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+
+            let swept = curve.real_xlm_vault;
+            curve.real_xlm_vault = 0;
             curve.curve_xlm_net = 0;
+            curve.tokens_sold = 0;
             e.storage().persistent().set(&curve_key, &curve);
-            token::Client::new(e, &token).transfer(&this, &creator, &returned_seed);
-        }
+            Self::bump_persistent(e, &curve_key);
 
-        let all_circulating_burned = !curve.graduated
-            && curve.creator_seed_locked == 0
-            && SupplyTokenClient::new(e, &token).total_supply()
-                == token::Client::new(e, &token).balance(&this);
-        let zero_curve_state = curve.tokens_sold == 0 && curve.curve_xlm_net == 0;
-        if curve.graduated
-            || curve.creator_seed_locked != 0
-            || curve.real_xlm_vault <= 0
-            || (!zero_curve_state && !all_circulating_burned)
-        {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
-        let swept = curve.real_xlm_vault;
-        curve.real_xlm_vault = 0;
-        curve.curve_xlm_net = 0;
-        curve.tokens_sold = 0;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
-
-        let xlm_sac = Self::require_xlm_sac(e)?;
-        let treasury = Self::require_treasury(e)?;
-        token::Client::new(e, &xlm_sac).transfer(&this, &treasury, &swept);
-        Self::bump_launch_record_ttl(e, &token);
-        Ok(swept)
+            xlm_client.transfer(&this, &treasury, &swept);
+            Self::bump_launch_record_ttl(e, &token);
+            Ok(swept)
+        })
     }
 
     /// Lets the creator claim unlocked paid seed tokens (100% upon graduation, or after
@@ -917,150 +1185,215 @@ impl Launchpad {
         token: Address,
     ) -> Result<i128, LaunchpadError> {
         creator.require_auth();
-        Self::extend_ttl(e);
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
 
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        if curve.creator != creator {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
-
-        let now = e.ledger().timestamp();
-        if !curve.graduated {
-            let launched_at = Self::get_launch(e, token.clone())
-                .ok_or(LaunchpadError::CurveNotFound)?
-                .timestamp;
-            if curve.creator_seed_locked <= 0 || now < launched_at + (7 * 86_400) {
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if curve.creator != creator {
                 return Err(LaunchpadError::InvalidCurveState);
             }
-            let claimable = curve.creator_seed_locked;
+
+            let now = e.ledger().timestamp();
+            if !curve.graduated {
+                let launched_at = Self::get_launch(e, token.clone())
+                    .ok_or(LaunchpadError::CurveNotFound)?
+                    .timestamp;
+                if curve.creator_seed_locked <= 0 || now < launched_at.saturating_add(7 * 86_400) {
+                    return Err(LaunchpadError::InvalidCurveState);
+                }
+                let claimable = curve.creator_seed_locked;
+                curve.creator_seed_locked = 0;
+                e.storage().persistent().set(&curve_key, &curve);
+                Self::bump_persistent(e, &curve_key);
+
+                let this = e.current_contract_address();
+                token::Client::new(e, &token).transfer(&this, &creator, &claimable);
+                Self::bump_launch_record_ttl(e, &token);
+                return Ok(claimable);
+            }
+
+            let seed_claimable = curve.creator_seed_locked;
+            let elapsed = now.saturating_sub(curve.graduated_at);
+            let completed_phases = (elapsed / VESTING_INTERVAL_SECONDS).min(VESTING_PHASES);
+            let total_unlocked = curve
+                .creator_vesting_total
+                .checked_mul(completed_phases as i128)
+                .ok_or(LaunchpadError::InvalidAmount)?
+                / (VESTING_PHASES as i128);
+            let vest_claimable = total_unlocked.saturating_sub(curve.creator_claimed);
+            let claimable = seed_claimable
+                .checked_add(vest_claimable)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            if claimable <= 0 {
+                return Err(LaunchpadError::MilestoneNotReached);
+            }
+
             curve.creator_seed_locked = 0;
+            curve.creator_claimed = curve
+                .creator_claimed
+                .checked_add(vest_claimable)
+                .ok_or(LaunchpadError::InvalidAmount)?;
             e.storage().persistent().set(&curve_key, &curve);
             Self::bump_persistent(e, &curve_key);
 
             let this = e.current_contract_address();
             token::Client::new(e, &token).transfer(&this, &creator, &claimable);
             Self::bump_launch_record_ttl(e, &token);
-            return Ok(claimable);
-        }
 
-        let seed_claimable = curve.creator_seed_locked;
-        let elapsed = now.saturating_sub(curve.graduated_at);
-        let completed_phases = (elapsed / VESTING_INTERVAL_SECONDS).min(VESTING_PHASES);
-        let total_unlocked =
-            (curve.creator_vesting_total * (completed_phases as i128)) / (VESTING_PHASES as i128);
-        let vest_claimable = total_unlocked - curve.creator_claimed;
-        let claimable = seed_claimable + vest_claimable;
-        if claimable <= 0 {
-            return Err(LaunchpadError::MilestoneNotReached);
-        }
-
-        curve.creator_seed_locked = 0;
-        curve.creator_claimed += vest_claimable;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
-
-        let this = e.current_contract_address();
-        token::Client::new(e, &token).transfer(&this, &creator, &claimable);
-        Self::bump_launch_record_ttl(e, &token);
-
-        Ok(claimable)
+            Ok(claimable)
+        })
     }
 
-    /// 1-click stalled launch refund (after 7 days if all external traders exited so
-    /// `tokens_sold == creator_seed_locked`): returns 100% of `real_xlm_vault` to creator
-    /// with zero 2.50% sell-fee penalty and zeroes the stalled curve cleanly.
+    /// Claims pre-graduation Spark/Crown checkpoint jackpot tokens escrowed for `winner`
+    /// once the token has graduated to Soroswap (`curve.graduated == true`).
+    pub fn claim_checkpoint_reward(
+        e: &Env,
+        winner: Address,
+        token: Address,
+    ) -> Result<i128, LaunchpadError> {
+        winner.require_auth();
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+
+            let curve_key = DataKey::Curve(token.clone());
+            let curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if !curve.graduated {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+
+            let ck_key = DataKey::CheckpointReward(token.clone(), winner.clone());
+            let reward: i128 = e.storage().persistent().get(&ck_key).unwrap_or(0);
+            if reward <= 0 {
+                return Err(LaunchpadError::MilestoneNotReached);
+            }
+
+            e.storage().persistent().remove(&ck_key);
+            Self::bump_persistent(e, &curve_key);
+
+            let this = e.current_contract_address();
+            token::Client::new(e, &token).transfer(&this, &winner, &reward);
+            Self::bump_launch_record_ttl(e, &token);
+
+            CheckpointRewardClaimedEvent {
+                token,
+                winner,
+                reward,
+            }
+            .publish(e);
+
+            Ok(reward)
+        })
+    }
+
+    /// 1-click stalled launch refund (after 7 days if all external traders exited or burned):
+    /// refunds creator's `curve_xlm_net` XLM reserve while leaving accumulated fee dust for treasury sweep.
     pub fn refund_stalled_launch(
         e: &Env,
         creator: Address,
         token: Address,
     ) -> Result<i128, LaunchpadError> {
         creator.require_auth();
-        Self::extend_ttl(e);
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
 
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        if curve.graduated
-            || curve.creator != creator
-            || curve.creator_seed_locked <= 0
-            || curve.tokens_sold != curve.creator_seed_locked
-            || curve.real_xlm_vault <= 0
-        {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            let this = e.current_contract_address();
+            let zero_external_supply = Self::zero_external_supply(e, &this, &token);
 
-        let launched_at = Self::get_launch(e, token.clone())
-            .ok_or(LaunchpadError::CurveNotFound)?
-            .timestamp;
-        if e.ledger().timestamp() < launched_at.saturating_add(7 * 86_400) {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
+            if curve.graduated
+                || curve.creator != creator
+                || curve.creator_seed_locked <= 0
+                || curve.curve_xlm_net <= 0
+                || (curve.tokens_sold != curve.creator_seed_locked && !zero_external_supply)
+                || curve.real_xlm_vault <= 0
+            {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
 
-        let refund_xlm = curve.real_xlm_vault;
-        curve.creator_seed_locked = 0;
-        curve.tokens_sold = 0;
-        curve.curve_xlm_net = 0;
-        curve.real_xlm_vault = 0;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
+            let launched_at = Self::get_launch(e, token.clone())
+                .ok_or(LaunchpadError::CurveNotFound)?
+                .timestamp;
+            if e.ledger().timestamp() < launched_at.saturating_add(7 * 86_400) {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
 
-        let this = e.current_contract_address();
-        let xlm_sac = Self::require_xlm_sac(e)?;
-        token::Client::new(e, &xlm_sac).transfer(&this, &creator, &refund_xlm);
-        Self::bump_launch_record_ttl(e, &token);
-        Ok(refund_xlm)
+            let refund_xlm = curve.curve_xlm_net.min(curve.real_xlm_vault);
+            if refund_xlm <= 0 {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            curve.creator_seed_locked = 0;
+            curve.tokens_sold = 0;
+            curve.curve_xlm_net = 0;
+            curve.real_xlm_vault = curve.real_xlm_vault.saturating_sub(refund_xlm);
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
+
+            let xlm_sac = Self::require_xlm_sac(e)?;
+            token::Client::new(e, &xlm_sac).transfer(&this, &creator, &refund_xlm);
+            Self::bump_launch_record_ttl(e, &token);
+            Ok(refund_xlm)
+        })
     }
 
     /// Reclaims time-locked Soroswap LP tokens to protocol treasury once the mandatory
     /// 7-year lock (`LP_LOCK_DURATION_SECONDS`) after graduation has fully elapsed.
     pub fn reclaim_expired_lp(e: &Env, token: Address) -> Result<i128, LaunchpadError> {
-        Self::extend_ttl(e);
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
 
-        let curve_key = DataKey::Curve(token.clone());
-        let mut curve: CurveState = e
-            .storage()
-            .persistent()
-            .get(&curve_key)
-            .ok_or(LaunchpadError::CurveNotFound)?;
-        if !curve.graduated || curve.lp_minted <= 0 {
-            return Err(LaunchpadError::InvalidCurveState);
-        }
-        let pair_addr = curve
-            .pair
-            .clone()
-            .ok_or(LaunchpadError::InvalidCurveState)?;
+            let curve_key = DataKey::Curve(token.clone());
+            let mut curve: CurveState = e
+                .storage()
+                .persistent()
+                .get(&curve_key)
+                .ok_or(LaunchpadError::CurveNotFound)?;
+            if !curve.graduated || curve.lp_minted <= 0 {
+                return Err(LaunchpadError::InvalidCurveState);
+            }
+            let pair_addr = curve
+                .pair
+                .clone()
+                .ok_or(LaunchpadError::InvalidCurveState)?;
 
-        if e.ledger().timestamp() < curve.graduated_at.saturating_add(LP_LOCK_DURATION_SECONDS) {
-            return Err(LaunchpadError::MilestoneNotReached);
-        }
+            if e.ledger().timestamp() < curve.graduated_at.saturating_add(LP_LOCK_DURATION_SECONDS)
+            {
+                return Err(LaunchpadError::MilestoneNotReached);
+            }
 
-        let reclaimed = curve.lp_minted;
-        curve.lp_minted = 0;
-        e.storage().persistent().set(&curve_key, &curve);
-        Self::bump_persistent(e, &curve_key);
+            let reclaimed = curve.lp_minted;
+            curve.lp_minted = 0;
+            e.storage().persistent().set(&curve_key, &curve);
+            Self::bump_persistent(e, &curve_key);
 
-        let this = e.current_contract_address();
-        let treasury = Self::require_treasury(e)?;
-        token::Client::new(e, &pair_addr).transfer(&this, &treasury, &reclaimed);
-        Self::bump_launch_record_ttl(e, &token);
+            let this = e.current_contract_address();
+            let treasury = Self::require_treasury(e)?;
+            token::Client::new(e, &pair_addr).transfer(&this, &treasury, &reclaimed);
+            Self::bump_launch_record_ttl(e, &token);
 
-        ReclaimLpEvent {
-            token,
-            pair: pair_addr,
-            recipient: treasury,
-            lp_amount: reclaimed,
-        }
-        .publish(e);
+            ReclaimLpEvent {
+                token,
+                pair: pair_addr,
+                recipient: treasury,
+                lp_amount: reclaimed,
+            }
+            .publish(e);
 
-        Ok(reclaimed)
+            Ok(reclaimed)
+        })
     }
 
     /// Legacy-compatible direct Soroswap launch with explicit supply/decimals (`>= 99.5%` LP burned).
@@ -1098,84 +1431,95 @@ impl Launchpad {
             return Err(LaunchpadError::InvalidAmount);
         }
 
-        Self::extend_ttl(e);
-        let this = e.current_contract_address();
-        let xlm_sac = Self::require_xlm_sac(e)?;
-        let wasm_hash = Self::require_token_wasm_hash(e)?;
-        let burn_address = Self::require_burn_address(e)?;
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let this = e.current_contract_address();
+            let xlm_sac = Self::require_xlm_sac(e)?;
+            let treasury = Self::require_treasury(e)?;
+            let wasm_hash = Self::require_token_wasm_hash(e)?;
+            let burn_address = Self::require_burn_address(e)?;
 
-        token::Client::new(e, &xlm_sac).transfer(&params.creator, &this, &params.xlm_lp_amount);
+            let xlm_client = token::Client::new(e, &xlm_sac);
+            let creation_fee = Self::get_creation_fee(e);
+            if creation_fee > 0 {
+                xlm_client.transfer(&params.creator, &treasury, &creation_fee);
+            }
+            xlm_client.transfer(&params.creator, &this, &params.xlm_lp_amount);
 
-        let token_addr = Self::deploy_capped_token(
-            e,
-            &params.creator,
-            &this,
-            wasm_hash,
-            params.name.clone(),
-            params.symbol.clone(),
-            params.decimals,
-            params.initial_supply,
-            params.salt,
-            false,
-        );
+            let token_addr = Self::deploy_capped_token(
+                e,
+                &params.creator,
+                &this,
+                wasm_hash,
+                params.name.clone(),
+                params.symbol.clone(),
+                params.decimals,
+                params.initial_supply,
+                params.salt,
+                false,
+            );
 
-        let token_client = token::Client::new(e, &token_addr);
-        let creator_tokens = params.initial_supply - params.token_lp_amount;
-        if creator_tokens > 0 {
-            token_client.transfer(&this, &params.creator, &creator_tokens);
-        }
+            let token_client = token::Client::new(e, &token_addr);
+            let creator_tokens = params
+                .initial_supply
+                .checked_sub(params.token_lp_amount)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            if creator_tokens > 0 {
+                token_client.transfer(&this, &params.creator, &creator_tokens);
+            }
 
-        let (pair_addr, lp_minted) = Self::seed_soroswap_and_burn_lp(
-            e,
-            &this,
-            &token_addr,
-            &xlm_sac,
-            &burn_address,
-            params.token_lp_amount,
-            params.xlm_lp_amount,
-        )?;
+            let (pair_addr, lp_minted) = Self::seed_soroswap_and_burn_lp(
+                e,
+                &this,
+                &token_addr,
+                &xlm_sac,
+                &burn_address,
+                params.token_lp_amount,
+                params.xlm_lp_amount,
+            )?;
 
-        let index = Self::get_launch_count(e);
-        let record = LaunchRecord {
-            index,
-            creator: params.creator.clone(),
-            token: token_addr.clone(),
-            pair: Some(pair_addr.clone()),
-            name: params.name,
-            symbol: params.symbol,
-            decimals: params.decimals,
-            initial_supply: params.initial_supply,
-            token_lp_amount: params.token_lp_amount,
-            xlm_lp_amount: params.xlm_lp_amount,
-            lp_minted,
-            meta: String::from_str(e, ""),
-            ledger: e.ledger().sequence(),
-            timestamp: e.ledger().timestamp(),
-        };
-        Self::save_launch_record(e, index, &token_addr, &record);
-        Self::update_pilot(e, &params.creator, |p| {
-            p.launches = p.launches.saturating_add(1);
-        });
+            let index = Self::get_launch_count(e);
+            let record = LaunchRecord {
+                index,
+                creator: params.creator.clone(),
+                token: token_addr.clone(),
+                pair: Some(pair_addr.clone()),
+                name: params.name,
+                symbol: params.symbol,
+                decimals: params.decimals,
+                initial_supply: params.initial_supply,
+                token_lp_amount: params.token_lp_amount,
+                xlm_lp_amount: params.xlm_lp_amount,
+                lp_minted,
+                meta: String::from_str(e, ""),
+                ledger: e.ledger().sequence(),
+                timestamp: e.ledger().timestamp(),
+            };
+            Self::save_launch_record(e, index, &token_addr, &record);
+            Self::update_pilot(e, &params.creator, |p| {
+                p.launches = p.launches.saturating_add(1);
+            });
 
-        TokenLaunchedEvent {
-            creator: params.creator,
-            token: token_addr.clone(),
-            initial_supply: params.initial_supply,
-            xlm_initial: params.xlm_lp_amount,
-            is_curve: false,
-        }
-        .publish(e);
+            TokenLaunchedEvent {
+                creator: params.creator,
+                token: token_addr.clone(),
+                initial_supply: params.initial_supply,
+                xlm_initial: params.xlm_lp_amount,
+                is_curve: false,
+            }
+            .publish(e);
 
-        Ok(LaunchResult {
-            token: token_addr,
-            pair: Some(pair_addr),
-            lp_minted,
+            Ok(LaunchResult {
+                token: token_addr,
+                pair: Some(pair_addr),
+                lp_minted,
+            })
         })
     }
 
-    /// 3-tier Burn-to-Chat: permanently burns holder tokens (`>= 50` tokens) via `token.burn()`,
-    /// records up to 15 recent messages, and crowns a new `KingShout` when `>= 5,000` tokens
-    /// surpass the previous King burn amount.
+    /// 3-tier Burn-to-Chat: permanently burns holder tokens (`>= 50` whole tokens scaled
+    /// by `token.decimals`) via `token.burn()`, records up to 15 recent messages, and
+    /// crowns a new `KingShout` when `>= 5,000` whole tokens surpass the decayed King burn.
     pub fn burn_shout(
         e: &Env,
         sender: Address,
@@ -1184,107 +1528,119 @@ impl Launchpad {
         message: String,
     ) -> Result<(), LaunchpadError> {
         sender.require_auth();
-
-        if amount < MIN_SHOUT_BURN {
-            return Err(LaunchpadError::InvalidAmount);
-        }
         if message.is_empty() || message.len() > MAX_SHOUT_BYTES {
             return Err(LaunchpadError::InvalidMetadata);
         }
-        if !e
-            .storage()
-            .persistent()
-            .has(&DataKey::TokenIndex(token.clone()))
-        {
-            return Err(LaunchpadError::CurveNotFound);
-        }
 
-        token::Client::new(e, &token).burn(&sender, &amount);
-
-        let ledger = e.ledger().sequence();
-        let entry = ShoutRecord {
-            sender: sender.clone(),
-            amount,
-            message: message.clone(),
-            ledger,
-            timestamp: e.ledger().timestamp(),
-        };
-
-        let key = DataKey::TokenShouts(token.clone());
-        let existing: Vec<ShoutRecord> = e.storage().persistent().get(&key).unwrap_or(Vec::new(e));
-        let mut updated = Vec::new(e);
-        let len = existing.len();
-        let start = if len >= MAX_SHOUTS_PER_TOKEN {
-            len + 1 - MAX_SHOUTS_PER_TOKEN
-        } else {
-            0
-        };
-        for i in start..len {
-            if let Some(item) = existing.get(i) {
-                updated.push_back(item);
+        Self::with_reentrancy_guard(e, || {
+            Self::extend_ttl(e);
+            let record = Self::get_launch(e, token.clone()).ok_or(LaunchpadError::CurveNotFound)?;
+            let unit = 10_i128
+                .checked_pow(record.decimals)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            let min_shout_burn = SHOUT_MIN_WHOLE
+                .checked_mul(unit)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            let king_shout_min_burn = KING_SHOUT_MIN_WHOLE
+                .checked_mul(unit)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            if amount < min_shout_burn {
+                return Err(LaunchpadError::InvalidAmount);
             }
-        }
-        updated.push_back(entry.clone());
-        e.storage().persistent().set(&key, &updated);
-        Self::bump_persistent(e, &key);
 
-        let mut is_king = false;
-        if amount >= KING_SHOUT_MIN_BURN {
-            let king_key = DataKey::KingShout(token.clone());
+            let ledger = e.ledger().sequence();
             let now = e.ledger().timestamp();
-            let effective_prev = e
-                .storage()
-                .persistent()
-                .get::<DataKey, ShoutRecord>(&king_key)
-                .map(|r| {
-                    let elapsed_days = now.saturating_sub(r.timestamp) / KING_SHOUT_DECAY_SECONDS;
-                    let shift = elapsed_days.min(20) as u32;
-                    let decayed = r.amount >> shift;
-                    if decayed < KING_SHOUT_MIN_BURN {
-                        KING_SHOUT_MIN_BURN
-                    } else {
-                        decayed
+            let entry = ShoutRecord {
+                sender: sender.clone(),
+                amount,
+                message: message.clone(),
+                ledger,
+                timestamp: now,
+            };
+
+            // Effects before external burn call (Soroban rolls back all state if burn fails)
+            let key = DataKey::TokenShouts(token.clone());
+            let existing: Vec<ShoutRecord> =
+                e.storage().persistent().get(&key).unwrap_or(Vec::new(e));
+            let mut updated = Vec::new(e);
+            let len = existing.len();
+            let start = if len >= MAX_SHOUTS_PER_TOKEN {
+                len + 1 - MAX_SHOUTS_PER_TOKEN
+            } else {
+                0
+            };
+            for i in start..len {
+                if let Some(item) = existing.get(i) {
+                    updated.push_back(item);
+                }
+            }
+            updated.push_back(entry.clone());
+            e.storage().persistent().set(&key, &updated);
+            Self::bump_persistent(e, &key);
+
+            let mut is_king = false;
+            if amount >= king_shout_min_burn {
+                let king_key = DataKey::KingShout(token.clone());
+                let prev_record = e
+                    .storage()
+                    .persistent()
+                    .get::<DataKey, ShoutRecord>(&king_key);
+                let effective_prev = prev_record
+                    .as_ref()
+                    .map(|r| {
+                        let elapsed_days =
+                            now.saturating_sub(r.timestamp) / KING_SHOUT_DECAY_SECONDS;
+                        let shift = elapsed_days.min(20) as u32;
+                        let decayed = r.amount >> shift;
+                        if decayed < king_shout_min_burn {
+                            king_shout_min_burn
+                        } else {
+                            decayed
+                        }
+                    })
+                    .unwrap_or(0);
+                let prev_elapsed = prev_record
+                    .as_ref()
+                    .map(|r| now.saturating_sub(r.timestamp))
+                    .unwrap_or(0);
+                if effective_prev == 0
+                    || amount > effective_prev
+                    || (amount >= king_shout_min_burn
+                        && effective_prev == king_shout_min_burn
+                        && prev_elapsed >= KING_SHOUT_DECAY_SECONDS)
+                {
+                    e.storage().persistent().set(&king_key, &entry);
+                    Self::bump_persistent(e, &king_key);
+                    is_king = true;
+                }
+            }
+
+            if e.storage().persistent().has(&DataKey::Curve(token.clone())) {
+                Self::update_pilot(e, &sender, |p| {
+                    p.shouts = p.shouts.saturating_add(1);
+                    p.burns_triggered = p.burns_triggered.saturating_add(1);
+                    if is_king {
+                        p.king_shouts = p.king_shouts.saturating_add(1);
                     }
-                })
-                .unwrap_or(0);
-            if effective_prev == 0
-                || amount > effective_prev
-                || (amount >= KING_SHOUT_MIN_BURN
-                    && effective_prev == KING_SHOUT_MIN_BURN
-                    && now.saturating_sub(
-                        e.storage()
-                            .persistent()
-                            .get::<DataKey, ShoutRecord>(&king_key)
-                            .map(|r| r.timestamp)
-                            .unwrap_or(now),
-                    ) >= KING_SHOUT_DECAY_SECONDS)
-            {
-                e.storage().persistent().set(&king_key, &entry);
-                Self::bump_persistent(e, &king_key);
-                is_king = true;
+                });
             }
-        }
+            Self::bump_launch_record_ttl(e, &token);
 
-        Self::extend_launch_ttl(e, token.clone());
-        Self::update_pilot(e, &sender, |p| {
-            p.shouts = p.shouts.saturating_add(1);
-            p.burns_triggered = p.burns_triggered.saturating_add(1);
-            if is_king {
-                p.king_shouts = p.king_shouts.saturating_add(1);
+            // Interaction
+            token::Client::new(e, &token).burn(&sender, &amount);
+
+            ShoutEvent {
+                token,
+                sender,
+                amount,
+                message,
+                is_king,
+                ledger,
             }
-        });
+            .publish(e);
 
-        ShoutEvent {
-            token,
-            sender,
-            amount,
-            message,
-            is_king,
-            ledger,
-        }
-        .publish(e);
-
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Returns newest-first launches paired with their CurveState in one RPC call.
@@ -1301,7 +1657,7 @@ impl Launchpad {
         out
     }
 
-    /// Returns newest-first launches from the persistent on-chain registry.
+    /// Returns newest-first launches from the persistent on-chain registry (pure read).
     pub fn get_launches(e: &Env, offset: u32, limit: u32) -> Vec<LaunchRecord> {
         let total = Self::get_launch_count(e);
         if offset >= total || limit == 0 {
@@ -1314,31 +1670,24 @@ impl Launchpad {
             let idx = total - 1 - offset - i;
             let key = DataKey::LaunchByIndex(idx);
             if let Some(record) = e.storage().persistent().get::<DataKey, LaunchRecord>(&key) {
-                Self::bump_persistent(e, &key);
                 out.push_back(record);
             }
         }
         out
     }
 
-    /// Looks up a launch record by token contract address.
+    /// Looks up a launch record by token contract address (pure read).
     pub fn get_launch(e: &Env, token: Address) -> Option<LaunchRecord> {
         let idx_key = DataKey::TokenIndex(token);
         let idx: u32 = e.storage().persistent().get(&idx_key)?;
-        Self::bump_persistent(e, &idx_key);
-
         let rec_key = DataKey::LaunchByIndex(idx);
-        let record: LaunchRecord = e.storage().persistent().get(&rec_key)?;
-        Self::bump_persistent(e, &rec_key);
-        Some(record)
+        e.storage().persistent().get(&rec_key)
     }
 
-    /// Looks up the live bonding curve / graduation / burn-vault state for a token.
+    /// Looks up the live bonding curve / graduation / burn-vault state for a token (pure read).
     pub fn get_curve(e: &Env, token: Address) -> Option<CurveState> {
         let key = DataKey::Curve(token);
-        let curve = e.storage().persistent().get::<DataKey, CurveState>(&key)?;
-        Self::bump_persistent(e, &key);
-        Some(curve)
+        e.storage().persistent().get::<DataKey, CurveState>(&key)
     }
 
     /// Returns total number of tokens launched and indexed through this launchpad.
@@ -1349,23 +1698,22 @@ impl Launchpad {
             .unwrap_or(0)
     }
 
-    /// Returns recent on-chain Burn-to-Chat shouts for a token (oldest to newest, max 15).
+    /// Returns recent on-chain Burn-to-Chat shouts for a token (oldest to newest, max 15; pure read).
     pub fn get_shouts(e: &Env, token: Address) -> Vec<ShoutRecord> {
         let key = DataKey::TokenShouts(token);
-        if let Some(shouts) = e.storage().persistent().get(&key) {
-            Self::bump_persistent(e, &key);
-            shouts
-        } else {
-            Vec::new(e)
-        }
+        e.storage().persistent().get(&key).unwrap_or(Vec::new(e))
     }
 
-    /// Returns the pinned King Shout (highest `burn_shout >= 5,000` tokens), if any.
+    /// Returns the pinned King Shout (highest decayed `burn_shout >= 5,000` whole tokens), if any (pure read).
     pub fn get_king_shout(e: &Env, token: Address) -> Option<ShoutRecord> {
         let key = DataKey::KingShout(token);
-        let king = e.storage().persistent().get::<DataKey, ShoutRecord>(&key)?;
-        Self::bump_persistent(e, &key);
-        Some(king)
+        e.storage().persistent().get::<DataKey, ShoutRecord>(&key)
+    }
+
+    /// Returns pre-graduation Spark/Crown checkpoint tokens escrowed for `recipient` (pure read).
+    pub fn get_checkpoint_reward(e: &Env, token: Address, recipient: Address) -> i128 {
+        let key = DataKey::CheckpointReward(token, recipient);
+        e.storage().persistent().get(&key).unwrap_or(0)
     }
 
     /// Permissionlessly refreshes the launchpad instance TTL for 90 days.
@@ -1376,7 +1724,7 @@ impl Launchpad {
     }
 
     /// Permissionlessly refreshes TTL for a token's registry, curve, shouts, King Shout,
-    /// and persistent token balances held by the Launchpad and Soroswap pair.
+    /// buyback cooldown entry, and persistent balances (token + Soroswap pair LP shares).
     pub fn extend_launch_ttl(e: &Env, token: Address) {
         Self::extend_ttl(e);
         Self::bump_launch_record_ttl(e, &token);
@@ -1394,15 +1742,38 @@ impl Launchpad {
             Self::bump_persistent(e, &curve_key);
             if let Some(pair_addr) = curve.pair {
                 let _ = tok_client.balance(&pair_addr);
+                let _ = token::Client::new(e, &pair_addr).balance(&this);
             }
         }
         let shout_key = DataKey::TokenShouts(token.clone());
         if e.storage().persistent().has(&shout_key) {
             Self::bump_persistent(e, &shout_key);
         }
-        let king_key = DataKey::KingShout(token);
+        let king_key = DataKey::KingShout(token.clone());
         if e.storage().persistent().has(&king_key) {
             Self::bump_persistent(e, &king_key);
+        }
+        let buyback_key = DataKey::BuybackLastTs(token);
+        if e.storage().persistent().has(&buyback_key) {
+            Self::bump_persistent(e, &buyback_key);
+        }
+    }
+
+    /// Permissionlessly refreshes TTL for an escrowed checkpoint reward entry.
+    pub fn extend_checkpoint_ttl(e: &Env, token: Address, recipient: Address) {
+        Self::extend_ttl(e);
+        let key = DataKey::CheckpointReward(token, recipient);
+        if e.storage().persistent().has(&key) {
+            Self::bump_persistent(e, &key);
+        }
+    }
+
+    /// Permissionlessly refreshes TTL for a pilot telemetry record.
+    pub fn extend_pilot_ttl(e: &Env, user: Address) {
+        Self::extend_ttl(e);
+        let key = DataKey::Pilot(user);
+        if e.storage().persistent().has(&key) {
+            Self::bump_persistent(e, &key);
         }
     }
 
@@ -1445,14 +1816,13 @@ impl Launchpad {
             .unwrap_or(CREATION_FEE_STROOPS)
     }
 
-    /// Returns cumulative on-chain telemetry for a pilot wallet (used by Sorobits quests/epigenetics).
+    /// Returns cumulative on-chain telemetry for a pilot wallet (pure read).
     pub fn get_pilot(e: &Env, user: Address) -> PilotRecord {
         let key = DataKey::Pilot(user);
-        if let Some(rec) = e.storage().persistent().get::<DataKey, PilotRecord>(&key) {
-            Self::bump_persistent(e, &key);
-            rec
-        } else {
-            PilotRecord {
+        e.storage()
+            .persistent()
+            .get::<DataKey, PilotRecord>(&key)
+            .unwrap_or(PilotRecord {
                 launches: 0,
                 graduations: 0,
                 trades: 0,
@@ -1460,8 +1830,7 @@ impl Launchpad {
                 shouts: 0,
                 king_shouts: 0,
                 burns_triggered: 0,
-            }
-        }
+            })
     }
 }
 
@@ -1536,6 +1905,7 @@ impl Launchpad {
         curve_key: &DataKey,
         curve: &mut CurveState,
         token_addr: &Address,
+        min_tokens_burned: i128,
     ) -> Result<i128, LaunchpadError> {
         let total_reserve = curve.buyback_xlm_reserve;
         if total_reserve <= 0 {
@@ -1567,13 +1937,17 @@ impl Launchpad {
         }
 
         // Anti-MEV chunking: cap each swap to <= 0.50% of pool XLM reserve (when pool >= 200 XLM)
-        // so Soroswap's 0.60% round-trip fee makes sandwich attacks net-negative.
-        let max_chunk = (reserve_xlm * BUYBACK_MAX_CHUNK_BPS) / BPS_DENOMINATOR;
+        // and <= 250 XLM absolute ceiling so round-trip Soroswap fees make sandwiching unprofitable.
+        let max_chunk = reserve_xlm
+            .checked_mul(BUYBACK_MAX_CHUNK_BPS)
+            .ok_or(LaunchpadError::InvalidAmount)?
+            / BPS_DENOMINATOR;
         let xlm_in = if max_chunk >= STROOPS_PER_UNIT && total_reserve > max_chunk {
             max_chunk
         } else {
             total_reserve
-        };
+        }
+        .min(BUYBACK_MAX_ABSOLUTE_CHUNK_XLM);
 
         // Exact SoroswapPair fee ceiling invariant: fee = ceil(xlm_in * 3 / 1000).
         let fee = (xlm_in as u128)
@@ -1593,8 +1967,13 @@ impl Launchpad {
         if tokens_out <= 0 {
             return Err(LaunchpadError::InvalidAmount);
         }
+        if tokens_out < min_tokens_burned {
+            return Err(LaunchpadError::SlippageExceeded);
+        }
 
-        curve.buyback_xlm_reserve = total_reserve - xlm_in;
+        curve.buyback_xlm_reserve = total_reserve
+            .checked_sub(xlm_in)
+            .ok_or(LaunchpadError::InvalidAmount)?;
         e.storage().persistent().set(curve_key, curve);
         Self::bump_persistent(e, curve_key);
         if curve.buyback_xlm_reserve > 0 {
@@ -1654,37 +2033,55 @@ impl Launchpad {
             return Err(LaunchpadError::SlippageExceeded);
         }
 
-        Self::acquire_reentrancy_lock(e)?;
-
         // Effects: persist updated curve reserves (and mark graduated before graduation calls)
-        curve.curve_xlm_net += quote.net_xlm_to_curve;
-        curve.real_xlm_vault += quote.net_xlm_to_curve + quote.floor_bonus;
-        curve.tokens_sold += quote.tokens_out;
+        curve.curve_xlm_net = curve
+            .curve_xlm_net
+            .checked_add(quote.net_xlm_to_curve)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let vault_inflow = quote
+            .net_xlm_to_curve
+            .checked_add(quote.floor_bonus)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        curve.real_xlm_vault = curve
+            .real_xlm_vault
+            .checked_add(vault_inflow)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        curve.tokens_sold = curve
+            .tokens_sold
+            .checked_add(quote.tokens_out)
+            .ok_or(LaunchpadError::InvalidAmount)?;
 
         // One-time 3-Checkpoint Jackpot Ladder (+5K Spark at 250 XLM, +10K Crown at 500 XLM,
-        // +25K Graduation Jackpot at 1,000 XLM), guarded by `burn_milestone_stage` so checkpoints
-        // cannot be re-farmed across buy/sell oscillations.
+        // +25K Graduation Jackpot at 1,000 XLM), guarded by `burn_milestone_stage`.
+        // Pre-graduation checkpoints escrow in storage until graduation so they cannot be
+        // dumped into `sell_curve` to drain bonding curve XLM reserves.
         let mut checkpoint_bonus: i128 = 0;
         if curve.burn_vault_remaining == 0 {
             if curve.curve_xlm_net >= STAGE_1_XLM && curve.burn_milestone_stage < 1 {
                 curve.burn_milestone_stage = 1;
-                checkpoint_bonus += SPARK_JACKPOT_ALLOC;
+                checkpoint_bonus = checkpoint_bonus
+                    .checked_add(SPARK_JACKPOT_ALLOC)
+                    .ok_or(LaunchpadError::InvalidAmount)?;
             }
             if curve.curve_xlm_net >= STAGE_2_XLM && curve.burn_milestone_stage < 2 {
                 curve.burn_milestone_stage = 2;
-                checkpoint_bonus += CROWN_JACKPOT_ALLOC;
+                checkpoint_bonus = checkpoint_bonus
+                    .checked_add(CROWN_JACKPOT_ALLOC)
+                    .ok_or(LaunchpadError::InvalidAmount)?;
             }
             if quote.will_graduate {
                 curve.burn_milestone_stage = 2;
-                checkpoint_bonus += GRADUATION_JACKPOT_ALLOC;
+                checkpoint_bonus = checkpoint_bonus
+                    .checked_add(GRADUATION_JACKPOT_ALLOC)
+                    .ok_or(LaunchpadError::InvalidAmount)?;
             }
         }
 
         if lock_creator_seed {
-            curve.creator_seed_locked += quote.tokens_out;
-            if !quote.will_graduate {
-                curve.creator_seed_locked += checkpoint_bonus;
-            }
+            curve.creator_seed_locked = curve
+                .creator_seed_locked
+                .checked_add(quote.tokens_out)
+                .ok_or(LaunchpadError::InvalidAmount)?;
         }
         let pre_grad_vault = curve.real_xlm_vault;
         if quote.will_graduate {
@@ -1694,6 +2091,22 @@ impl Launchpad {
         }
         e.storage().persistent().set(&curve_key, &curve);
         Self::bump_persistent(e, &curve_key);
+
+        if !quote.will_graduate && checkpoint_bonus > 0 {
+            let ck_key = DataKey::CheckpointReward(token_addr.clone(), buyer.clone());
+            let prev_ck: i128 = e.storage().persistent().get(&ck_key).unwrap_or(0);
+            let next_ck = prev_ck
+                .checked_add(checkpoint_bonus)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            e.storage().persistent().set(&ck_key, &next_ck);
+            Self::bump_persistent(e, &ck_key);
+            CheckpointRewardEscrowedEvent {
+                token: token_addr.clone(),
+                winner: buyer.clone(),
+                reward: checkpoint_bonus,
+            }
+            .publish(e);
+        }
 
         let this = e.current_contract_address();
         let xlm_sac = Self::require_xlm_sac(e)?;
@@ -1706,12 +2119,7 @@ impl Launchpad {
             xlm_client.transfer(&this, &treasury, &quote.treasury_fee);
         }
         if !lock_creator_seed {
-            let immediate_tokens = if quote.will_graduate {
-                quote.tokens_out
-            } else {
-                quote.tokens_out + checkpoint_bonus
-            };
-            tok_client.transfer(&this, buyer, &immediate_tokens);
+            tok_client.transfer(&this, buyer, &quote.tokens_out);
         }
 
         CurveTradeEvent {
@@ -1809,7 +2217,6 @@ impl Launchpad {
                 });
             }
 
-            Self::release_reentrancy_lock(e);
             return Ok(TradeResult {
                 tokens: quote.tokens_out,
                 xlm: quote.total_xlm_charged,
@@ -1825,7 +2232,6 @@ impl Launchpad {
             p.volume_xlm_stroops = p.volume_xlm_stroops.saturating_add(quote.total_xlm_charged);
         });
         Self::bump_launch_record_ttl(e, token_addr);
-        Self::release_reentrancy_lock(e);
 
         Ok(TradeResult {
             tokens: quote.tokens_out,
@@ -1902,32 +2308,59 @@ impl Launchpad {
     }
 
     fn compute_buy_quote(curve: &CurveState, max_xlm_in: i128) -> Result<BuyQuote, LaunchpadError> {
-        let v_xlm = CURVE_VIRTUAL_XLM_START + curve.curve_xlm_net;
-        let v_tok = CURVE_VIRTUAL_TOKEN_START - curve.tokens_sold;
-        let remaining_to_goal = CURVE_REAL_XLM_GOAL - curve.curve_xlm_net;
-        let remaining_tokens = CURVE_TOKENS_ALLOC - curve.tokens_sold;
+        let v_xlm = CURVE_VIRTUAL_XLM_START
+            .checked_add(curve.curve_xlm_net)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let v_tok = CURVE_VIRTUAL_TOKEN_START
+            .checked_sub(curve.tokens_sold)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let remaining_to_goal = CURVE_REAL_XLM_GOAL
+            .checked_sub(curve.curve_xlm_net)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let remaining_tokens = CURVE_TOKENS_ALLOC
+            .checked_sub(curve.tokens_sold)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        if v_xlm <= 0 || v_tok <= 0 || remaining_to_goal <= 0 || remaining_tokens <= 0 {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
 
         let (t_bps, f_bps, total_bps) = Self::fee_bps_buy(curve.curve_xlm_net);
         let (treasury_fee_full, floor_bonus_full) = Self::split_fee(max_xlm_in, t_bps, f_bps)?;
-        let net_full = max_xlm_in - treasury_fee_full - floor_bonus_full;
+        let net_full = max_xlm_in
+            .checked_sub(treasury_fee_full)
+            .and_then(|v| v.checked_sub(floor_bonus_full))
+            .ok_or(LaunchpadError::InvalidAmount)?;
 
         if net_full >= remaining_to_goal {
             // Graduation reached: cap XLM charged strictly to remaining goal + proportional stage fee
             let net_xlm_to_curve = remaining_to_goal;
             let (ct_bps, cf_bps, ctotal_bps) = Self::fee_bps_buy(curve.curve_xlm_net);
-            let max_fee_room = max_xlm_in - net_xlm_to_curve;
-            let denom = (BPS_DENOMINATOR - ctotal_bps) as u128;
+            let max_fee_room = max_xlm_in
+                .checked_sub(net_xlm_to_curve)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            let denom = BPS_DENOMINATOR
+                .checked_sub(ctotal_bps)
+                .ok_or(LaunchpadError::InvalidAmount)? as u128;
             let ideal_gross = ((net_xlm_to_curve as u128)
                 .checked_mul(BPS_DENOMINATOR as u128)
                 .ok_or(LaunchpadError::InvalidAmount)?
                 .checked_add(denom - 1)
                 .ok_or(LaunchpadError::InvalidAmount)?
                 / denom) as i128;
-            let ideal_fee = (ideal_gross - net_xlm_to_curve).min(max_fee_room);
-            let total_xlm_charged = net_xlm_to_curve + ideal_fee;
-            let treasury_fee =
-                ((ideal_fee as u128 * ct_bps as u128) / (ct_bps + cf_bps) as u128) as i128;
-            let floor_bonus = ideal_fee - treasury_fee;
+            let ideal_fee = ideal_gross
+                .checked_sub(net_xlm_to_curve)
+                .ok_or(LaunchpadError::InvalidAmount)?
+                .min(max_fee_room);
+            let total_xlm_charged = net_xlm_to_curve
+                .checked_add(ideal_fee)
+                .ok_or(LaunchpadError::InvalidAmount)?;
+            let treasury_fee = ((ideal_fee as u128)
+                .checked_mul(ct_bps as u128)
+                .ok_or(LaunchpadError::InvalidAmount)?
+                / ((ct_bps + cf_bps) as u128)) as i128;
+            let floor_bonus = ideal_fee
+                .checked_sub(treasury_fee)
+                .ok_or(LaunchpadError::InvalidAmount)?;
 
             return Ok(BuyQuote {
                 total_xlm_charged,
@@ -1947,12 +2380,17 @@ impl Launchpad {
         let k_cur = (v_xlm as u128)
             .checked_mul(v_tok as u128)
             .ok_or(LaunchpadError::InvalidAmount)?;
-        let new_v_xlm = (v_xlm as u128) + (net_full as u128);
+        let new_v_xlm = (v_xlm as u128)
+            .checked_add(net_full as u128)
+            .ok_or(LaunchpadError::InvalidAmount)?;
         // Round new_v_tok UP so curve invariant strictly holds (>= k_cur)
         let new_v_tok = k_cur.div_ceil(new_v_xlm);
-        let tokens_out = (v_tok as u128)
-            .checked_sub(new_v_tok)
-            .ok_or(LaunchpadError::InvalidAmount)? as i128;
+        let tokens_out = i128::try_from(
+            (v_tok as u128)
+                .checked_sub(new_v_tok)
+                .ok_or(LaunchpadError::InvalidAmount)?,
+        )
+        .map_err(|_| LaunchpadError::InvalidAmount)?;
         if tokens_out <= 0 || tokens_out > remaining_tokens {
             return Err(LaunchpadError::InvalidAmount);
         }
@@ -1972,27 +2410,42 @@ impl Launchpad {
         curve: &CurveState,
         token_amount: i128,
     ) -> Result<SellQuote, LaunchpadError> {
-        let v_xlm = CURVE_VIRTUAL_XLM_START + curve.curve_xlm_net;
-        let v_tok = CURVE_VIRTUAL_TOKEN_START - curve.tokens_sold;
+        let v_xlm = CURVE_VIRTUAL_XLM_START
+            .checked_add(curve.curve_xlm_net)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        let v_tok = CURVE_VIRTUAL_TOKEN_START
+            .checked_sub(curve.tokens_sold)
+            .ok_or(LaunchpadError::InvalidAmount)?;
+        if v_xlm <= 0 || v_tok <= 0 {
+            return Err(LaunchpadError::InvalidCurveState);
+        }
 
         let k_cur = (v_xlm as u128)
             .checked_mul(v_tok as u128)
             .ok_or(LaunchpadError::InvalidAmount)?;
-        let new_v_tok = (v_tok as u128) + (token_amount as u128);
+        let new_v_tok = (v_tok as u128)
+            .checked_add(token_amount as u128)
+            .ok_or(LaunchpadError::InvalidAmount)?;
         // Round new_v_xlm UP so gross_xlm_out rounds DOWN (never overpays curve)
-        let mut new_v_xlm = k_cur.div_ceil(new_v_tok) as i128;
+        let mut new_v_xlm =
+            i128::try_from(k_cur.div_ceil(new_v_tok)).map_err(|_| LaunchpadError::InvalidAmount)?;
         if new_v_xlm < CURVE_VIRTUAL_XLM_START {
             new_v_xlm = CURVE_VIRTUAL_XLM_START;
         }
 
-        let gross_xlm_out = v_xlm - new_v_xlm;
+        let gross_xlm_out = v_xlm
+            .checked_sub(new_v_xlm)
+            .ok_or(LaunchpadError::InvalidAmount)?;
         if gross_xlm_out <= 0 || gross_xlm_out > curve.curve_xlm_net {
             return Err(LaunchpadError::InvalidAmount);
         }
 
         let (t_bps, f_bps, total_bps) = Self::fee_bps_sell(curve.curve_xlm_net);
         let (treasury_fee, floor_bonus) = Self::split_fee(gross_xlm_out, t_bps, f_bps)?;
-        let net_xlm_out = gross_xlm_out - treasury_fee - floor_bonus;
+        let net_xlm_out = gross_xlm_out
+            .checked_sub(treasury_fee)
+            .and_then(|v| v.checked_sub(floor_bonus))
+            .ok_or(LaunchpadError::InvalidAmount)?;
         if net_xlm_out <= 0 {
             return Err(LaunchpadError::InvalidAmount);
         }
@@ -2109,6 +2562,21 @@ impl Launchpad {
             return Err(LaunchpadError::LaunchesPaused);
         }
         Ok(())
+    }
+
+    fn with_reentrancy_guard<T, F: FnOnce() -> Result<T, LaunchpadError>>(
+        e: &Env,
+        f: F,
+    ) -> Result<T, LaunchpadError> {
+        Self::acquire_reentrancy_lock(e)?;
+        let res = f();
+        Self::release_reentrancy_lock(e);
+        res
+    }
+
+    fn zero_external_supply(e: &Env, this: &Address, token: &Address) -> bool {
+        SupplyTokenClient::new(e, token).total_supply()
+            == token::Client::new(e, token).balance(this)
     }
 
     fn acquire_reentrancy_lock(e: &Env) -> Result<(), LaunchpadError> {

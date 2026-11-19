@@ -2,6 +2,7 @@
  * Pluggable persistence layer for the encrypted Stellar Hot Wallet vault.
  * Secrets are ALWAYS stored encrypted (AES-GCM); plaintext never hits storage.
  */
+import { networkStorageKey } from '../network'
 import { readStorageJson, removeStorageKey, writeStorageJson } from '../storage'
 import type {
   HotVaultStorageAdapter,
@@ -9,7 +10,7 @@ import type {
   TelegramWalletLinkMeta,
 } from './types'
 
-const VAULT_STORAGE_KEY = 'astrogate.hotvault.v1'
+const VAULT_STORAGE_KEY = networkStorageKey('astrogate.hotvault.v1')
 
 const MIN_SAFE_ITERATIONS = 100_000
 const MAX_SAFE_ITERATIONS = 2_000_000

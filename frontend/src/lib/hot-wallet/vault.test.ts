@@ -23,6 +23,7 @@ import {
   setPrimaryHotAccount,
   signTelegramWalletLink,
   unlockHotVault,
+  validateVaultPin,
   VAULT_BUNDLE_PREFIX,
   wipeHotVault,
 } from './vault'
@@ -132,16 +133,16 @@ describe('hot-wallet vault lifecycle', () => {
 
   it('aplica rate-limit tras 5 intentos fallidos de PIN', async () => {
     const adapter = createMemoryAdapter()
-    await createHotWalletAccount({ pin: '7391', adapter })
+    await createHotWalletAccount({ pin: '739102', adapter })
     lockHotVault()
 
     for (let i = 0; i < 5; i++) {
-      await expect(unlockHotVault({ pin: '0000', adapter })).rejects.toThrow(
+      await expect(unlockHotVault({ pin: '000000', adapter })).rejects.toThrow(
         'Incorrect wallet PIN',
       )
     }
 
-    await expect(unlockHotVault({ pin: '7391', adapter })).rejects.toThrow(
+    await expect(unlockHotVault({ pin: '739102', adapter })).rejects.toThrow(
       /Too many wrong PIN attempts/i,
     )
   })
@@ -250,6 +251,9 @@ describe('hot-wallet vault lifecycle', () => {
     expect(signed.username).toBe('astrotrader')
     expect(signed.primaryPublicKey).toBe(w2.activePublicKey)
     expect(signed.wallets).toEqual([w1.activePublicKey, w2.activePublicKey])
+    expect(Object.keys(signed.walletSignatures).sort()).toEqual(
+      [w1.activePublicKey, w2.activePublicKey].sort(),
+    )
     expect(signed.message).toBe(
       buildTelegramLinkMessage({
         network: 'testnet',
@@ -316,5 +320,15 @@ describe('hot-wallet vault lifecycle', () => {
     expect(restored.telegramLink?.username).toBe('astrotrader')
     expect(isHotAccountUnlocked(w1.activePublicKey)).toBe(true)
     expect(isHotAccountUnlocked(w2.activePublicKey)).toBe(true)
+  })
+
+  it('enforces 6-char minimum PIN on testnet and 12-char minimum PIN on mainnet', async () => {
+    const adapter = createMemoryAdapter()
+    await expect(
+      createHotWalletAccount({ pin: '1234', adapter }),
+    ).rejects.toThrow(/at least 6/i)
+    expect(() => validateVaultPin('123456', 'testnet')).not.toThrow()
+    expect(() => validateVaultPin('shortpin123', 'mainnet')).toThrow(/at least 12/i)
+    expect(() => validateVaultPin('MainnetVault#99', 'mainnet')).not.toThrow()
   })
 })

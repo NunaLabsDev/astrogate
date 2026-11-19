@@ -1,5 +1,38 @@
 
     /**
+ * Error Enum: TokenError
+ */
+export const TokenError = {
+  500 : { message: "InvalidDecimals" },
+  501 : { message: "InvalidName" },
+  502 : { message: "InvalidSymbol" },
+  503 : { message: "InvalidInitialSupply" },
+  504 : { message: "GateAlreadyConfigured" },
+  505 : { message: "GateNotConfigured" },
+  506 : { message: "TransfersLocked" }
+}
+
+/**
+ * Event: TransfersLockedEvent
+ */
+export interface TransfersLockedEventEvent {
+  name: "TransfersLockedEvent";
+  data: {
+    launchpad: string;
+  };
+}
+
+/**
+ * Event: TransfersUnlockedEvent
+ */
+export interface TransfersUnlockedEventEvent {
+  name: "TransfersUnlockedEvent";
+  data: {
+    launchpad: string;
+  };
+}
+
+/**
  * Error Enum: RoleTransferError
  */
 export const RoleTransferError = {
@@ -192,9 +225,10 @@ export const FungibleTokenError = {
    */
   114 : { message: "UserBlocked" }
 }
-    export type ContractEvent = OwnershipTransferEvent | OwnershipRenouncedEvent | OwnershipTransferCompletedEvent | BurnEvent | MintEvent | ApproveEvent | TransferEvent | MuxedTransferEvent;
+    export type ContractEvent = TransfersLockedEventEvent | TransfersUnlockedEventEvent | OwnershipTransferEvent | OwnershipRenouncedEvent | OwnershipTransferCompletedEvent | BurnEvent | MintEvent | ApproveEvent | TransferEvent | MuxedTransferEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
+export type TokenError = { message: string }
 export type RoleTransferError = { message: string }
 export type OwnableError = { message: string }
 export type FungibleTokenError = { message: string }

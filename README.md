@@ -27,6 +27,7 @@ AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | Development workflow, Rust/TS quality gates, and PR standards |
 | [TRADEMARK.md](./TRADEMARK.md) | Brand, logo, and anti-phishing usage policy (source code is MIT; brand marks belong to NunaLabs) |
 | [docs/AI_AGENT_INTEGRATION.md](./docs/AI_AGENT_INTEGRATION.md) | SDK usage & function-calling schemas for autonomous AI agents |
+| [docs/SESSION_HANDOFF.md](./docs/SESSION_HANDOFF.md) | Cross-device next-session handoff, compiled vs live Testnet delta & bootstrap checklist |
 | [frontend/public/llms.txt](./frontend/public/llms.txt) | Concise LLM-readable protocol index served at `/llms.txt` (full context at `/llms-full.txt`) |
 
 ---
@@ -96,17 +97,18 @@ npm run dev   # http://localhost:5173 (includes /docs Developer & Audit Hub)
 
 ### Full Quality & Audit Gates
 ```bash
-# Smart contracts: build astro-token WASM fixture first, then formatting, clippy & unit tests
+# Smart contracts: build astro-token WASM fixture first, then formatting, clippy & 70 unit tests
 stellar contract build --package astro-token
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 stellar contract build
 
-# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 227+ Vitest specs, SSR smoke, PWA, CSP parity
+# Frontend & Cloudflare Worker: TypeScript, Vite build, lint, 233 Vitest specs, SSR smoke, PWA, CSP parity & npm ratchet
 cd frontend
 npx tsc --noEmit -p tsconfig.worker.json
 npm run check
+node scripts/npm-audit-ratchet.mjs
 
 # Live read-only / disposable-account Testnet E2E checks (no STELLAR_SECRET required)
 npm run verify:discovery

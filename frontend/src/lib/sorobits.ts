@@ -392,26 +392,21 @@ export async function fetchSorobitsByOwner(
   try {
     const ids = await executeWithRpcFailover(async (rpcUrl) => {
       const client = makeSorobitsClient(rpcUrl)
-      try {
-        const collected: number[] = []
-        let offset = 0
-        while (collected.length < limit) {
-          const pageSize = Math.min(50, limit - collected.length)
-          const pageTx = await client.tokens_of_page({
-            owner: ownerAddress,
-            offset,
-            limit: pageSize,
-          })
-          const page = (pageTx.result ?? []).map((id) => Number(id))
-          collected.push(...page)
-          if (page.length < pageSize) break
-          offset += page.length
-        }
-        return collected.slice(0, limit)
-      } catch {
-        const idsTx = await client.tokens_of({ owner: ownerAddress })
-        return (idsTx.result ?? []).map((id) => Number(id)).slice(0, limit)
+      const collected: number[] = []
+      let offset = 0
+      while (collected.length < limit) {
+        const pageSize = Math.min(50, limit - collected.length)
+        const pageTx = await client.tokens_of_page({
+          owner: ownerAddress,
+          offset,
+          limit: pageSize,
+        })
+        const page = (pageTx.result ?? []).map((id) => Number(id))
+        collected.push(...page)
+        if (page.length < pageSize) break
+        offset += page.length
       }
+      return collected.slice(0, limit)
     })
     if (ids.length === 0) return []
     const items = await Promise.all(ids.map((id) => fetchSorobitById(Number(id))))

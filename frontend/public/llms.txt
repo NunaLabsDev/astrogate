@@ -39,6 +39,7 @@ AstroGate operates with zero custodial backend: client-encrypted native wallet s
 - Security audit guide & invariants: `/AUDIT_GUIDE.md`
 - Trust model & security policy: `/SECURITY.md`
 - Trademark & anti-phishing policy: `/TRADEMARK.md`
+- Cross-device session handoff: `/docs/SESSION_HANDOFF.md`
 - Contracts (Rust / Soroban):
   - `/contracts/launchpad/src/contract.rs` (Bonding Curve, Graduation, Anti-MEV Buyback, Vesting, Burn-to-Chat, Admin Governance)
   - `/contracts/token/src/contract.rs` (SEP-41 Capped Burnable Token + Curve Transfer Lock + TTL extension)

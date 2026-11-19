@@ -278,6 +278,15 @@ export interface BuybackBurnEventEvent {
 }
 
 /**
+ * Struct: PendingUpgradeData
+ */
+export interface PendingUpgradeData {
+  execute_after: bigint;
+  scheduled_at: bigint;
+  wasm_hash: Uint8Array;
+}
+
+/**
  * Event: MilestoneBurnEvent
  */
 export interface MilestoneBurnEventEvent {
@@ -287,6 +296,16 @@ export interface MilestoneBurnEventEvent {
     stage?: number;
     burned_amount?: bigint;
     total_supply_after?: bigint;
+  };
+}
+
+/**
+ * Event: PausedChangedEvent
+ */
+export interface PausedChangedEventEvent {
+  name: "PausedChangedEvent";
+  data: {
+    paused?: boolean;
   };
 }
 
@@ -318,7 +337,122 @@ export interface TokenGraduatedEventEvent {
     vault_burned?: bigint;
   };
 }
-    export type ContractEvent = ShoutEventEvent | ReclaimLpEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | TokenLaunchedEventEvent | TokenGraduatedEventEvent;
+
+/**
+ * Event: TreasuryUpdatedEvent
+ */
+export interface TreasuryUpdatedEventEvent {
+  name: "TreasuryUpdatedEvent";
+  data: {
+    new_treasury: string;
+  };
+}
+
+/**
+ * Event: UpgradeExecutedEvent
+ */
+export interface UpgradeExecutedEventEvent {
+  name: "UpgradeExecutedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: UpgradeCancelledEvent
+ */
+export interface UpgradeCancelledEventEvent {
+  name: "UpgradeCancelledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: UpgradeScheduledEvent
+ */
+export interface UpgradeScheduledEventEvent {
+  name: "UpgradeScheduledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+    execute_after?: bigint;
+  };
+}
+
+/**
+ * Event: CreationFeeUpdatedEvent
+ */
+export interface CreationFeeUpdatedEventEvent {
+  name: "CreationFeeUpdatedEvent";
+  data: {
+    new_fee_stroops?: bigint;
+  };
+}
+
+/**
+ * Event: TokenWasmHashUpdatedEvent
+ */
+export interface TokenWasmHashUpdatedEventEvent {
+  name: "TokenWasmHashUpdatedEvent";
+  data: {
+    new_wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: AdminTransferAcceptedEvent
+ */
+export interface AdminTransferAcceptedEventEvent {
+  name: "AdminTransferAcceptedEvent";
+  data: {
+    new_admin: string;
+  };
+}
+
+/**
+ * Event: AdminTransferProposedEvent
+ */
+export interface AdminTransferProposedEventEvent {
+  name: "AdminTransferProposedEvent";
+  data: {
+    pending_admin: string;
+  };
+}
+
+/**
+ * Event: AdminTransferCancelledEvent
+ */
+export interface AdminTransferCancelledEventEvent {
+  name: "AdminTransferCancelledEvent";
+  data: {
+    cancelled_admin: string;
+  };
+}
+
+/**
+ * Event: CheckpointRewardClaimedEvent
+ */
+export interface CheckpointRewardClaimedEventEvent {
+  name: "CheckpointRewardClaimedEvent";
+  data: {
+    token: string;
+    winner: string;
+    reward?: bigint;
+  };
+}
+
+/**
+ * Event: CheckpointRewardEscrowedEvent
+ */
+export interface CheckpointRewardEscrowedEventEvent {
+  name: "CheckpointRewardEscrowedEvent";
+  data: {
+    token: string;
+    winner: string;
+    reward?: bigint;
+  };
+}
+    export type ContractEvent = ShoutEventEvent | ReclaimLpEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | PausedChangedEventEvent | TokenLaunchedEventEvent | TokenGraduatedEventEvent | TreasuryUpdatedEventEvent | UpgradeExecutedEventEvent | UpgradeCancelledEventEvent | UpgradeScheduledEventEvent | CreationFeeUpdatedEventEvent | TokenWasmHashUpdatedEventEvent | AdminTransferAcceptedEventEvent | AdminTransferProposedEventEvent | AdminTransferCancelledEventEvent | CheckpointRewardClaimedEventEvent | CheckpointRewardEscrowedEventEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
 export type LaunchpadError = { message: string }

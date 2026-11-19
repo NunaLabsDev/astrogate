@@ -840,6 +840,32 @@ describe('Telegram bot views & parsers', () => {
     )
     expect(badRes.status).toBe(415)
 
+    // Reject PNG polyglot containing embedded <script> tag with 415
+    const polyglotBytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      ...new TextEncoder().encode('<script>alert(1)</script>'),
+    ])
+    const polyRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/v1/logos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: polyglotBytes,
+      }),
+      env,
+    )
+    expect(polyRes.status).toBe(415)
+
+    // Reject disallowed Origin on logo upload with 403
+    const badOriginRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/v1/logos', {
+        method: 'POST',
+        headers: { Origin: 'https://evil-phishing.example' },
+        body: new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]),
+      }),
+      env,
+    )
+    expect(badOriginRes.status).toBe(403)
+
     // Store valid WebP header bytes and retrieve by immutable SHA-256 URL
     const webpBytes = new Uint8Array([
       0x52, 0x49, 0x46, 0x46, 0x10, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
@@ -864,6 +890,7 @@ describe('Telegram bot views & parsers', () => {
     expect(getRes.status).toBe(200)
     expect(getRes.headers.get('Content-Type')).toBe('image/webp')
     expect(getRes.headers.get('Cache-Control')).toContain('immutable')
+    expect(getRes.headers.get('Content-Security-Policy')).toContain("default-src 'none'")
 
     // Mainnet fail-closed check: never silently leaks testnet contract IDs
     const mainnetCfg = resolveWorkerNetwork({
@@ -1265,6 +1292,13 @@ describe('Telegram bot views & parsers', () => {
     const sigHex = Array.from(kp2.sign(new TextEncoder().encode(msg)), (b) =>
       b.toString(16).padStart(2, '0'),
     ).join('')
+    const sig1Hex = Array.from(kp1.sign(new TextEncoder().encode(msg)), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+    const walletSignatures = {
+      [kp1.publicKey()]: sig1Hex,
+      [kp2.publicKey()]: sigHex,
+    }
     const fakeBundle =
       'AGVAULT1:' +
       Buffer.from(
@@ -1272,7 +1306,48 @@ describe('Telegram bot views & parsers', () => {
         'utf8',
       ).toString('base64')
 
-    // 1. Link with verified Telegram initData + Ed25519 signature + encrypted bundle
+    // 0a. Spoofed tgUserId > 0 without X-Telegram-Init-Data is rejected (401)
+    const spoofedTgRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: 'alicestellar',
+          tgUserId: 9001,
+          primaryPublicKey: kp2.publicKey(),
+          wallets,
+          timestamp: nowSec,
+          signatureHex: sigHex,
+          walletSignatures,
+        }),
+      }),
+      env,
+    )
+    expect(spoofedTgRes.status).toBe(401)
+
+    // 0b. Missing secondary wallet signature in walletSignatures is rejected (401)
+    const missingSubSigRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Telegram-Init-Data': initData,
+        },
+        body: JSON.stringify({
+          username: '@AliceStellar',
+          tgUserId: 9001,
+          primaryPublicKey: kp2.publicKey(),
+          wallets,
+          timestamp: nowSec,
+          signatureHex: sigHex,
+          walletSignatures: { [kp2.publicKey()]: sigHex },
+        }),
+      }),
+      env,
+    )
+    expect(missingSubSigRes.status).toBe(401)
+
+    // 1. Link with verified Telegram initData + Ed25519 multi-wallet signatures + encrypted bundle
     const linkRes = await handleWorkerRequest(
       new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
         method: 'POST',
@@ -1287,6 +1362,7 @@ describe('Telegram bot views & parsers', () => {
           wallets,
           timestamp: nowSec,
           signatureHex: sigHex,
+          walletSignatures,
           encryptedVaultBundle: fakeBundle,
         }),
       }),
@@ -1317,6 +1393,7 @@ describe('Telegram bot views & parsers', () => {
           wallets,
           timestamp: nowSec,
           signatureHex: sigHex,
+          walletSignatures,
         }),
       }),
       env,
@@ -1594,6 +1671,60 @@ describe('Telegram bot views & parsers', () => {
       )
       expect(gradTradeView.text).toContain('Graduating Curve Buy (100.0%)')
       expect(gradTradeView.text).not.toContain('Only <code>0.0 XLM</code> left')
+
+      // 5. MCP JSON-RPC batch > 10 is rejected with -32600
+      const oversizedBatch = Array.from({ length: 11 }, (_, idx) => ({
+        jsonrpc: '2.0',
+        id: idx,
+        method: 'tools/list',
+      }))
+      const batchRes = await handleWorkerRequest(
+        new Request('https://astrogate.pages.dev/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(oversizedBatch),
+        }),
+        env,
+      )
+      expect(batchRes.status).toBe(400)
+      const batchJson = (await batchRes.json()) as { error?: { code?: number } }
+      expect(batchJson.error?.code).toBe(-32600)
+
+      // 6. /api/telegram/pulse deduplicates repeated txHash via KV
+      const pulseKv = new Map<string, string>([
+        [`pulse:tx:${'d'.repeat(64)}`, '1'],
+      ])
+      const pulseEnv = {
+        ...env,
+        ASTRO_KV: {
+          get: async (key: string) => pulseKv.get(key) ?? null,
+          put: async (key: string, value: string) => {
+            pulseKv.set(key, value)
+          },
+          delete: async (key: string) => {
+            pulseKv.delete(key)
+          },
+          list: async () => ({ keys: [], list_complete: true, cacheStatus: null }),
+        },
+      }
+      const dedupPulseRes = await handleWorkerRequest(
+        new Request('https://astrogate.pages.dev/api/telegram/pulse', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'https://astrogate.pages.dev',
+          },
+          body: JSON.stringify({ txHash: 'd'.repeat(64) }),
+        }),
+        pulseEnv,
+      )
+      expect(dedupPulseRes.status).toBe(200)
+      const dedupJson = (await dedupPulseRes.json()) as {
+        ok: boolean
+        deduplicated?: boolean
+      }
+      expect(dedupJson.ok).toBe(true)
+      expect(dedupJson.deduplicated).toBe(true)
     } finally {
       globalThis.fetch = originalFetch
     }

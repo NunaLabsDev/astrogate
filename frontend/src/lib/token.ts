@@ -8,12 +8,14 @@ import type {
   TradeResult,
 } from '../contracts/launchpad/types'
 import {
+  DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
   isRetryableRpcError,
   LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
   RPC_URL,
 } from './network'
+import { enqueueAccountTx } from './tx-queue'
 import type { Signer } from '@stellar/stellar-sdk/contract'
 
 export type { BuyQuote, CurveState, SellQuote, ShoutRecord, TradeResult }
@@ -92,43 +94,48 @@ export async function launchTokenAtomic(params: {
 }): Promise<{ token: string; pair: string | null; lpMinted: bigint; hash?: string }> {
   const { name, symbol, decimals, initialSupply, tokenLpAmount, xlmLpAmount, signer, onHash } =
     params
-  const client = launchpadClient(signer)
-  const salt = crypto.getRandomValues(new Uint8Array(32))
+  return enqueueAccountTx(signer.address, async () => {
+    const client = launchpadClient(signer)
+    const salt = crypto.getRandomValues(new Uint8Array(32))
 
-  const tx = await client.launch_token({
-    params: {
-      creator: signer.address,
-      name,
-      symbol,
-      decimals,
-      initial_supply: initialSupply,
-      token_lp_amount: tokenLpAmount,
-      xlm_lp_amount: xlmLpAmount,
-      salt,
-    },
+    const tx = await client.launch_token(
+      {
+        params: {
+          creator: signer.address,
+          name,
+          symbol,
+          decimals,
+          initial_supply: initialSupply,
+          token_lp_amount: tokenLpAmount,
+          xlm_lp_amount: xlmLpAmount,
+          salt,
+        },
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Atomic launchpad error: ${JSON.stringify(err)}`)
+    }
+    const result = unwrap.unwrap()
+    return {
+      token: result.token,
+      pair: result.pair,
+      lpMinted: result.lp_minted,
+      hash,
+    }
   })
-
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Atomic launchpad error: ${JSON.stringify(err)}`)
-  }
-  const result = unwrap.unwrap()
-  return {
-    token: result.token,
-    pair: result.pair,
-    lpMinted: result.lp_minted,
-    hash,
-  }
 }
 
 /**
  * Minimalist fair launch (`launch_fair`): supply (10M), decimals (7), and
- * 99.5% burned LP are enforced on-chain; stores optional compact JSON metadata.
+ * 7-year locked LP are enforced on-chain; stores optional compact JSON metadata.
  */
 export async function launchFairAtomic(params: {
   name: string
@@ -139,36 +146,41 @@ export async function launchFairAtomic(params: {
   onHash?: (hash: string) => void
 }): Promise<{ token: string; pair: string | null; lpMinted: bigint; hash?: string }> {
   const { name, symbol, xlmLpAmount, meta = '', signer, onHash } = params
-  const client = launchpadClient(signer)
-  const salt = crypto.getRandomValues(new Uint8Array(32))
+  return enqueueAccountTx(signer.address, async () => {
+    const client = launchpadClient(signer)
+    const salt = crypto.getRandomValues(new Uint8Array(32))
 
-  const tx = await client.launch_fair({
-    params: {
-      creator: signer.address,
-      name,
-      symbol,
-      xlm_lp_amount: xlmLpAmount,
-      meta,
-      salt,
-    },
+    const tx = await client.launch_fair(
+      {
+        params: {
+          creator: signer.address,
+          name,
+          symbol,
+          xlm_lp_amount: xlmLpAmount,
+          meta,
+          salt,
+        },
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Atomic launchpad error: ${JSON.stringify(err)}`)
+    }
+    const result = unwrap.unwrap()
+    return {
+      token: result.token,
+      pair: result.pair,
+      lpMinted: result.lp_minted,
+      hash,
+    }
   })
-
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Atomic launchpad error: ${JSON.stringify(err)}`)
-  }
-  const result = unwrap.unwrap()
-  return {
-    token: result.token,
-    pair: result.pair,
-    lpMinted: result.lp_minted,
-    hash,
-  }
 }
 
 /**
@@ -183,23 +195,28 @@ export async function burnAndShout(params: {
   onHash?: (hash: string) => void
 }): Promise<{ hash?: string }> {
   const { tokenId, amount, message, signer, onHash } = params
-  const client = launchpadClient(signer)
-  const tx = await client.burn_shout({
-    sender: signer.address,
-    token: tokenId,
-    amount,
-    message,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const client = launchpadClient(signer)
+    const tx = await client.burn_shout(
+      {
+        sender: signer.address,
+        token: tokenId,
+        amount,
+        message,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Burn shout error: ${JSON.stringify(err)}`)
-  }
-  return { hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Burn shout error: ${JSON.stringify(err)}`)
+    }
+    return { hash }
+  })
 }
 
 /**
@@ -293,22 +310,27 @@ export async function buyCurveToken(params: {
   onHash?: (hash: string) => void
 }): Promise<{ trade: TradeResult; hash?: string }> {
   const { tokenId, maxXlmIn, minTokensOut, signer, onHash } = params
-  const tx = await launchpadClient(signer).buy_curve({
-    buyer: signer.address,
-    token: tokenId,
-    max_xlm_in: maxXlmIn,
-    min_tokens_out: minTokensOut,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).buy_curve(
+      {
+        buyer: signer.address,
+        token: tokenId,
+        max_xlm_in: maxXlmIn,
+        min_tokens_out: minTokensOut,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Curve buy error: ${JSON.stringify(err)}`)
-  }
-  return { trade: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Curve buy error: ${JSON.stringify(err)}`)
+    }
+    return { trade: unwrap.unwrap(), hash }
+  })
 }
 
 /** Sells tokens back to an active Fair-Flywheel v4 virtual bonding curve. */
@@ -320,22 +342,27 @@ export async function sellCurveToken(params: {
   onHash?: (hash: string) => void
 }): Promise<{ trade: TradeResult; hash?: string }> {
   const { tokenId, tokenAmount, minXlmOut, signer, onHash } = params
-  const tx = await launchpadClient(signer).sell_curve({
-    seller: signer.address,
-    token: tokenId,
-    token_amount: tokenAmount,
-    min_xlm_out: minXlmOut,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).sell_curve(
+      {
+        seller: signer.address,
+        token: tokenId,
+        token_amount: tokenAmount,
+        min_xlm_out: minXlmOut,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Curve sell error: ${JSON.stringify(err)}`)
-  }
-  return { trade: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Curve sell error: ${JSON.stringify(err)}`)
+    }
+    return { trade: unwrap.unwrap(), hash }
+  })
 }
 
 /** Claims unlocked post-graduation 15-day vesting tranches (creator only). */
@@ -345,20 +372,25 @@ export async function claimCreatorVesting(params: {
   onHash?: (hash: string) => void
 }): Promise<{ claimed: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).claim_creator_vesting({
-    creator: signer.address,
-    token: tokenId,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).claim_creator_vesting(
+      {
+        creator: signer.address,
+        token: tokenId,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Claim vesting error: ${JSON.stringify(err)}`)
-  }
-  return { claimed: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Claim vesting error: ${JSON.stringify(err)}`)
+    }
+    return { claimed: unwrap.unwrap(), hash }
+  })
 }
 
 /** Refunds the remaining curve XLM vault in 1 tx if ungraduated for >= 7 days with 0 external holders (creator only). */
@@ -368,20 +400,25 @@ export async function refundStalledLaunch(params: {
   onHash?: (hash: string) => void
 }): Promise<{ refunded: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).refund_stalled_launch({
-    creator: signer.address,
-    token: tokenId,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).refund_stalled_launch(
+      {
+        creator: signer.address,
+        token: tokenId,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Stalled refund error: ${JSON.stringify(err)}`)
-  }
-  return { refunded: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Stalled refund error: ${JSON.stringify(err)}`)
+    }
+    return { refunded: unwrap.unwrap(), hash }
+  })
 }
 
 /** Permissionlessly triggers Stage 2 Milestone Burn (1,475,000 tokens) at >= 1,800 XLM pair depth. */
@@ -391,19 +428,22 @@ export async function triggerMilestoneBurn(params: {
   onHash?: (hash: string) => void
 }): Promise<{ burned: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).trigger_milestone_burn({
-    token: tokenId,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).trigger_milestone_burn(
+      { token: tokenId },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Milestone burn error: ${JSON.stringify(err)}`)
-  }
-  return { burned: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Milestone burn error: ${JSON.stringify(err)}`)
+    }
+    return { burned: unwrap.unwrap(), hash }
+  })
 }
 
 /** Permissionlessly swaps graduated buyback reserve on Soroswap DEX & permanently burns acquired tokens. */
@@ -413,19 +453,22 @@ export async function triggerBuybackBurn(params: {
   onHash?: (hash: string) => void
 }): Promise<{ burned: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).trigger_buyback_burn({
-    token: tokenId,
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await launchpadClient(signer).trigger_buyback_burn(
+      { token: tokenId },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
 
-  const unwrap = sent.result
-  if (unwrap.isErr()) {
-    const err = unwrap.unwrapErr()
-    throw new Error(err?.message ?? `Buyback burn error: ${JSON.stringify(err)}`)
-  }
-  return { burned: unwrap.unwrap(), hash }
+    const unwrap = sent.result
+    if (unwrap.isErr()) {
+      const err = unwrap.unwrapErr()
+      throw new Error(err?.message ?? `Buyback burn error: ${JSON.stringify(err)}`)
+    }
+    return { burned: unwrap.unwrap(), hash }
+  })
 }
 
 /**
@@ -439,37 +482,44 @@ export async function extendTokenTtl(params: {
   signer: Signer
 }): Promise<{ hash?: string }> {
   const { tokenId, signer } = params
-  let lastHash: string | undefined
-  let lastError: unknown
+  return enqueueAccountTx(signer.address, async () => {
+    let lastHash: string | undefined
+    let lastError: unknown
 
-  try {
-    const tokTx = await tokenClient(tokenId, signer).extend_ttl()
-    const sentTok = await tokTx.signAndSend({ force: true })
-    lastHash = sentTok.sendTransactionResponse?.hash ?? lastHash
-  } catch (err) {
-    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-    if (msg.includes('cancel') || msg.includes('reject') || msg.includes('declined')) {
-      throw err
+    try {
+      const tokTx = await tokenClient(tokenId, signer).extend_ttl({
+        fee: DEFAULT_SOROBAN_INCLUSION_FEE,
+      })
+      const sentTok = await tokTx.signAndSend({ force: true })
+      lastHash = sentTok.sendTransactionResponse?.hash ?? lastHash
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+      if (msg.includes('cancel') || msg.includes('reject') || msg.includes('declined')) {
+        throw err
+      }
+      lastError = err
+      // Non-AstroToken SACs may not expose `extend_ttl`; still extend Launchpad entry.
     }
-    lastError = err
-    // Non-AstroToken SACs may not expose `extend_ttl`; still extend Launchpad entry.
-  }
 
-  try {
-    const lpTx = await launchpadClient(signer).extend_launch_ttl({ token: tokenId })
-    const sentLp = await lpTx.signAndSend({ force: true })
-    lastHash = sentLp.sendTransactionResponse?.hash ?? lastHash
-  } catch (err) {
-    const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
-    if (msg.includes('cancel') || msg.includes('reject') || msg.includes('declined')) {
-      throw err
+    try {
+      const lpTx = await launchpadClient(signer).extend_launch_ttl(
+        { token: tokenId },
+        { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+      )
+      const sentLp = await lpTx.signAndSend({ force: true })
+      lastHash = sentLp.sendTransactionResponse?.hash ?? lastHash
+    } catch (err) {
+      const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+      if (msg.includes('cancel') || msg.includes('reject') || msg.includes('declined')) {
+        throw err
+      }
+      lastError = err
+      throw lastError instanceof Error
+        ? lastError
+        : new Error('Could not extend Launchpad registry TTL on-chain.')
     }
-    lastError = err
-    throw lastError instanceof Error
-      ? lastError
-      : new Error('Could not extend Launchpad registry TTL on-chain.')
-  }
 
-  return { hash: lastHash }
+    return { hash: lastHash }
+  })
 }
 

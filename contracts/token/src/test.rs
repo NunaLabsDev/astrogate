@@ -104,7 +104,7 @@ fn mint_after_burn_beyond_cap_fails() {
 }
 
 #[test]
-#[should_panic(expected = "decimals exceeds the maximum allowed")]
+#[should_panic(expected = "Error(Contract, #500)")]
 fn constructor_rejects_excessive_decimals() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -114,7 +114,7 @@ fn constructor_rejects_excessive_decimals() {
 }
 
 #[test]
-#[should_panic(expected = "name must be 1..32 bytes")]
+#[should_panic(expected = "Error(Contract, #501)")]
 fn constructor_rejects_long_name() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -133,7 +133,7 @@ fn constructor_rejects_long_name() {
 }
 
 #[test]
-#[should_panic(expected = "name must be 1..32 bytes")]
+#[should_panic(expected = "Error(Contract, #501)")]
 fn constructor_rejects_empty_name() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -150,7 +150,7 @@ fn constructor_rejects_empty_name() {
 }
 
 #[test]
-#[should_panic(expected = "symbol must be 1..32 bytes")]
+#[should_panic(expected = "Error(Contract, #502)")]
 fn constructor_rejects_empty_symbol() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -167,7 +167,7 @@ fn constructor_rejects_empty_symbol() {
 }
 
 #[test]
-#[should_panic(expected = "initial supply must be positive")]
+#[should_panic(expected = "Error(Contract, #503)")]
 fn constructor_rejects_zero_initial_supply() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -239,7 +239,7 @@ fn non_owner_cannot_mint() {
 }
 
 #[test]
-#[should_panic(expected = "initial supply must be positive")]
+#[should_panic(expected = "Error(Contract, #503)")]
 fn constructor_rejects_negative_initial_supply() {
     let e = Env::default();
     let owner = Address::generate(&e);
@@ -435,9 +435,9 @@ fn curve_transfer_lock_allows_gate_and_burn_then_unlocks_for_dex() {
     client.transfer(&alice, &launchpad, &100);
     assert_eq!(client.balance(&alice), 250);
 
-    // P2P / Soroswap pair transfers fail before graduation
+    // P2P / Soroswap pair transfers fail before graduation with TransfersLocked (#506)
     let res = client.try_transfer(&alice, &bob, &50);
-    assert!(res.is_err());
+    assert_eq!(res, Err(Ok(soroban_sdk::Error::from_contract_error(506))));
 
     // Graduation unlocks P2P transfers forever
     client.unlock_transfers();
@@ -511,7 +511,7 @@ fn transfer_from_blocked_while_burn_from_allowed_during_curve_lock() {
 }
 
 #[test]
-#[should_panic(expected = "transfers gate already configured")]
+#[should_panic(expected = "Error(Contract, #504)")]
 fn lock_until_graduated_cannot_be_reconfigured() {
     let e = Env::default();
     let launchpad = Address::generate(&e);
@@ -521,4 +521,14 @@ fn lock_until_graduated_cannot_be_reconfigured() {
     e.mock_all_auths();
     client.lock_until_graduated(&launchpad);
     client.lock_until_graduated(&other);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #505)")]
+fn unlock_transfers_without_gate_fails_with_typed_error() {
+    let e = Env::default();
+    let owner = Address::generate(&e);
+    let client = create_client(&e, &owner);
+
+    client.unlock_transfers();
 }

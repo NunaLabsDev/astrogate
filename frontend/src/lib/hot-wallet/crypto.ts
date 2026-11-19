@@ -2,6 +2,7 @@
  * Client-side authenticated encryption for Stellar secret keys (`S...`).
  * Uses native WebCrypto (`PBKDF2-SHA256` + `AES-GCM-256`) with zero external dependencies.
  */
+import { NETWORK_NAME } from '../network'
 import type { EncryptedSecretPayload } from './types'
 
 export const VAULT_PBKDF2_ITERATIONS = 210_000
@@ -145,8 +146,8 @@ export async function decryptSecretWithPin(
       view.fill(0)
     }
   } catch {
-    if (aadBuf) {
-      // Backwards compatibility for pre-AAD v1 encrypted payloads on device/CloudStorage.
+    if (aadBuf && NETWORK_NAME !== 'mainnet') {
+      // Backwards compatibility for pre-AAD v1 encrypted payloads on device/CloudStorage (testnet only).
       try {
         const legacyDecrypted = await subtle.decrypt(
           { name: 'AES-GCM', iv: ivBuf },

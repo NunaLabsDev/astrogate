@@ -67,6 +67,7 @@ export async function publishWalletTelegramLink(params: {
     wallets: signed.wallets,
     timestamp: signed.timestamp,
     signatureHex: signed.signatureHex,
+    walletSignatures: signed.walletSignatures,
     ...(params.encryptedVaultBundle
       ? { encryptedVaultBundle: params.encryptedVaultBundle }
       : {}),

@@ -332,12 +332,17 @@ fn test_fair_flywheel_v42_flat_buys_asymmetric_sells_and_seed_lock() {
     assert_eq!(q_sell.total_fee_bps, 120);
     assert!(q_sell.floor_bonus > q_sell.treasury_fee);
 
-    // Push past 250 XLM Checkpoint 1 -> wins +5,000 Spark Bonus & enters Stage 2 (0.50% buy / 1.80% sell)!
+    // Push past 250 XLM Checkpoint 1 -> escrows +5,000 Spark Bonus until graduation & enters Stage 2!
     xlm_sac.mint(&buyer_10x, &(300 * STROOPS));
     let b3 = client.buy_curve(&buyer_10x, &res.token, &(200 * STROOPS), &1);
+    assert_eq!(tok.balance(&buyer_10x), b2.tokens + b3.tokens);
     assert_eq!(
-        tok.balance(&buyer_10x),
-        b2.tokens + b3.tokens + (5_000 * STROOPS)
+        client.get_checkpoint_reward(&res.token, &buyer_10x),
+        5_000 * STROOPS
+    );
+    assert_eq!(
+        client.try_claim_checkpoint_reward(&buyer_10x, &res.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
     );
     assert_eq!(
         client.get_curve(&res.token).unwrap().burn_milestone_stage,
@@ -609,6 +614,14 @@ fn test_graduation_unlocks_transfers_buyback_burn_and_vesting_15d() {
         client.get_curve(&launch.token).unwrap().creator_claimed,
         30_000 * STROOPS
     );
+
+    // Whale claims escrowed Stage 1 (+5K) + Stage 2 (+10K) checkpoint rewards post-graduation
+    assert_eq!(
+        client.get_checkpoint_reward(&launch.token, &whale),
+        15_000 * STROOPS
+    );
+    let whale_ck = client.claim_checkpoint_reward(&whale, &launch.token);
+    assert_eq!(whale_ck, 15_000 * STROOPS);
     assert_eq!(tok.balance(&s.launchpad), 0);
 
     // 7-Year LP Time-Lock verification: rejected at Year 6, unlocked to treasury at Year 7!
@@ -1078,13 +1091,18 @@ fn test_market_page_and_30d_abandoned_curve_sweep() {
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // After 30 days with zero external buyers left, sweep returns creator's seed & sweeps XLM vault
+    // After 30 days with zero external buyers left, sweep refunds creator's XLM reserve & sweeps only fee dust
     e.ledger()
         .set_timestamp(e.ledger().timestamp() + 30 * 86_400);
+    let xlm_client = token::Client::new(&e, &s.xlm_sac);
+    let creator_xlm_before = xlm_client.balance(&creator);
+    let treas_xlm_before = xlm_client.balance(&s.treasury);
     let swept = client.sweep_empty_curve_fees(&res.token);
     assert!(swept > 0);
+    assert_eq!(xlm_client.balance(&s.treasury), treas_xlm_before + swept);
+    assert!(xlm_client.balance(&creator) > creator_xlm_before);
     let tok = AstroTokenClient::new(&e, &res.token);
-    assert!(tok.balance(&creator) > 0);
+    assert_eq!(tok.balance(&creator), 0);
     let curve_after = client.get_curve(&res.token).unwrap();
     assert_eq!(curve_after.creator_seed_locked, 0);
     assert_eq!(curve_after.real_xlm_vault, 0);
@@ -1126,19 +1144,23 @@ fn test_50_wallets_lifecycle_buy_sell_stalled_refund_and_graduation_roi() {
         Err(Ok(LaunchpadError::InvalidCurveState))
     );
 
-    // After 7 days with 0 external holders left, creator recovers full real_xlm_vault in 1 tx
+    // After 7 days with 0 external holders left, creator recovers curve_xlm_net while fee dust stays sweepable
     e.ledger()
         .set_timestamp(e.ledger().timestamp() + 7 * 86_400);
     let bal_before_refund = xlm_read.balance(&stalled_creator);
     let refunded = client.refund_stalled_launch(&stalled_creator, &res_a.token);
     let bal_after_refund = xlm_read.balance(&stalled_creator);
-    // 10 XLM seed minus 0.50% treasury fee = 9.95 XLM + buyer's 2.50% floor bonus stayed in vault
+    // 10 XLM seed minus 0.30% Stage-1 fee = 9.97 XLM
     assert!(refunded >= 99_500_000);
     assert_eq!(bal_after_refund - bal_before_refund, refunded);
     let curve_a = client.get_curve(&res_a.token).unwrap();
-    assert_eq!(curve_a.real_xlm_vault, 0);
+    assert_eq!(curve_a.curve_xlm_net, 0);
+    assert!(curve_a.real_xlm_vault > 0);
     assert_eq!(curve_a.tokens_sold, 0);
     assert_eq!(curve_a.creator_seed_locked, 0);
+    let dust_swept = client.sweep_empty_curve_fees(&res_a.token);
+    assert_eq!(dust_swept, curve_a.real_xlm_vault);
+    assert_eq!(client.get_curve(&res_a.token).unwrap().real_xlm_vault, 0);
 
     // -----------------------------------------------------------------
     // Part 2: 50 distinct wallets trading, burning shouts & graduating
@@ -1440,4 +1462,212 @@ fn test_50_wallets_economic_models_comparison_burn_vs_wallet_vs_7y_lock() {
         "[COMPARE-MODEL-C-4X-7YLOCK] range=4.00x cliff=0% | creator_seed_roi={}% early_w1={}% mid_w25={}% pre_grad={}% grad_w{}={}% | dead_pool_xlm_recovered_after_7y=1000XLM",
         c.0, c.1, c.2, c.3, c.5, c.4
     );
+}
+
+#[test]
+fn test_adversarial_pre_grad_checkpoint_escrow_cannot_drain_curve_then_claims_post_grad() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+
+    let creator = Address::generate(&e);
+    let attacker = Address::generate(&e);
+    let victim = Address::generate(&e);
+    let closer = Address::generate(&e);
+    xlm_sac.mint(&creator, &(30 * STROOPS));
+    xlm_sac.mint(&attacker, &(600 * STROOPS));
+    xlm_sac.mint(&victim, &(100 * STROOPS));
+    xlm_sac.mint(&closer, &(1_000 * STROOPS));
+
+    let res = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "CheckpointEscrow"),
+        symbol: String::from_str(&e, "ESC"),
+        xlm_lp_amount: 10 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[91u8; 32]),
+    });
+    let tok = AstroTokenClient::new(&e, &res.token);
+
+    // Victim puts initial liquidity so curve.tokens_sold is large.
+    client.buy_curve(&victim, &res.token, &(50 * STROOPS), &1);
+
+    // Attacker crosses Stage 1 (+5K) and Stage 2 (+10K) in one buy -> 15,000 escrowed, 0 extra tokens in wallet!
+    let buy = client.buy_curve(&attacker, &res.token, &(500 * STROOPS), &1);
+    assert_eq!(tok.balance(&attacker), buy.tokens);
+    assert_eq!(
+        client.get_checkpoint_reward(&res.token, &attacker),
+        15_000 * STROOPS
+    );
+
+    // Attacker never received escrowed 15K bonus tokens so selling them pre-grad is impossible!
+    assert!(client
+        .try_sell_curve(&attacker, &res.token, &(buy.tokens + 5_000 * STROOPS), &1)
+        .is_err());
+    assert_eq!(
+        client.try_claim_checkpoint_reward(&attacker, &res.token),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+
+    // Graduate curve; now attacker cleanly claims their escrowed 15,000 checkpoint tokens!
+    let grad = client.buy_curve(&closer, &res.token, &(800 * STROOPS), &1);
+    assert!(grad.graduated);
+
+    let claimed = client.claim_checkpoint_reward(&attacker, &res.token);
+    assert_eq!(claimed, 15_000 * STROOPS);
+    assert_eq!(tok.balance(&attacker), buy.tokens + 15_000 * STROOPS);
+    assert_eq!(client.get_checkpoint_reward(&res.token, &attacker), 0);
+    assert_eq!(
+        client.try_claim_checkpoint_reward(&attacker, &res.token),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+}
+
+#[test]
+fn test_adversarial_48h_upgrade_timelock_and_admin_transfer_cancel() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+
+    assert_eq!(client.get_storage_version(), 1);
+    assert!(client.get_pending_upgrade().is_none());
+
+    // Zero wasm hash rejected
+    let zero_hash = BytesN::from_array(&e, &[0u8; 32]);
+    assert_eq!(
+        client.try_schedule_upgrade(&zero_hash),
+        Err(Ok(LaunchpadError::InvalidMetadata))
+    );
+
+    // Self-transfer admin rejected, pending transfer can be cancelled
+    assert_eq!(
+        client.try_transfer_admin(&s.treasury),
+        Err(Ok(LaunchpadError::InvalidMetadata))
+    );
+    let candidate = Address::generate(&e);
+    client.transfer_admin(&candidate);
+    client.cancel_admin_transfer();
+    assert_eq!(
+        client.try_accept_admin(),
+        Err(Ok(LaunchpadError::Unauthorized))
+    );
+
+    // Schedule valid WASM upgrade behind 48h timelock
+    let valid_wasm = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    client.schedule_upgrade(&valid_wasm);
+    let pending = client.get_pending_upgrade().unwrap();
+    assert_eq!(pending.wasm_hash, valid_wasm);
+    assert_eq!(pending.execute_after, pending.scheduled_at + 48 * 3_600);
+
+    // Cannot schedule second upgrade while pending or execute before 48h
+    assert_eq!(
+        client.try_schedule_upgrade(&valid_wasm),
+        Err(Ok(LaunchpadError::InvalidCurveState))
+    );
+    assert_eq!(
+        client.try_execute_upgrade(),
+        Err(Ok(LaunchpadError::MilestoneNotReached))
+    );
+
+    // Cancel clears pending; reschedule + advance 48h executes cleanly
+    client.cancel_upgrade();
+    assert!(client.get_pending_upgrade().is_none());
+    client.schedule_upgrade(&valid_wasm);
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 48 * 3_600);
+    client.execute_upgrade();
+}
+
+#[test]
+fn test_launch_token_creation_fee_and_burn_shout_decimal_scaling_without_pilot_farming() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let xlm_read = token::Client::new(&e, &s.xlm_sac);
+
+    let creator = Address::generate(&e);
+    xlm_sac.mint(&creator, &(50 * STROOPS));
+    let treas_before = xlm_read.balance(&s.treasury);
+
+    // Legacy launch_token with 6 decimals charges 7 XLM creation fee
+    let legacy = client.launch_token(&LaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "SixDecimals"),
+        symbol: String::from_str(&e, "SIX"),
+        decimals: 6,
+        initial_supply: 1_000_000_000_000, // 1M tokens at 6 decimals
+        token_lp_amount: 995_000_000_000,
+        xlm_lp_amount: 5 * STROOPS,
+        salt: BytesN::from_array(&e, &[92u8; 32]),
+    });
+    assert_eq!(xlm_read.balance(&s.treasury), treas_before + 7 * STROOPS);
+
+    // At 6 decimals, 50 whole tokens = 50_000_000 units (500_000_000 at 7 decimals would over-burn if unscaled).
+    // 49 whole tokens fails; 50 whole tokens succeeds; non-curve token does NOT inflate PilotRecord.shouts!
+    assert_eq!(
+        client.try_burn_shout(
+            &creator,
+            &legacy.token,
+            &49_000_000,
+            &String::from_str(&e, "below 50 whole")
+        ),
+        Err(Ok(LaunchpadError::InvalidAmount))
+    );
+    client.burn_shout(
+        &creator,
+        &legacy.token,
+        &50_000_000,
+        &String::from_str(&e, "exact 50 whole at 6 decimals"),
+    );
+    let pilot = client.get_pilot(&creator);
+    assert_eq!(pilot.launches, 1);
+    assert_eq!(pilot.shouts, 0);
+}
+
+#[test]
+fn test_buyback_burn_min_slippage_and_ttl_extensions() {
+    let e = create_env();
+    let s = setup_launchpad(&e, false, (0, 0));
+    let client = LaunchpadClient::new(&e, &s.launchpad);
+    let xlm_sac = token::StellarAssetClient::new(&e, &s.xlm_sac);
+    let creator = Address::generate(&e);
+    let closer = Address::generate(&e);
+    xlm_sac.mint(&creator, &(30 * STROOPS));
+    xlm_sac.mint(&closer, &(1_200 * STROOPS));
+
+    let launch = client.launch_fair(&FairLaunchParams {
+        creator: creator.clone(),
+        name: String::from_str(&e, "BuybackMin"),
+        symbol: String::from_str(&e, "BBM"),
+        xlm_lp_amount: 10 * STROOPS,
+        meta: String::from_str(&e, ""),
+        salt: BytesN::from_array(&e, &[93u8; 32]),
+    });
+    // Sell once so surplus floor fee dust exists -> buyback_xlm_reserve > 0 on graduation
+    let buyer = Address::generate(&e);
+    xlm_sac.mint(&buyer, &(100 * STROOPS));
+    let b = client.buy_curve(&buyer, &launch.token, &(50 * STROOPS), &1);
+    client.sell_curve(&buyer, &launch.token, &b.tokens, &1);
+
+    let g = client.buy_curve(&closer, &launch.token, &(1_100 * STROOPS), &1);
+    assert!(g.graduated);
+
+    let pair_mock = MockSoroswapPairClient::new(&e, &s.pair);
+    let tok = AstroTokenClient::new(&e, &launch.token);
+    let xlm_read = token::Client::new(&e, &s.xlm_sac);
+    pair_mock.set_tokens(&s.xlm_sac, &launch.token);
+    pair_mock.set_reserves(&(xlm_read.balance(&s.pair), tok.balance(&s.pair)));
+
+    assert_eq!(
+        client.try_trigger_buyback_burn_min(&launch.token, &(10_000_000 * STROOPS)),
+        Err(Ok(LaunchpadError::SlippageExceeded))
+    );
+    let burned = client.trigger_buyback_burn_min(&launch.token, &1);
+    assert!(burned > 0);
+
+    client.extend_launch_ttl(&launch.token);
+    client.extend_checkpoint_ttl(&launch.token, &buyer);
+    client.extend_pilot_ttl(&creator);
 }

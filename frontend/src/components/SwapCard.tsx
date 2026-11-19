@@ -321,9 +321,8 @@ export function SwapCard({
       return
     }
 
-    // Never require double confirmation on buys (upward price movement is expected);
-    // keep a single safety tap only when selling with extreme manual slippage (>= 15%).
-    const needsSecondTap = !isBuy && slippage >= 15
+    // Require explicit second tap whenever slippage >= 10% or high pool impact >= 15%.
+    const needsSecondTap = slippage >= 10 || (impact !== null && impact >= 15)
     if (needsSecondTap && !confirmHighRisk) {
       setConfirmHighRisk(true)
       triggerTelegramHaptic('medium')

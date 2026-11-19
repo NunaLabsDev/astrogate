@@ -4,7 +4,7 @@
  */
 import { NETWORK_NAME, HORIZON_URL } from './network'
 
-const EXPLORER_NETWORK_PATH = NETWORK_NAME === 'mainnet' ? 'mainnet' : 'testnet'
+const EXPLORER_NETWORK_PATH = NETWORK_NAME === 'mainnet' ? 'public' : 'testnet'
 
 const EXPLORER_BASE = `https://stellar.expert/explorer/${EXPLORER_NETWORK_PATH}`
 

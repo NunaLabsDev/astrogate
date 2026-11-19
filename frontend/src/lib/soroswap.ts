@@ -4,6 +4,7 @@ import { Client as PairClient } from '../contracts/soroswap-pair'
 import { Client as RouterClient } from '../contracts/soroswap-router'
 import { isValidContractAddress } from './address'
 import {
+  DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
   LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
@@ -12,6 +13,7 @@ import {
   SOROSWAP_ROUTER,
   XLM_SAC,
 } from './network'
+import { enqueueAccountTx } from './tx-queue'
 import { STELLAR_BURN_ADDRESS, SOROSWAP_SWAP_FEE_PERCENT } from './tokenomics'
 
 /** Slippage por defecto (%). Es el mínimo de salida que exigimos al router. */
@@ -514,10 +516,13 @@ async function ensurePair(
     token_b: XLM_SAC,
   })
   if (!unwrapResult<boolean>(existsTx.result, 'pair_exists')) {
-    const createTx = await factory.create_pair({
-      token_a: tokenId,
-      token_b: XLM_SAC,
-    })
+    const createTx = await factory.create_pair(
+      {
+        token_a: tokenId,
+        token_b: XLM_SAC,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
     await createTx.signAndSend()
   }
 
@@ -571,46 +576,51 @@ export async function addLiquidity(params: {
   lpAmount: bigint
 }> {
   const { tokenId, amountToken, amountXlm, signer, to: recipient, onStep, onHash } = params
-  const { router } = soroswapClients(signer)
-  const publicKey = signer.address
+  return enqueueAccountTx(signer.address, async () => {
+    const { router } = soroswapClients(signer)
+    const publicKey = signer.address
 
-  onStep?.('pair')
-  const pair = await ensurePair(tokenId, signer)
-  // La orientación real es la del par: montamos los amounts en el orden
-  // interno (token_0, token_1) para que el router no cruce los lados.
-  const { token0, token1 } = await pairLayout(pair, signer)
-  const tokenFirst = token0 === tokenId
-  if (!tokenFirst && token1 !== tokenId) {
-    throw new Error('Pair does not contain the launchpad token')
-  }
+    onStep?.('pair')
+    const pair = await ensurePair(tokenId, signer)
+    // La orientación real es la del par: montamos los amounts en el orden
+    // interno (token_0, token_1) para que el router no cruce los lados.
+    const { token0, token1 } = await pairLayout(pair, signer)
+    const tokenFirst = token0 === tokenId
+    if (!tokenFirst && token1 !== tokenId) {
+      throw new Error('Pair does not contain the launchpad token')
+    }
 
-  onStep?.('liquidity')
-  const tx = await router.add_liquidity({
-    token_a: tokenFirst ? tokenId : XLM_SAC,
-    token_b: tokenFirst ? XLM_SAC : tokenId,
-    amount_a_desired: tokenFirst ? amountToken : amountXlm,
-    amount_b_desired: tokenFirst ? amountXlm : amountToken,
-    amount_a_min: tokenFirst ? withSlippage(amountToken) : withSlippage(amountXlm),
-    amount_b_min: tokenFirst ? withSlippage(amountXlm) : withSlippage(amountToken),
-    to: recipient ?? publicKey,
-    deadline: unixDeadline(),
+    onStep?.('liquidity')
+    const tx = await router.add_liquidity(
+      {
+        token_a: tokenFirst ? tokenId : XLM_SAC,
+        token_b: tokenFirst ? XLM_SAC : tokenId,
+        amount_a_desired: tokenFirst ? amountToken : amountXlm,
+        amount_b_desired: tokenFirst ? amountXlm : amountToken,
+        amount_a_min: tokenFirst ? withSlippage(amountToken) : withSlippage(amountXlm),
+        amount_b_min: tokenFirst ? withSlippage(amountXlm) : withSlippage(amountToken),
+        to: recipient ?? publicKey,
+        deadline: unixDeadline(),
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+    const [amountA, amountB, lpAmount] = unwrapResult<[bigint, bigint, bigint]>(
+      sent.result,
+      'add_liquidity',
+    )
+
+    // El router devuelve los amounts en el orden en que le pasamos los tokens,
+    // que aquí es el orden real (token_0, token_1) del par.
+    return {
+      pair,
+      tokenAmount: tokenFirst ? amountA : amountB,
+      xlmAmount: tokenFirst ? amountB : amountA,
+      lpAmount,
+    }
   })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-  const [amountA, amountB, lpAmount] = unwrapResult<[bigint, bigint, bigint]>(
-    sent.result,
-    'add_liquidity',
-  )
-
-  // El router devuelve los amounts en el orden en que le pasamos los tokens,
-  // que aquí es el orden real (token_0, token_1) del par.
-  return {
-    pair,
-    tokenAmount: tokenFirst ? amountA : amountB,
-    xlmAmount: tokenFirst ? amountB : amountA,
-    lpAmount,
-  }
 }
 
 /**
@@ -635,10 +645,11 @@ export async function withdrawLiquidity(params: {
   if (!pool.exists || !pool.pairId) {
     throw new Error('Token/XLM pair does not exist')
   }
+  const pairId = pool.pairId
 
   // Orden real del par y suministro LP para fijar los mínimos de salida.
   const [token0Tx, supplyTx] = await executeWithRpcFailover(async (rpcUrl) => {
-    const pair = pairClientFor(pool.pairId!, undefined, rpcUrl)
+    const pair = pairClientFor(pairId, undefined, rpcUrl)
     return Promise.all([pair.token_0(), pair.total_supply()])
   })
   const tokenFirst =
@@ -654,33 +665,38 @@ export async function withdrawLiquidity(params: {
   )
 
   const { router } = soroswapClients(signer)
-  const tx = await router.remove_liquidity({
-    token_a: tokenFirst ? tokenId : XLM_SAC,
-    token_b: tokenFirst ? XLM_SAC : tokenId,
-    liquidity: lpAmount,
-    amount_a_min: withSlippage(
-      tokenFirst ? expected.tokenAmount : expected.xlmAmount,
-    ),
-    amount_b_min: withSlippage(
-      tokenFirst ? expected.xlmAmount : expected.tokenAmount,
-    ),
-    to: signer.address,
-    deadline: unixDeadline(),
-  })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-  const [amountA, amountB] = unwrapResult<[bigint, bigint]>(
-    sent.result,
-    'remove_liquidity',
-  )
+  return enqueueAccountTx(signer.address, async () => {
+    const tx = await router.remove_liquidity(
+      {
+        token_a: tokenFirst ? tokenId : XLM_SAC,
+        token_b: tokenFirst ? XLM_SAC : tokenId,
+        liquidity: lpAmount,
+        amount_a_min: withSlippage(
+          tokenFirst ? expected.tokenAmount : expected.xlmAmount,
+        ),
+        amount_b_min: withSlippage(
+          tokenFirst ? expected.xlmAmount : expected.tokenAmount,
+        ),
+        to: signer.address,
+        deadline: unixDeadline(),
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+    const [amountA, amountB] = unwrapResult<[bigint, bigint]>(
+      sent.result,
+      'remove_liquidity',
+    )
 
-  // El router devuelve los amounts en el orden token_a/token_b que le dimos.
-  return {
-    pair: pool.pairId,
-    tokenAmount: tokenFirst ? amountA : amountB,
-    xlmAmount: tokenFirst ? amountB : amountA,
-  }
+    // El router devuelve los amounts en el orden token_a/token_b que le dimos.
+    return {
+      pair: pairId,
+      tokenAmount: tokenFirst ? amountA : amountB,
+      xlmAmount: tokenFirst ? amountB : amountA,
+    }
+  })
 }
 
 /** Compra tokens pagando XLM, con un mínimo de tokens de salida. */
@@ -693,19 +709,23 @@ export async function swapXlmForToken(params: {
   onHash?: (hash: string) => void
 }): Promise<bigint[]> {
   const { tokenId, amountIn, amountOutMin, signer, onHash } = params
-  const { router } = soroswapClients(signer)
-
-  const tx = await router.swap_exact_tokens_for_tokens({
-    amount_in: amountIn,
-    amount_out_min: amountOutMin,
-    path: [XLM_SAC, tokenId],
-    to: signer.address,
-    deadline: unixDeadline(),
+  return enqueueAccountTx(signer.address, async () => {
+    const { router } = soroswapClients(signer)
+    const tx = await router.swap_exact_tokens_for_tokens(
+      {
+        amount_in: amountIn,
+        amount_out_min: amountOutMin,
+        path: [XLM_SAC, tokenId],
+        to: signer.address,
+        deadline: unixDeadline(),
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+    return unwrapResult<bigint[]>(sent.result, 'swap')
   })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-  return unwrapResult<bigint[]>(sent.result, 'swap')
 }
 
 /** Cambia token por XLM con un mínimo de salida (slippage). */
@@ -718,19 +738,23 @@ export async function swapTokenForXlm(params: {
   onHash?: (hash: string) => void
 }): Promise<bigint[]> {
   const { tokenId, amountIn, amountOutMin, signer, onHash } = params
-  const { router } = soroswapClients(signer)
-
-  const tx = await router.swap_exact_tokens_for_tokens({
-    amount_in: amountIn,
-    amount_out_min: amountOutMin,
-    path: [tokenId, XLM_SAC],
-    to: signer.address,
-    deadline: unixDeadline(),
+  return enqueueAccountTx(signer.address, async () => {
+    const { router } = soroswapClients(signer)
+    const tx = await router.swap_exact_tokens_for_tokens(
+      {
+        amount_in: amountIn,
+        amount_out_min: amountOutMin,
+        path: [tokenId, XLM_SAC],
+        to: signer.address,
+        deadline: unixDeadline(),
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+    const sent = await tx.signAndSend()
+    const hash = sent.sendTransactionResponse?.hash
+    if (hash) onHash?.(hash)
+    return unwrapResult<bigint[]>(sent.result, 'swap')
   })
-  const sent = await tx.signAndSend()
-  const hash = sent.sendTransactionResponse?.hash
-  if (hash) onHash?.(hash)
-  return unwrapResult<bigint[]>(sent.result, 'swap')
 }
 
 /**
@@ -752,9 +776,11 @@ export function isLpFullyBurned(burnedLp: bigint, totalSupply: bigint): boolean 
 
 export type BurnedLpInfo = {
   burnedLp: bigint
+  contractLockedLp: bigint
+  deadBurnLp: bigint
   totalSupply: bigint
   burnedPercent: number
-  /** 100% de los LP retirables en la burn address (ver `isLpFullyBurned`). */
+  /** 100% de los LP retirables bloqueados on-chain (7Y contract lock o burn address). */
   fullyBurned: boolean
 }
 
@@ -783,6 +809,8 @@ export async function fetchBurnedLpInfo(pairId: string): Promise<BurnedLpInfo> {
     const fullyBurned = isLpFullyBurned(burnedLp, totalSupply)
     return {
       burnedLp,
+      contractLockedLp,
+      deadBurnLp,
       totalSupply,
       burnedPercent: fullyBurned ? 100 : lpSharePercent(burnedLp, totalSupply),
       fullyBurned,

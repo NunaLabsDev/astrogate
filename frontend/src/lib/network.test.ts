@@ -4,6 +4,7 @@ import {
   CONTRACT_GENERATION_TAG,
   contractStorageKey,
   executeWithRpcFailover,
+  IS_MAINNET,
   isRetryableRpcError,
   NETWORK_NAME,
   NETWORK_PASSPHRASE,
@@ -13,6 +14,7 @@ import {
   SOROSWAP_FACTORY,
   SOROSWAP_ROUTER,
   SUPPORTED_LAUNCHPAD_CONTRACTS,
+  validateNetworkConfig,
 } from './network'
 
 describe('network configuration', () => {
@@ -147,5 +149,71 @@ describe('network configuration', () => {
     )
     expect(result).toBe('success-from-rpc2')
     expect(calls).toBe(2)
+  })
+
+  it('validates network configuration and fails fast on unsafe mainnet overrides', () => {
+    expect(IS_MAINNET).toBe(false)
+    expect(validateNetworkConfig()).toBe(true)
+
+    const fakeMainContract = 'C' + 'A'.repeat(55)
+    const fakeMainContractB = 'C' + 'B'.repeat(55)
+    const fakeMainContractC = 'C' + 'C'.repeat(55)
+    const fakeMainContractD = 'C' + 'D'.repeat(55)
+    const fakeMainContractE = 'C' + 'E'.repeat(55)
+    const fakeTreasury = 'G' + 'B'.repeat(55)
+
+    // Missing mainnet contracts rejected
+    expect(() =>
+      validateNetworkConfig({
+        network: 'mainnet',
+        soroswapFactory: '',
+        soroswapRouter: fakeMainContractB,
+        xlmSac: fakeMainContractC,
+        launchpadContractId: fakeMainContractD,
+        sorobitsContractId: fakeMainContractE,
+        treasuryAddress: fakeTreasury,
+      }),
+    ).toThrow(/SOROSWAP_FACTORY/i)
+
+    // Leaked testnet contract rejected on mainnet
+    expect(() =>
+      validateNetworkConfig({
+        network: 'mainnet',
+        soroswapFactory: SOROSWAP_FACTORY,
+        soroswapRouter: fakeMainContractB,
+        xlmSac: fakeMainContractC,
+        launchpadContractId: fakeMainContractD,
+        sorobitsContractId: fakeMainContractE,
+        treasuryAddress: fakeTreasury,
+      }),
+    ).toThrow(/Testnet contract/i)
+
+    // Demo mode forbidden on mainnet
+    expect(() =>
+      validateNetworkConfig({
+        network: 'mainnet',
+        demoModeEnabled: true,
+        soroswapFactory: fakeMainContract,
+        soroswapRouter: fakeMainContractB,
+        xlmSac: fakeMainContractC,
+        launchpadContractId: fakeMainContractD,
+        sorobitsContractId: fakeMainContractE,
+        treasuryAddress: fakeTreasury,
+      }),
+    ).toThrow(/Demo Mode/i)
+
+    // Valid distinct mainnet deployment passes
+    expect(
+      validateNetworkConfig({
+        network: 'mainnet',
+        demoModeEnabled: false,
+        soroswapFactory: fakeMainContract,
+        soroswapRouter: fakeMainContractB,
+        xlmSac: fakeMainContractC,
+        launchpadContractId: fakeMainContractD,
+        sorobitsContractId: fakeMainContractE,
+        treasuryAddress: fakeTreasury,
+      }),
+    ).toBe(true)
   })
 })

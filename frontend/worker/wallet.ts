@@ -209,6 +209,7 @@ export interface LinkWalletInput {
   wallets: string[]
   timestamp: number
   signatureHex: string
+  walletSignatures?: Record<string, string>
   verifiedTelegram: boolean
   canSyncVault?: boolean
   encryptedVaultBundle?: string
@@ -313,22 +314,31 @@ export async function linkWalletIdentity(
   }
 
   const unameKey = `wlink:${network}:uname:${cleanUsername}`
+  const uidKey = input.tgUserId > 0 ? `wlink:${network}:uid:${input.tgUserId}` : null
+  if (input.tgUserId > 0 && !input.verifiedTelegram) {
+    throw new WalletLinkError(
+      'Binding a Telegram numeric user ID requires verified Telegram initData.',
+      401,
+    )
+  }
   if (!input.verifiedTelegram) {
-    const existingRaw = await kvGet(unameKey, env)
-    if (existingRaw) {
-      try {
-        const existing = JSON.parse(existingRaw) as StoredWalletLink
-        const sameOwner =
-          existing.primaryPublicKey === input.primaryPublicKey ||
-          existing.wallets.includes(input.primaryPublicKey)
-        if (existing.verifiedTelegram && !sameOwner) {
-          throw new WalletLinkError(
-            'This @username is already cryptographically verified by another Telegram wallet.',
-            403,
-          )
+    for (const checkKey of uidKey ? [unameKey, uidKey] : [unameKey]) {
+      const existingRaw = await kvGet(checkKey, env)
+      if (existingRaw) {
+        try {
+          const existing = JSON.parse(existingRaw) as StoredWalletLink
+          const sameOwner =
+            existing.primaryPublicKey === input.primaryPublicKey ||
+            existing.wallets.includes(input.primaryPublicKey)
+          if (existing.verifiedTelegram && !sameOwner) {
+            throw new WalletLinkError(
+              'This Telegram identity is already cryptographically verified by another wallet.',
+              403,
+            )
+          }
+        } catch (err) {
+          if (err instanceof WalletLinkError) throw err
         }
-      } catch (err) {
-        if (err instanceof WalletLinkError) throw err
       }
     }
   }
@@ -348,6 +358,25 @@ export async function linkWalletIdentity(
   )
   if (!sigValid) {
     throw new WalletLinkError('Invalid Ed25519 wallet signature.', 401)
+  }
+
+  for (const pk of dedupedWallets) {
+    if (pk === input.primaryPublicKey) continue
+    const secSigRaw = input.walletSignatures?.[pk]
+    const secSig = typeof secSigRaw === 'string' ? secSigRaw.trim().toLowerCase() : ''
+    if (!/^[0-9a-f]{128}$/.test(secSig)) {
+      throw new WalletLinkError(
+        'Missing or invalid signature for linked secondary wallet.',
+        401,
+      )
+    }
+    const secValid = await verifyStellarEd25519Signature(pk, canonicalMsg, secSig)
+    if (!secValid) {
+      throw new WalletLinkError(
+        'Invalid Ed25519 signature for linked secondary wallet.',
+        401,
+      )
+    }
   }
 
   // Consume signature nonce before persisting directory records

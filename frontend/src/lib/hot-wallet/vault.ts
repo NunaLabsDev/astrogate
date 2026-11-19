@@ -11,7 +11,7 @@
 import { Keypair, StrKey } from '@stellar/stellar-sdk'
 import { KeypairSigner } from '@stellar/stellar-sdk/contract'
 import type { Signer } from '@stellar/stellar-sdk/contract'
-import { NETWORK_PASSPHRASE } from '../network'
+import { NETWORK_NAME, NETWORK_PASSPHRASE } from '../network'
 import {
   base64ToBytes,
   bytesToBase64,
@@ -28,7 +28,12 @@ import type {
   TelegramWalletLinkMeta,
 } from './types'
 
-export const MIN_VAULT_PIN_LENGTH = 4
+export const MIN_TESTNET_VAULT_PIN_LENGTH = 6
+export const MIN_MAINNET_VAULT_PIN_LENGTH = 12
+export const MIN_VAULT_PIN_LENGTH =
+  NETWORK_NAME === 'mainnet'
+    ? MIN_MAINNET_VAULT_PIN_LENGTH
+    : MIN_TESTNET_VAULT_PIN_LENGTH
 export const MAX_HOT_WALLETS = 10
 export const VAULT_BUNDLE_PREFIX = 'AGVAULT1:'
 const LOCK_THRESHOLD_ATTEMPTS = 5
@@ -43,12 +48,17 @@ function generateAccountId(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-export function validateVaultPin(pin: string): string {
+export function validateVaultPin(
+  pin: string,
+  network: 'testnet' | 'mainnet' = NETWORK_NAME,
+): string {
+  const minLen =
+    network === 'mainnet'
+      ? MIN_MAINNET_VAULT_PIN_LENGTH
+      : MIN_TESTNET_VAULT_PIN_LENGTH
   const normalized = pin.trim()
-  if (normalized.length < MIN_VAULT_PIN_LENGTH) {
-    throw new Error(
-      `PIN must be at least ${MIN_VAULT_PIN_LENGTH} characters or digits.`,
-    )
+  if (normalized.length < minLen) {
+    throw new Error(`PIN must be at least ${minLen} characters or digits.`)
   }
   return normalized
 }
@@ -711,6 +721,7 @@ export function signTelegramWalletLink(params: {
 }): {
   message: string
   signatureHex: string
+  walletSignatures: Record<string, string>
   primaryPublicKey: string
   wallets: string[]
   tgUserId: number
@@ -745,11 +756,24 @@ export function signTelegramWalletLink(params: {
     wallets,
     timestamp,
   })
-  const sigBytes = kp.sign(new TextEncoder().encode(message))
+  const msgBytes = new TextEncoder().encode(message)
+  const sigBytes = kp.sign(msgBytes)
   const signatureHex = Array.from(sigBytes, (b) => b.toString(16).padStart(2, '0')).join('')
+  const walletSignatures: Record<string, string> = {}
+  for (const w of store.wallets) {
+    const wKp = sessionKeys.get(w.meta.publicKey)
+    if (!wKp) {
+      throw new Error('Unlock your wallet with your PIN to sign all linked addresses.')
+    }
+    const wSig = wKp.sign(msgBytes)
+    walletSignatures[w.meta.publicKey] = Array.from(wSig, (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+  }
   return {
     message,
     signatureHex,
+    walletSignatures,
     primaryPublicKey: primary.meta.publicKey,
     wallets,
     tgUserId,

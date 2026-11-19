@@ -21,6 +21,7 @@ function resolveNetworkName(raw?: string): StellarNetworkName {
 export const NETWORK_NAME: StellarNetworkName = resolveNetworkName(
   import.meta.env.VITE_STELLAR_NETWORK as string | undefined,
 )
+export const IS_MAINNET = NETWORK_NAME === 'mainnet'
 
 const NETWORK_PRESETS: Record<
   StellarNetworkName,
@@ -229,6 +230,61 @@ export function contractStorageKey(baseKey: string): string {
  * Single source of truth for discovery.ts and token-events.ts.
  */
 export const EVENT_WINDOW_LEDGERS = 10_000
+
+/**
+ * Validates that Mainnet builds never ship missing contract IDs, leaked Testnet defaults,
+ * or Demo Mode enabled. Returns true on pass; throws descriptive Error on violation.
+ */
+export function validateNetworkConfig(overrides?: {
+  network?: StellarNetworkName
+  demoModeEnabled?: boolean
+  soroswapFactory?: string
+  soroswapRouter?: string
+  xlmSac?: string
+  launchpadContractId?: string
+  sorobitsContractId?: string
+  treasuryAddress?: string
+}): boolean {
+  const net = overrides?.network ?? NETWORK_NAME
+  if (net !== 'mainnet') return true
+
+  if (overrides?.demoModeEnabled) {
+    throw new Error('Demo Mode must never be enabled on Stellar Mainnet.')
+  }
+
+  const factory = overrides?.soroswapFactory ?? SOROSWAP_FACTORY
+  const router = overrides?.soroswapRouter ?? SOROSWAP_ROUTER
+  const xlm = overrides?.xlmSac ?? XLM_SAC
+  const launchpad = overrides?.launchpadContractId ?? LAUNCHPAD_CONTRACT_ID
+  const sorobits = overrides?.sorobitsContractId ?? SOROBITS_CONTRACT_ID
+  const treasury = overrides?.treasuryAddress ?? DEVELOPER_TREASURY_ADDRESS
+
+  const contractPairs: Array<[string, string, string]> = [
+    ['SOROSWAP_FACTORY', factory, NETWORK_PRESETS.testnet.soroswapFactory],
+    ['SOROSWAP_ROUTER', router, NETWORK_PRESETS.testnet.soroswapRouter],
+    ['XLM_SAC', xlm, NETWORK_PRESETS.testnet.xlmSac],
+    ['LAUNCHPAD_CONTRACT_ID', launchpad, NETWORK_PRESETS.testnet.launchpadContractId],
+    ['SOROBITS_CONTRACT_ID', sorobits, NETWORK_PRESETS.testnet.sorobitsContractId],
+  ]
+
+  for (const [label, val, testnetVal] of contractPairs) {
+    if (!/^C[A-Z2-7]{55}$/.test(val)) {
+      throw new Error(`Mainnet misconfiguration: ${label} is missing or invalid (${val || 'empty'}).`)
+    }
+    if (val === testnetVal) {
+      throw new Error(`Mainnet misconfiguration: ${label} still points to a Testnet contract.`)
+    }
+  }
+
+  if (!/^G[A-Z2-7]{55}$/.test(treasury)) {
+    throw new Error('Mainnet misconfiguration: DEVELOPER_TREASURY_ADDRESS is missing or invalid.')
+  }
+  if (treasury === NETWORK_PRESETS.testnet.treasuryAddress) {
+    throw new Error('Mainnet misconfiguration: DEVELOPER_TREASURY_ADDRESS still points to Testnet treasury.')
+  }
+
+  return true
+}
 
 /**
  * Quick health check for the Soroban RPC node with timeout protection and HTTP status verification.

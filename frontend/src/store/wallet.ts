@@ -248,6 +248,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   closeWalletModal: () => set({ walletModalOpen: false, error: null }),
 
   hydrateFromTelegramCloud: async () => {
+    if (isMainnet) return
     const syncRes = await syncVaultWithTelegramCloud()
     void fetchRemoteTelegramWalletVault()
       .then((remote) => {

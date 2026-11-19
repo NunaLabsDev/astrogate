@@ -16,6 +16,7 @@ import { explorerTxUrl } from '../lib/explorer'
 import { isValidContractAddress, isValidStellarAddress } from '../lib/address'
 import { invalidateTokenData } from '../lib/query'
 import { resolveUsernameOrAddress } from '../lib/wallet-directory'
+import { DEFAULT_SOROBAN_INCLUSION_FEE, enqueueAccountTx } from '../lib/tx-queue'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
@@ -113,28 +114,39 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
 
     let destination = rawDest
     if (!isValidStellarAddress(destination)) {
-      if (resolvedHandle && resolvedHandle.raw === rawDest) {
-        destination = resolvedHandle.address
-      } else {
+      let matched =
+        resolvedHandle && resolvedHandle.raw === rawDest ? resolvedHandle : null
+      if (!matched) {
         setResolving(true)
         const resolved = await resolveUsernameOrAddress(rawDest).finally(() =>
           setResolving(false),
         )
         if (!resolved?.address) {
           setError(
-            'Enter a valid Stellar public key (G…) or a linked Telegram @username.',
+            'Enter a valid Stellar public key (G…) or a verified Telegram @username.',
           )
           return
         }
-        destination = resolved.address
         if (resolved.username) {
-          setResolvedHandle({
+          matched = {
             raw: rawDest,
             address: resolved.address,
             username: resolved.username,
             verifiedTelegram: resolved.verifiedTelegram,
-          })
+          }
+          setResolvedHandle(matched)
+        } else {
+          destination = resolved.address
         }
+      }
+      if (matched) {
+        if (!matched.verifiedTelegram) {
+          setError(
+            `@${matched.username} is NOT cryptographically verified via Telegram initData. Enter the recipient's direct Stellar G… address to transfer safely.`,
+          )
+          return
+        }
+        destination = matched.address
       }
     }
 
@@ -161,13 +173,18 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
     setBusy(true)
     let hash: string | undefined
     try {
-      const client = tokenClient(token.id, signer)
-      const tx = await client.transfer({
-        from: publicKey,
-        to: destination,
-        amount: amountBase,
+      const sentTx = await enqueueAccountTx(publicKey, async () => {
+        const client = tokenClient(token.id, signer)
+        const tx = await client.transfer(
+          {
+            from: publicKey,
+            to: destination,
+            amount: amountBase,
+          },
+          { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+        )
+        return tx.signAndSend()
       })
-      const sentTx = await tx.signAndSend()
       hash = sentTx.sendTransactionResponse?.hash
       setSent({ amount: amountBase, to: destination, hash })
       setAmount('')
@@ -233,9 +250,15 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
           ) : isHandleCandidate &&
             resolvedHandle &&
             resolvedHandle.raw === trimmedTo ? (
-            <span className="mt-1 block text-xs text-emerald-300 font-mono">
-              ✓ @{resolvedHandle.username} → {shortAddress(resolvedHandle.address)}
-            </span>
+            resolvedHandle.verifiedTelegram ? (
+              <span className="mt-1 block text-xs text-emerald-300 font-mono">
+                ✓ Verified @{resolvedHandle.username} → {shortAddress(resolvedHandle.address)}
+              </span>
+            ) : (
+              <span className="mt-1 block text-xs text-amber-300 font-mono">
+                ⚠ Unverified @{resolvedHandle.username} (use direct G… address to send)
+              </span>
+            )
           ) : null}
         </label>
 

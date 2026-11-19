@@ -66,7 +66,19 @@ export const SorobitsError = {
   312 : { message: "QuestNotUnlocked" },
   313 : { message: "ForgeInvalidPair" },
   314 : { message: "CapsuleQuotaReached" },
-  315 : { message: "PaymentNotConfigured" }
+  315 : { message: "PaymentNotConfigured" },
+  316 : { message: "SvgBudgetExceeded" },
+  317 : { message: "InvalidFee" },
+  318 : { message: "SeasonNotSealed" },
+  319 : { message: "InstantMintDisabled" },
+  320 : { message: "CommitmentNotFound" },
+  321 : { message: "CommitmentNotReady" },
+  322 : { message: "CommitmentMismatch" },
+  323 : { message: "UpgradeAlreadyPending" },
+  324 : { message: "NoPendingUpgrade" },
+  325 : { message: "UpgradeTimelockActive" },
+  326 : { message: "InvalidUpgradeHash" },
+  327 : { message: "InvalidAssetId" }
 }
 
 /**
@@ -77,6 +89,15 @@ export interface SeasonSealedEventEvent {
   data: {
     season: number;
   };
+}
+
+/**
+ * Struct: PendingUpgradeData
+ */
+export interface PendingUpgradeData {
+  execute_after: bigint;
+  scheduled_at: bigint;
+  wasm_hash: Uint8Array;
 }
 
 /**
@@ -94,6 +115,113 @@ export interface SorobitMintedEventEvent {
 }
 
 /**
+ * Event: XlmSacUpdatedEvent
+ */
+export interface XlmSacUpdatedEventEvent {
+  name: "XlmSacUpdatedEvent";
+  data: {
+    xlm_sac: string;
+  };
+}
+
+/**
+ * Event: ForgeCommittedEvent
+ */
+export interface ForgeCommittedEventEvent {
+  name: "ForgeCommittedEvent";
+  data: {
+    owner: string;
+    burn_a?: number;
+    burn_b?: number;
+    commitment?: Uint8Array;
+    commit_ledger?: number;
+  };
+}
+
+/**
+ * Event: InstantMintModeEvent
+ */
+export interface InstantMintModeEventEvent {
+  name: "InstantMintModeEvent";
+  data: {
+    enabled?: boolean;
+  };
+}
+
+/**
+ * Event: TreasuryUpdatedEvent
+ */
+export interface TreasuryUpdatedEventEvent {
+  name: "TreasuryUpdatedEvent";
+  data: {
+    treasury: string;
+  };
+}
+
+/**
+ * Event: UpgradeExecutedEvent
+ */
+export interface UpgradeExecutedEventEvent {
+  name: "UpgradeExecutedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: CapsuleCommittedEvent
+ */
+export interface CapsuleCommittedEventEvent {
+  name: "CapsuleCommittedEvent";
+  data: {
+    minter: string;
+    commitment?: Uint8Array;
+    commit_ledger?: number;
+  };
+}
+
+/**
+ * Event: LaunchpadUpdatedEvent
+ */
+export interface LaunchpadUpdatedEventEvent {
+  name: "LaunchpadUpdatedEvent";
+  data: {
+    launchpad: string;
+  };
+}
+
+/**
+ * Event: UpgradeCancelledEvent
+ */
+export interface UpgradeCancelledEventEvent {
+  name: "UpgradeCancelledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: UpgradeScheduledEvent
+ */
+export interface UpgradeScheduledEventEvent {
+  name: "UpgradeScheduledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+    execute_after?: bigint;
+  };
+}
+
+/**
+ * Event: CapsuleFeeUpdatedEvent
+ */
+export interface CapsuleFeeUpdatedEventEvent {
+  name: "CapsuleFeeUpdatedEvent";
+  data: {
+    fee_stroops?: bigint;
+  };
+}
+
+/**
  * Event: EpigeneticUpdatedEvent
  */
 export interface EpigeneticUpdatedEventEvent {
@@ -102,6 +230,16 @@ export interface EpigeneticUpdatedEventEvent {
     token_id: number;
     rank_tier?: number;
     xp_score?: number;
+  };
+}
+
+/**
+ * Event: ActiveSeasonUpdatedEvent
+ */
+export interface ActiveSeasonUpdatedEventEvent {
+  name: "ActiveSeasonUpdatedEvent";
+  data: {
+    season?: number;
   };
 }
 
@@ -198,50 +336,6 @@ export interface AdminTransferInitiatedEvent {
     current_admin: string;
     new_admin?: string;
     live_until_ledger?: number;
-  };
-}
-
-/**
- * Event emitted when a token is burned.
- */
-export interface BurnEvent {
-  name: "Burn";
-  data: {
-    from: string;
-    token_id?: number;
-  };
-}
-
-/**
- * Event emitted when token royalty is set.
- */
-export interface SetTokenRoyaltyEvent {
-  name: "SetTokenRoyalty";
-  data: {
-    receiver: string;
-    token_id: number;
-    basis_points?: number;
-  };
-}
-
-/**
- * Event emitted when default royalty is set.
- */
-export interface SetDefaultRoyaltyEvent {
-  name: "SetDefaultRoyalty";
-  data: {
-    receiver: string;
-    basis_points?: number;
-  };
-}
-
-/**
- * Event emitted when token royalty is removed.
- */
-export interface RemoveTokenRoyaltyEvent {
-  name: "RemoveTokenRoyalty";
-  data: {
-    token_id: number;
   };
 }
 
@@ -361,7 +455,51 @@ export const NonFungibleTokenError = {
    */
   214 : { message: "SymbolMaxLenExceeded" }
 }
-    export type ContractEvent = SeasonSealedEventEvent | SorobitMintedEventEvent | EpigeneticUpdatedEventEvent | RoleGrantedEvent | RoleRevokedEvent | AdminRenouncedEvent | RoleAdminChangedEvent | AdminTransferCompletedEvent | AdminTransferInitiatedEvent | BurnEvent | SetTokenRoyaltyEvent | SetDefaultRoyaltyEvent | RemoveTokenRoyaltyEvent | MintEvent | ApproveEvent | TransferEvent | ApproveForAllEvent;
+
+/**
+ * Event emitted when a token is burned.
+ */
+export interface BurnEvent {
+  name: "Burn";
+  data: {
+    from: string;
+    token_id?: number;
+  };
+}
+
+/**
+ * Event emitted when token royalty is set.
+ */
+export interface SetTokenRoyaltyEvent {
+  name: "SetTokenRoyalty";
+  data: {
+    receiver: string;
+    token_id: number;
+    basis_points?: number;
+  };
+}
+
+/**
+ * Event emitted when default royalty is set.
+ */
+export interface SetDefaultRoyaltyEvent {
+  name: "SetDefaultRoyalty";
+  data: {
+    receiver: string;
+    basis_points?: number;
+  };
+}
+
+/**
+ * Event emitted when token royalty is removed.
+ */
+export interface RemoveTokenRoyaltyEvent {
+  name: "RemoveTokenRoyalty";
+  data: {
+    token_id: number;
+  };
+}
+    export type ContractEvent = SeasonSealedEventEvent | SorobitMintedEventEvent | XlmSacUpdatedEventEvent | ForgeCommittedEventEvent | InstantMintModeEventEvent | TreasuryUpdatedEventEvent | UpgradeExecutedEventEvent | CapsuleCommittedEventEvent | LaunchpadUpdatedEventEvent | UpgradeCancelledEventEvent | UpgradeScheduledEventEvent | CapsuleFeeUpdatedEventEvent | EpigeneticUpdatedEventEvent | ActiveSeasonUpdatedEventEvent | RoleGrantedEvent | RoleRevokedEvent | AdminRenouncedEvent | RoleAdminChangedEvent | AdminTransferCompletedEvent | AdminTransferInitiatedEvent | MintEvent | ApproveEvent | TransferEvent | ApproveForAllEvent | BurnEvent | SetTokenRoyaltyEvent | SetDefaultRoyaltyEvent | RemoveTokenRoyaltyEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
 export type SorobitsError = { message: string }

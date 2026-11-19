@@ -1371,6 +1371,13 @@ export async function handleWorkerRequest(
     if (!/^[0-9a-f]{64}$/.test(txHash)) {
       return Response.json({ ok: false }, { status: 400, headers: cors })
     }
+    const pulseDedupKey = `pulse:tx:${txHash}`
+    if (env.ASTRO_KV && (await env.ASTRO_KV.get(pulseDedupKey))) {
+      return Response.json({ ok: true, posted: 0, deduplicated: true }, { headers: cors })
+    }
+    if (env.ASTRO_KV) {
+      await env.ASTRO_KV.put(pulseDedupKey, '1', { expirationTtl: 300 })
+    }
     try {
       const events = await fetchLaunchpadEventsByTxHash(txHash, env, 180)
       const posted = await broadcastLaunchpadEvents(

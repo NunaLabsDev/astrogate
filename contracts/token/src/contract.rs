@@ -8,7 +8,37 @@
 //!   podría volver a acuñar. Al renunciar al owner, `mint` queda inhabilitado para siempre.
 //! - Metadata saneada: decimals 0..18, name/symbol no vacíos y ≤ 32 bytes.
 
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, MuxedAddress, String};
+use soroban_sdk::{
+    contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error, Address,
+    Env, MuxedAddress, String,
+};
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum TokenError {
+    InvalidDecimals = 500,
+    InvalidName = 501,
+    InvalidSymbol = 502,
+    InvalidInitialSupply = 503,
+    GateAlreadyConfigured = 504,
+    GateNotConfigured = 505,
+    TransfersLocked = 506,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransfersLockedEvent {
+    #[topic]
+    pub launchpad: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TransfersUnlockedEvent {
+    #[topic]
+    pub launchpad: Address,
+}
 use stellar_access::ownable::{self as ownable, Ownable};
 use stellar_macros::only_owner;
 use stellar_tokens::fungible::{
@@ -57,16 +87,16 @@ impl Token {
         initial_supply: i128,
     ) {
         if decimals > MAX_DECIMALS {
-            panic!("decimals exceeds the maximum allowed");
+            panic_with_error!(e, TokenError::InvalidDecimals);
         }
         if name.is_empty() || name.len() > MAX_STRING_BYTES {
-            panic!("name must be 1..32 bytes");
+            panic_with_error!(e, TokenError::InvalidName);
         }
         if symbol.is_empty() || symbol.len() > MAX_STRING_BYTES {
-            panic!("symbol must be 1..32 bytes");
+            panic_with_error!(e, TokenError::InvalidSymbol);
         }
         if initial_supply <= 0 {
-            panic!("initial supply must be positive");
+            panic_with_error!(e, TokenError::InvalidInitialSupply);
         }
 
         Base::set_metadata(e, decimals, name, symbol);
@@ -118,7 +148,7 @@ impl Token {
     #[only_owner]
     pub fn lock_until_graduated(e: &Env, launchpad: Address) {
         if e.storage().instance().has(&TokenDataKey::LaunchpadGate) {
-            panic!("transfers gate already configured");
+            panic_with_error!(e, TokenError::GateAlreadyConfigured);
         }
         e.storage()
             .instance()
@@ -127,6 +157,7 @@ impl Token {
             .instance()
             .set(&TokenDataKey::TransfersUnlocked, &false);
         Self::extend_ttl(e);
+        TransfersLockedEvent { launchpad }.publish(e);
     }
 
     /// Permanently unlocks unrestricted SEP-41 transfers upon curve graduation.
@@ -136,12 +167,13 @@ impl Token {
             .storage()
             .instance()
             .get(&TokenDataKey::LaunchpadGate)
-            .expect("no launchpad gate");
+            .unwrap_or_else(|| panic_with_error!(e, TokenError::GateNotConfigured));
         gate.require_auth();
         e.storage()
             .instance()
             .set(&TokenDataKey::TransfersUnlocked, &true);
         Self::extend_ttl(e);
+        TransfersUnlockedEvent { launchpad: gate }.publish(e);
     }
 
     /// Returns true when unrestricted P2P transfers are enabled.
@@ -163,9 +195,9 @@ impl Token {
             .storage()
             .instance()
             .get(&TokenDataKey::LaunchpadGate)
-            .expect("missing gate");
+            .unwrap_or_else(|| panic_with_error!(e, TokenError::GateNotConfigured));
         if from != &gate && to != &gate {
-            panic!("transfers locked until graduation");
+            panic_with_error!(e, TokenError::TransfersLocked);
         }
     }
 }

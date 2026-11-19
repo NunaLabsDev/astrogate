@@ -18,7 +18,7 @@ const baseline = Number.isFinite(argBaseline) && argBaseline > 0
   ? argBaseline
   : Number.isFinite(envBaseline) && envBaseline > 0
     ? envBaseline
-    : 44
+    : 30
 
 const result = spawnSync('npm', ['audit', '--json'], {
   encoding: 'utf8',

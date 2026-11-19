@@ -329,6 +329,13 @@ export async function handleMcpHttpRequest(
   }
 
   if (Array.isArray(body)) {
+    const MAX_MCP_BATCH = 10
+    if (body.length > MAX_MCP_BATCH) {
+      return Response.json(
+        rpcError(null, -32600, `Invalid Request: batch size exceeds maximum of ${MAX_MCP_BATCH}`),
+        { status: 400, headers: MCP_HEADERS },
+      )
+    }
     const out = await Promise.all(
       body.map((item) => handleMcpRpcPayload((item ?? {}) as JsonRpcRequest, env)),
     )

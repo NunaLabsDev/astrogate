@@ -3,14 +3,40 @@ extern crate std;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger},
-    token, Address, Bytes, Env, Map, String,
+    token,
+    xdr::ToXdr,
+    Address, Bytes, BytesN, Env, Map, String,
 };
 
 use crate::{
     assets::{FACTION_PALETTES, RELIC_4_ORBITALHALO},
-    contract::{LaunchpadPilotRecord, Sorobits, SorobitsClient},
-    engine::LayerCategory,
+    contract::{LaunchpadPilotRecord, Sorobits, SorobitsClient, SorobitsError},
+    engine::{ByteWriter, LayerCategory},
 };
+
+const TOKEN_WASM: &[u8] = include_bytes!("../../../target/wasm32v1-none/release/astro_token.wasm");
+
+fn cap_commitment(e: &Env, minter: &Address, secret: &BytesN<32>) -> BytesN<32> {
+    let mut pre = minter.clone().to_xdr(e);
+    pre.extend_from_slice(&secret.to_array());
+    pre.extend_from_slice(b"SBIT_CAP_V1");
+    e.crypto().sha256(&pre).into()
+}
+
+fn forge_commitment(
+    e: &Env,
+    owner: &Address,
+    burn_a: u32,
+    burn_b: u32,
+    secret: &BytesN<32>,
+) -> BytesN<32> {
+    let mut pre = owner.clone().to_xdr(e);
+    pre.extend_from_slice(&secret.to_array());
+    pre.extend_from_slice(&burn_a.to_le_bytes());
+    pre.extend_from_slice(&burn_b.to_le_bytes());
+    pre.extend_from_slice(b"SBIT_FRG_V1");
+    e.crypto().sha256(&pre).into()
+}
 
 #[contract]
 pub struct MockPilotLaunchpad;
@@ -208,15 +234,23 @@ fn season2_curator_upload_validation_and_seal() {
     let valid_layer = Bytes::from_slice(&e, RELIC_4_ORBITALHALO);
     client.register_layer(&admin, &2, &LayerCategory::Relic, &0, &valid_layer);
 
+    // Must seal season BEFORE activating it
+    assert_eq!(
+        client.try_set_active_season(&2),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::SeasonNotSealed as u32
+        )))
+    );
+
+    client.seal_season(&admin, &2);
+    assert!(client.is_season_sealed(&2));
+
     client.set_active_season(&2);
     let entropy = Bytes::from_slice(&e, b"season2-probe");
     let id = client.mint_generative(&admin, &alice, &entropy, &false);
     let rec = client.get_sorobit(&id);
     assert_eq!(rec.dna.to_array()[0], 2);
     assert!(client.render_svg(&id).len() > 500);
-
-    client.seal_season(&admin, &2);
-    assert!(client.is_season_sealed(&2));
 }
 
 #[test]
@@ -383,15 +417,41 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
     assert_eq!(synced.rank_tier, 4);
     client.sync_epigenetics(&id_launcher);
 
-    // Anti-Sybil guard: free Soulbound AGQ01 Pioneer (#0) cannot enter Forge
+    // Anti-Sybil guard: legacy instant mode disabled by default, free Soulbound #0 cannot enter Forge
     let entropy = Bytes::from_slice(&e, b"forge-ascend-50-wallet-test");
-    assert!(client
-        .try_forge_ascend(&wallets[0], &0, &id_launcher, &entropy)
-        .is_err());
+    assert_eq!(
+        client.try_mint_capsule(&wallets[0], &entropy),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InstantMintDisabled as u32
+        )))
+    );
+    assert_eq!(
+        client.try_forge_ascend(&wallets[0], &0, &id_launcher, &entropy),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InstantMintDisabled as u32
+        )))
+    );
 
-    // Generative 7 XLM Mystery Capsule mint + anti-whale quota check
+    let bad_forge_commit = forge_commitment(
+        &e,
+        &wallets[0],
+        0,
+        id_launcher,
+        &BytesN::from_array(&e, &[1u8; 32]),
+    );
+    assert_eq!(
+        client.try_commit_forge(&wallets[0], &0, &id_launcher, &bad_forge_commit),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::SoulboundLocked as u32
+        )))
+    );
+
+    // Generative 7 XLM Mystery Capsule mint via Commit-Reveal + anti-whale quota check
     xlm_admin.mint(&wallets[0], &200_000_000);
-    let capsule_id = client.mint_capsule(&wallets[0], &entropy);
+    let cap_secret = BytesN::from_array(&e, &[7u8; 32]);
+    client.commit_capsule(&wallets[0], &cap_commitment(&e, &wallets[0], &cap_secret));
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    let capsule_id = client.reveal_capsule(&wallets[0], &cap_secret);
     assert_eq!(client.total_supply(), 58);
     assert_eq!(xlm_client.balance(&treasury), 70_000_000);
     assert!(!client.get_sorobit(&capsule_id).soulbound);
@@ -403,12 +463,30 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
     let fresh_buyer = Address::generate(&e);
     xlm_admin.mint(&fresh_buyer, &210_000_000);
     assert_eq!(client.get_capsule_quota(&fresh_buyer), (0, 2));
-    client.mint_capsule(&fresh_buyer, &entropy);
-    client.mint_capsule(&fresh_buyer, &entropy);
-    assert!(client.try_mint_capsule(&fresh_buyer, &entropy).is_err());
+    for n in 1u8..=2 {
+        let s = BytesN::from_array(&e, &[n + 20; 32]);
+        client.commit_capsule(&fresh_buyer, &cap_commitment(&e, &fresh_buyer, &s));
+        e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+        client.reveal_capsule(&fresh_buyer, &s);
+    }
+    let s3 = BytesN::from_array(&e, &[23u8; 32]);
+    assert_eq!(
+        client.try_commit_capsule(&fresh_buyer, &cap_commitment(&e, &fresh_buyer, &s3)),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::CapsuleQuotaReached as u32
+        )))
+    );
 
-    // Deflationary Forge: wallets[0] burns 2 tradeable Sorobits (#id_launcher + #id_shouter) -> Gen-1 Ascended
-    let forged_id = client.forge_ascend(&wallets[0], &id_launcher, &id_shouter, &entropy);
+    // Deflationary Forge via Commit-Reveal: wallets[0] burns 2 tradeable Sorobits -> Gen-1 Ascended
+    let forge_secret = BytesN::from_array(&e, &[9u8; 32]);
+    client.commit_forge(
+        &wallets[0],
+        &id_launcher,
+        &id_shouter,
+        &forge_commitment(&e, &wallets[0], id_launcher, id_shouter, &forge_secret),
+    );
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    let forged_id = client.reveal_forge(&wallets[0], &forge_secret);
     assert_eq!(client.total_supply(), 59); // 58 + 2 (fresh) - 2 burned + 1 forged
     assert_eq!(client.owner_of(&forged_id), wallets[0]);
     assert_eq!(client.get_capsule_quota(&wallets[0]).0, 0); // forging freed 1 capsule slot
@@ -419,12 +497,20 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
     assert!(forged_rec.xp_score >= 3_000);
 
     // Owner cannot forge with same token twice or forge unowned token
-    assert!(client
-        .try_forge_ascend(&wallets[0], &forged_id, &forged_id, &entropy)
-        .is_err());
-    assert!(client
-        .try_forge_ascend(&wallets[1], &forged_id, &1, &entropy)
-        .is_err());
+    let dup_c = forge_commitment(&e, &wallets[0], forged_id, forged_id, &forge_secret);
+    assert_eq!(
+        client.try_commit_forge(&wallets[0], &forged_id, &forged_id, &dup_c),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::ForgeInvalidPair as u32
+        )))
+    );
+    let unowned_c = forge_commitment(&e, &wallets[1], forged_id, 1, &forge_secret);
+    assert_eq!(
+        client.try_commit_forge(&wallets[1], &forged_id, &1, &unowned_c),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::ForgeInvalidPair as u32
+        )))
+    );
 
     let owned_after = client.tokens_of_page(&wallets[0], &0, &20);
     assert_eq!(owned_after.len(), 8); // 8 claimed (1..=8) + 1 capsule - 2 burned + 1 forged
@@ -442,4 +528,196 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
         xlm_client.balance(&treasury),
         svg.len()
     );
+}
+
+#[test]
+fn commit_reveal_enforces_next_ledger_and_secret_match() {
+    let (e, admin, _treasury, alice, client) = setup(10);
+    let xlm_sac = e.register_stellar_asset_contract_v2(admin.clone());
+    token::StellarAssetClient::new(&e, &xlm_sac.address()).mint(&alice, &140_000_000);
+    client.set_xlm_sac(&xlm_sac.address());
+
+    let secret = BytesN::from_array(&e, &[42u8; 32]);
+    let wrong_secret = BytesN::from_array(&e, &[43u8; 32]);
+    let commitment = cap_commitment(&e, &alice, &secret);
+    client.commit_capsule(&alice, &commitment);
+
+    // Same-ledger reveal rejected (prevents same-block simulation sniping)
+    assert_eq!(
+        client.try_reveal_capsule(&alice, &secret),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::CommitmentNotReady as u32
+        )))
+    );
+
+    // Advance 1 ledger: wrong secret rejected, exact secret mints & clears commit
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    assert_eq!(
+        client.try_reveal_capsule(&alice, &wrong_secret),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::CommitmentMismatch as u32
+        )))
+    );
+    let token_id = client.reveal_capsule(&alice, &secret);
+    assert_eq!(client.owner_of(&token_id), alice);
+    assert_eq!(
+        client.try_reveal_capsule(&alice, &secret),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::CommitmentNotFound as u32
+        )))
+    );
+}
+
+#[test]
+fn upgrade_timelock_48h_cancel_and_execute_work() {
+    let (e, _admin, _treasury, _u, client) = setup(10);
+    assert_eq!(client.get_storage_version(), 1);
+    assert!(client.get_pending_upgrade().is_none());
+
+    assert_eq!(
+        client.try_schedule_upgrade(&BytesN::from_array(&e, &[0u8; 32])),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InvalidUpgradeHash as u32
+        )))
+    );
+
+    let wasm_hash = e.deployer().upload_contract_wasm(TOKEN_WASM);
+    client.schedule_upgrade(&wasm_hash);
+    assert!(client.get_pending_upgrade().is_some());
+    assert_eq!(
+        client.try_schedule_upgrade(&wasm_hash),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::UpgradeAlreadyPending as u32
+        )))
+    );
+    assert_eq!(
+        client.try_execute_upgrade(),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::UpgradeTimelockActive as u32
+        )))
+    );
+
+    client.cancel_upgrade();
+    assert!(client.get_pending_upgrade().is_none());
+    client.schedule_upgrade(&wasm_hash);
+    e.ledger()
+        .set_timestamp(e.ledger().timestamp() + 48 * 3_600);
+    client.execute_upgrade();
+}
+
+#[test]
+fn transfer_snapshots_xp_baseline_preventing_xp_laundering() {
+    let (e, admin, _treasury, seller, client) = setup(10);
+    let mock_lp = e.register(MockPilotLaunchpad, ());
+    let lp_client = MockPilotLaunchpadClient::new(&e, &mock_lp);
+    client.set_launchpad(&mock_lp);
+
+    let whale = Address::generate(&e);
+    lp_client.set_pilot(
+        &whale,
+        &LaunchpadPilotRecord {
+            launches: 5,
+            graduations: 3,
+            trades: 20,
+            volume_xlm_stroops: 5_000_000_000,
+            shouts: 4,
+            king_shouts: 1,
+            burns_triggered: 5,
+        },
+    );
+
+    // Fresh 0-XP tradeable Sorobit minted to seller and transferred to veteran whale
+    let id = client.mint_generative(&admin, &seller, &Bytes::from_slice(&e, b"fresh"), &false);
+    assert_eq!(client.get_sorobit(&id).xp_score, 0);
+    client.transfer(&seller, &whale, &id);
+
+    // Syncing immediately on whale must yield 0 free XP (anti-XP-laundering baseline)
+    let synced_before = client.sync_epigenetics(&id);
+    assert_eq!(synced_before.xp_score, 0);
+    assert_eq!(synced_before.rank_tier, 0);
+
+    // Only NEW pilot XP earned by whale after receiving the NFT accrues toward evolution
+    lp_client.set_pilot(
+        &whale,
+        &LaunchpadPilotRecord {
+            launches: 5,
+            graduations: 3,
+            trades: 26, // +6 trades = +300 net XP (Shield Tier 1)
+            volume_xlm_stroops: 6_000_000_000,
+            shouts: 4,
+            king_shouts: 1,
+            burns_triggered: 5,
+        },
+    );
+    let synced_after = client.sync_epigenetics(&id);
+    assert_eq!(synced_after.xp_score, 300);
+    assert_eq!(synced_after.rank_tier, 1);
+}
+
+#[test]
+fn soulbound_burn_and_burn_from_rejected() {
+    let (_e, admin, _treasury, alice, client) = setup(10);
+    let spender = Address::generate(&_e);
+    let soul_id = client.mint_genesis(&admin, &alice, &1, &true);
+
+    client.approve(&alice, &spender, &soul_id, &(_e.ledger().sequence() + 100));
+    assert_eq!(
+        client.try_burn(&alice, &soul_id),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::SoulboundLocked as u32
+        )))
+    );
+    assert_eq!(
+        client.try_burn_from(&spender, &alice, &soul_id),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::SoulboundLocked as u32
+        )))
+    );
+}
+
+#[test]
+fn invalid_capsule_fee_asset_ids_and_bytewriter_overflow() {
+    let (e, admin, _treasury, alice, client) = setup(10);
+    assert_eq!(
+        client.try_set_capsule_fee(&-1),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InvalidFee as u32
+        )))
+    );
+    assert_eq!(
+        client.try_set_capsule_fee(&10_000_000_001),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InvalidFee as u32
+        )))
+    );
+    assert_eq!(
+        client.try_register_layer(
+            &admin,
+            &2,
+            &LayerCategory::Relic,
+            &16,
+            &Bytes::from_slice(&e, RELIC_4_ORBITALHALO),
+        ),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InvalidAssetId as u32
+        )))
+    );
+    assert_eq!(
+        client.try_register_palette(
+            &admin,
+            &2,
+            &16,
+            &Bytes::from_slice(&e, &FACTION_PALETTES[0]),
+        ),
+        Err(Ok(soroban_sdk::Error::from_contract_error(
+            SorobitsError::InvalidAssetId as u32
+        )))
+    );
+    client.extend_user_ttl(&alice);
+
+    let mut bw = ByteWriter::new();
+    let big = [b'x'; 20_000];
+    bw.push_bytes(&big);
+    assert!(bw.is_overflowed());
+    assert!(bw.to_soroban_string(&e).is_none());
 }

@@ -382,7 +382,7 @@ export function renderLaunchpadEventTelegramView(
       text: [
         `🎓 <b>GRADUATED TO SOROSWAP DEX · $${safeSym}</b>`,
         ``,
-        `💧 <b>DEX Liquidity:</b> <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · <b>100% LP Burned</b>`,
+        `💧 <b>DEX Liquidity:</b> <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · <b>100% LP Locked 7Y</b>`,
         `🔥 <b>Vault Burned:</b> <code>${formatTokensCompact(ev.vaultBurned, meta.decimals)} $${safeSym}</code>`,
         `<code>${ev.tokenId}</code>`,
         `<i>Built by NunaLabs</i>`,

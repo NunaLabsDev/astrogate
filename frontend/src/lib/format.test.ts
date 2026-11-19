@@ -172,4 +172,12 @@ describe('url sanitizers', () => {
     // Anti-phishing: rechaza URLs que intentan redirigir fuera de X usando userinfo
     expect(sanitizeTwitterUrl('https://x.com@evil.com/scam')).toBeNull()
   })
+
+  it('errorMessage maps typed TokenError contract codes #500..#506 clearly', () => {
+    expect(errorMessage(new Error('Error(Contract, #506)'))).toContain(
+      'locked during the bonding curve phase',
+    )
+    expect(errorMessage(new Error('Error(Contract, #500)'))).toContain('decimals')
+    expect(errorMessage(new Error('Error(Contract, #503)'))).toContain('strictly positive')
+  })
 })

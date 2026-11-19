@@ -10,6 +10,7 @@ import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/fo
 import { explorerTxUrl } from '../lib/explorer'
 import { isValidContractAddress, isValidStellarAddress } from '../lib/address'
 import { invalidateTokenData } from '../lib/query'
+import { DEFAULT_SOROBAN_INCLUSION_FEE, enqueueAccountTx } from '../lib/tx-queue'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { toast } from '../lib/toast'
 import { TxProgress } from './TxProgress'
@@ -64,9 +65,13 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
     setConfirmRenounce(false)
     setRenouncing(true)
     try {
-      const client = tokenClient(token.id, signer)
-      const tx = await client.renounce_ownership()
-      const sentTx = await tx.signAndSend()
+      const sentTx = await enqueueAccountTx(publicKey, async () => {
+        const client = tokenClient(token.id, signer)
+        const tx = await client.renounce_ownership({
+          fee: DEFAULT_SOROBAN_INCLUSION_FEE,
+        })
+        return tx.signAndSend()
+      })
       const hash = sentTx.sendTransactionResponse?.hash
       toast.success('Ownership renounced', {
         message: `The supply of ${token.symbol ?? 'token'} is now fixed and immutable.`,
@@ -123,12 +128,17 @@ export function MintCard({ token }: { token: LaunchpadToken }) {
     setBusy(true)
     let hash: string | undefined
     try {
-      const client = tokenClient(token.id, signer)
-      const tx = await client.mint({
-        to: destination,
-        amount: amountBase,
+      const sentTx = await enqueueAccountTx(publicKey, async () => {
+        const client = tokenClient(token.id, signer)
+        const tx = await client.mint(
+          {
+            to: destination,
+            amount: amountBase,
+          },
+          { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+        )
+        return tx.signAndSend()
       })
-      const sentTx = await tx.signAndSend()
       hash = sentTx.sendTransactionResponse?.hash
       setMinted({ amount: amountBase, to: destination, hash })
       setAmount('')

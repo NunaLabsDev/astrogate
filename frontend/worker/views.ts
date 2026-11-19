@@ -204,7 +204,7 @@ function cbBtn(text: string, data: string): InlineKeyboardButton {
 function shareUrl(botUsername: string): string {
   const target = `https://t.me/${botUsername}?start=home`
   const caption =
-    'Launch or trade fair memecoins on Stellar Soroban with 100% LP burned on AstroGate.'
+    'Launch or trade fair memecoins on Stellar Soroban with 7-year locked DEX liquidity on AstroGate.'
   return `https://t.me/share/url?url=${encodeURIComponent(target)}&text=${encodeURIComponent(caption)}`
 }
 
@@ -770,7 +770,7 @@ export function buildTokenInspectorView(
 
   if (data.curve) {
     if (data.curve.graduated) {
-      lines.push(`✅ <b>Graduated on Soroswap DEX</b> · 100% LP Burned`)
+      lines.push(`✅ <b>Graduated on Soroswap DEX</b> · 100% LP Locked 7Y`)
       if (data.dexReserveXlm !== null && data.dexReserveXlm > 0n) {
         lines.push(`💧 DEX Liquidity: <b>${formatXlm(data.dexReserveXlm, 2)} XLM</b>`)
       }
@@ -1128,7 +1128,7 @@ export function buildInlineMarketResults(
     const safeSym = escapeHtml(item.symbol)
     const pct = curvePercent(item.curveXlmNet)
     const statusLine = item.graduated
-      ? `🎓 Graduated on Soroswap DEX · ${item.reserveXlmStroops > 0n ? `${formatXlm(item.reserveXlmStroops, 1)} XLM TVL` : '100% LP Burned'}`
+      ? `🎓 Graduated on Soroswap DEX · ${item.reserveXlmStroops > 0n ? `${formatXlm(item.reserveXlmStroops, 1)} XLM TVL` : '100% LP Locked 7Y'}`
       : `⚡ Bonding Curve ${pct.toFixed(1)}% (${formatXlm(item.curveXlmNet, 1)}/1,000 XLM)`
 
     return {
@@ -1136,7 +1136,7 @@ export function buildInlineMarketResults(
       id: item.id.slice(0, 64),
       title: `${item.graduated ? '🎓' : '⚡'} $${item.symbol} · ${item.name}`,
       description: item.graduated
-        ? 'Graduated on Soroswap DEX · 100% LP Burned'
+        ? 'Graduated on Soroswap DEX · 100% LP Locked 7Y'
         : `${pct.toFixed(1)}% curve · ${formatXlm(item.curveXlmNet, 1)}/1,000 XLM`,
       input_message_content: {
         message_text: [

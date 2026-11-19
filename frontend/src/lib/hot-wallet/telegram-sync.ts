@@ -8,6 +8,7 @@
  * - Splits metadata (`ag_vault_meta_v1`) and each wallet record (`ag_vault_w_<id>`)
  *   into individual keys to stay well under Telegram's 4,096-byte-per-key limit.
  */
+import { IS_MAINNET } from '../network'
 import {
   isTelegramCloudAvailable,
   telegramCloudGetItems,
@@ -23,8 +24,8 @@ import type {
   TelegramWalletLinkMeta,
 } from './types'
 
-const CLOUD_META_KEY = 'ag_vault_meta_v1'
-const CLOUD_WALLET_PREFIX = 'ag_vault_w_'
+const CLOUD_META_KEY = IS_MAINNET ? 'ag_vault_meta_mainnet_v1' : 'ag_vault_meta_v1'
+const CLOUD_WALLET_PREFIX = IS_MAINNET ? 'ag_vault_mw_' : 'ag_vault_w_'
 
 interface CloudVaultMeta {
   v: 1
@@ -88,6 +89,7 @@ function parseCloudMeta(raw: string | undefined): CloudVaultMeta | null {
 export async function pushVaultToTelegramCloud(
   store: HotVaultStore | null,
 ): Promise<boolean> {
+  if (IS_MAINNET) return false
   if (!isTelegramCloudAvailable()) return false
   if (!store || store.wallets.length === 0) {
     return clearVaultFromTelegramCloud()
@@ -189,7 +191,7 @@ export async function syncVaultWithTelegramCloud(
   restoredFromCloud: boolean
   store: HotVaultStore | null
 }> {
-  if (!isTelegramCloudAvailable()) {
+  if (IS_MAINNET || !isTelegramCloudAvailable()) {
     return { synced: false, restoredFromCloud: false, store: adapter.load() }
   }
 

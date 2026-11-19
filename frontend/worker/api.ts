@@ -21,6 +21,67 @@ import {
 const MAX_LOGO_BYTES = 32_768
 const MAX_MEMORY_LOGOS = 64
 const logoMemoryStore = new Map<string, { bytes: Uint8Array; contentType: string }>()
+const rateLimitMemory = new Map<string, { count: number; resetAt: number }>()
+
+const POLYGLOT_SIGNATURES = [
+  '<svg',
+  '<script',
+  '<!doctype html',
+  '<html',
+  '<?php',
+  'javascript:',
+]
+
+function hasPolyglotHtmlOrScriptPayload(bytes: Uint8Array): boolean {
+  let ascii = ''
+  for (let i = 0; i < bytes.byteLength; i += 1) {
+    const b = bytes[i]!
+    ascii += b >= 32 && b <= 126 ? String.fromCharCode(b).toLowerCase() : ' '
+  }
+  return POLYGLOT_SIGNATURES.some((sig) => ascii.includes(sig))
+}
+
+function isAllowedUploadOrigin(origin: string | null, selfOrigin: string): boolean {
+  if (!origin) return true
+  if (origin === selfOrigin || origin === 'https://astrogate.pages.dev') return true
+  if (/^https:\/\/[a-z0-9-]+\.astrogate\.pages\.dev$/.test(origin)) return true
+  if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true
+  return false
+}
+
+async function isApiRateLimited(
+  env: Env,
+  bucket: string,
+  ip: string,
+  maxRequests: number,
+  windowSeconds: number,
+): Promise<boolean> {
+  const now = Date.now()
+  const windowSlot = Math.floor(now / (windowSeconds * 1000))
+  const key = `rl:${bucket}:${ip}:${windowSlot}`
+  if (env.ASTRO_KV) {
+    const currentRaw = await env.ASTRO_KV.get(key)
+    const count = currentRaw ? Number(currentRaw) : 0
+    if (Number.isFinite(count) && count >= maxRequests) {
+      return true
+    }
+    await env.ASTRO_KV.put(key, String((Number.isFinite(count) ? count : 0) + 1), {
+      expirationTtl: windowSeconds + 30,
+    })
+    return false
+  }
+  const hit = rateLimitMemory.get(key)
+  if (hit && now <= hit.resetAt) {
+    if (hit.count >= maxRequests) return true
+    hit.count += 1
+    return false
+  }
+  if (rateLimitMemory.size > 512) {
+    rateLimitMemory.clear()
+  }
+  rateLimitMemory.set(key, { count: 1, resetAt: now + windowSeconds * 1000 })
+  return false
+}
 
 const PUBLIC_API_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -234,6 +295,14 @@ export async function handlePublicApiRequest(
 
   if (path === '/api/v1/wallet/link' && request.method === 'POST') {
     try {
+      const clientIp = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown'
+      if (await isApiRateLimited(env, 'wallet-link', clientIp, 20, 300)) {
+        return jsonOk(
+          { ok: false, error: 'Too many wallet link requests. Try again shortly.' },
+          429,
+          { 'Cache-Control': 'no-store' },
+        )
+      }
       const initData = request.headers.get('X-Telegram-Init-Data')?.trim()
       let verifiedTelegram = false
       let authTgUserId: number | null = null
@@ -281,7 +350,16 @@ export async function handlePublicApiRequest(
         wallets?: string[]
         timestamp?: number
         signatureHex?: string
+        walletSignatures?: Record<string, string>
         encryptedVaultBundle?: string
+      }
+
+      if (!verifiedTelegram && Number(body.tgUserId ?? 0) > 0) {
+        return jsonOk(
+          { ok: false, error: 'Verified Telegram initData is required to bind a Telegram user ID.' },
+          401,
+          { 'Cache-Control': 'no-store' },
+        )
       }
 
       const requestedUsername = body.username
@@ -295,7 +373,7 @@ export async function handlePublicApiRequest(
         )
       }
 
-      const effectiveTgUserId = authTgUserId ?? (typeof body.tgUserId === 'number' ? body.tgUserId : 0)
+      const effectiveTgUserId = authTgUserId ?? 0
       const effectiveUsername =
         authTgUsername ?? (requestedUsername || (authTgUserId ? `tg_${authTgUserId}` : ''))
       const effectiveVerified =
@@ -310,6 +388,7 @@ export async function handlePublicApiRequest(
           wallets: Array.isArray(body.wallets) ? body.wallets : [],
           timestamp: Number(body.timestamp ?? 0),
           signatureHex: body.signatureHex ?? '',
+          walletSignatures: body.walletSignatures,
           verifiedTelegram: effectiveVerified,
           canSyncVault: verifiedTelegram,
           encryptedVaultBundle: body.encryptedVaultBundle,
@@ -331,17 +410,25 @@ export async function handlePublicApiRequest(
     }
   }
 
-  // Content-addressed immutable token logo upload (no API key required; verified by magic bytes + SHA-256)
+  // Content-addressed immutable token logo upload (no API key required; verified by origin, rate limit, magic bytes + anti-polyglot scan)
   if (path === '/api/v1/logos' && request.method === 'POST') {
     try {
+      const origin = request.headers.get('Origin')
+      if (!isAllowedUploadOrigin(origin, url.origin)) {
+        return jsonError('Disallowed upload origin', 403)
+      }
+      const clientIp = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown'
+      if (await isApiRateLimited(env, 'logo-upload', clientIp, 10, 600)) {
+        return jsonError('Too many logo uploads. Try again later.', 429)
+      }
       const buf = await request.arrayBuffer()
       if (buf.byteLength <= 0 || buf.byteLength > MAX_LOGO_BYTES) {
         return jsonError(`Logo payload must be 1..=${MAX_LOGO_BYTES} bytes`, 413)
       }
       const bytes = new Uint8Array(buf)
       const detected = detectImageFormat(bytes)
-      if (!detected) {
-        return jsonError('Unsupported image bytes (expected WebP, PNG, JPEG, or GIF)', 415)
+      if (!detected || hasPolyglotHtmlOrScriptPayload(bytes)) {
+        return jsonError('Unsupported or unsafe image payload (expected clean WebP, PNG, JPEG, or GIF)', 415)
       }
       const sha256 = await sha256Hex(bytes)
       const declaredHash = request.headers.get('X-Logo-Sha256')?.trim().toLowerCase()
@@ -369,6 +456,7 @@ export async function handlePublicApiRequest(
             ETag: `"${sha256}"`,
             'Access-Control-Allow-Origin': '*',
             'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy': "default-src 'none'; sandbox",
           },
         }),
       )
@@ -421,6 +509,7 @@ export async function handlePublicApiRequest(
           ETag: `"${sha256}"`,
           'Access-Control-Allow-Origin': '*',
           'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; sandbox",
         },
       })
       await writeDefaultEdgeCache(request, res)

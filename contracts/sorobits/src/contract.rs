@@ -8,7 +8,8 @@
 
 use soroban_sdk::{
     contract, contracterror, contractevent, contractimpl, contracttype, panic_with_error,
-    symbol_short, token, Address, Bytes, BytesN, ContractExecutable, Env, String, Symbol, Vec,
+    symbol_short, token, xdr::ToXdr, Address, Bytes, BytesN, ContractExecutable, Env, String,
+    Symbol, Vec,
 };
 use stellar_access::access_control::{self, AccessControl};
 use stellar_macros::{only_admin, only_role};
@@ -41,8 +42,17 @@ pub const MAX_RANK_TIER: u32 = 4;
 pub const MAX_ROYALTY_BPS: u32 = 1_500; // Capped at 15% max creator royalty
 /// Fee fijo de cápsula generativa (`7 XLM` en stroops) alineado con el fee del Launchpad.
 pub const CAPSULE_MINT_FEE_STROOPS: i128 = 70_000_000;
+/// Techo máximo configurable para cápsulas generativas (`1,000 XLM`).
+pub const CAPSULE_MAX_FEE_STROOPS: i128 = 10_000_000_000;
 /// Cupo base de cápsulas generativas para wallets nuevas antes de desbloquear más por actividad/Forja.
 pub const BASE_CAPSULE_QUOTA: u32 = 2;
+/// Timelock obligatorio de 48 horas para upgrades del contrato WASM.
+pub const UPGRADE_TIMELOCK_SECONDS: u64 = 48 * 3_600;
+pub const STORAGE_VERSION_V1: u32 = 1;
+/// TTL temporal de ~1 hora (`720` ledgers) para commits anti-frontrunning antes de revelar.
+const COMMIT_TTL_LEDGERS: u32 = 720;
+const MAX_CUSTOM_ASSET_ID: u32 = 15;
+const MAX_TOKENS_PAGE: u32 = 50;
 
 const ROLE_MINTER: Symbol = symbol_short!("minter");
 const ROLE_CURATOR: Symbol = symbol_short!("curator");
@@ -67,13 +77,45 @@ pub trait LaunchpadPilotInterface {
 }
 
 #[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingUpgradeData {
+    pub wasm_hash: BytesN<32>,
+    pub scheduled_at: u64,
+    pub execute_after: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MintCommitData {
+    pub commitment: BytesN<32>,
+    pub commit_ledger: u32,
+    pub commit_ts: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForgeCommitData {
+    pub commitment: BytesN<32>,
+    pub burn_a: u32,
+    pub burn_b: u32,
+    pub commit_ledger: u32,
+    pub commit_ts: u64,
+}
+
+#[contracttype]
 #[derive(Clone)]
 enum DataKey {
     GenesisCapPerArchetype,
     GenesisMinted(u32),
     Sorobit(u32),
+    TokenXpBaseline(u32),
     ClaimedArchetype(Address, u32),
     CapsulesMinted(Address),
+    CapsuleCommit(Address),
+    ForgeCommit(Address),
+    InstantMintAllowed,
+    StorageVersion,
+    PendingUpgrade,
     LaunchpadAddress,
     XlmSac,
     Treasury,
@@ -104,6 +146,18 @@ pub enum SorobitsError {
     ForgeInvalidPair = 313,
     CapsuleQuotaReached = 314,
     PaymentNotConfigured = 315,
+    SvgBudgetExceeded = 316,
+    InvalidFee = 317,
+    SeasonNotSealed = 318,
+    InstantMintDisabled = 319,
+    CommitmentNotFound = 320,
+    CommitmentNotReady = 321,
+    CommitmentMismatch = 322,
+    UpgradeAlreadyPending = 323,
+    NoPendingUpgrade = 324,
+    UpgradeTimelockActive = 325,
+    InvalidUpgradeHash = 326,
+    InvalidAssetId = 327,
 }
 
 #[contractevent]
@@ -132,6 +186,84 @@ pub struct EpigeneticUpdatedEvent {
 pub struct SeasonSealedEvent {
     #[topic]
     pub season: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapsuleFeeUpdatedEvent {
+    pub fee_stroops: i128,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TreasuryUpdatedEvent {
+    #[topic]
+    pub treasury: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LaunchpadUpdatedEvent {
+    #[topic]
+    pub launchpad: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XlmSacUpdatedEvent {
+    #[topic]
+    pub xlm_sac: Address,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ActiveSeasonUpdatedEvent {
+    pub season: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InstantMintModeEvent {
+    pub enabled: bool,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeScheduledEvent {
+    pub wasm_hash: BytesN<32>,
+    pub execute_after: u64,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeCancelledEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UpgradeExecutedEvent {
+    pub wasm_hash: BytesN<32>,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapsuleCommittedEvent {
+    #[topic]
+    pub minter: Address,
+    pub commitment: BytesN<32>,
+    pub commit_ledger: u32,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ForgeCommittedEvent {
+    #[topic]
+    pub owner: Address,
+    pub burn_a: u32,
+    pub burn_b: u32,
+    pub commitment: BytesN<32>,
+    pub commit_ledger: u32,
 }
 
 #[contract]
@@ -173,6 +305,12 @@ impl Sorobits {
             .instance()
             .set(&DataKey::Treasury, &royalty_receiver);
         e.storage().instance().set(&DataKey::SeasonActive, &1u32);
+        e.storage()
+            .instance()
+            .set(&DataKey::InstantMintAllowed, &false);
+        e.storage()
+            .instance()
+            .set(&DataKey::StorageVersion, &STORAGE_VERSION_V1);
 
         // Season 1 compiled pixel assets are sealed from block zero.
         let s1_key = DataKey::SeasonSealed(1);
@@ -200,6 +338,7 @@ impl Sorobits {
             .instance()
             .set(&DataKey::LaunchpadAddress, &launchpad);
         Self::extend_ttl(e);
+        LaunchpadUpdatedEvent { launchpad }.publish(e);
     }
 
     pub fn get_launchpad(e: &Env) -> Option<Address> {
@@ -211,6 +350,7 @@ impl Sorobits {
     pub fn set_xlm_sac(e: &Env, xlm_sac: Address) {
         e.storage().instance().set(&DataKey::XlmSac, &xlm_sac);
         Self::extend_ttl(e);
+        XlmSacUpdatedEvent { xlm_sac }.publish(e);
     }
 
     pub fn get_xlm_sac(e: &Env) -> Option<Address> {
@@ -222,22 +362,41 @@ impl Sorobits {
     pub fn set_treasury(e: &Env, treasury: Address) {
         e.storage().instance().set(&DataKey::Treasury, &treasury);
         Self::extend_ttl(e);
+        TreasuryUpdatedEvent { treasury }.publish(e);
     }
 
     pub fn get_treasury(e: &Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::Treasury)
     }
 
-    /// Ajusta dinámicamente el precio en XLM de las Cápsulas Generativas (0..=100,000 XLM, solo Admin).
+    /// Ajusta dinámicamente el precio en XLM de las Cápsulas Generativas (0..=1,000 XLM, solo Admin).
     #[only_admin]
     pub fn set_capsule_fee(e: &Env, fee_stroops: i128) {
-        if !(0..=1_000_000_000_000).contains(&fee_stroops) {
-            panic_with_error!(e, SorobitsError::InvalidPalette);
+        if !(0..=CAPSULE_MAX_FEE_STROOPS).contains(&fee_stroops) {
+            panic_with_error!(e, SorobitsError::InvalidFee);
         }
         e.storage()
             .instance()
             .set(&DataKey::CapsuleFee, &fee_stroops);
         Self::extend_ttl(e);
+        CapsuleFeeUpdatedEvent { fee_stroops }.publish(e);
+    }
+
+    /// Habilita o deshabilita el modo legado instantáneo de cápsula/forja (deshabilitado por defecto).
+    #[only_admin]
+    pub fn set_instant_mint_allowed(e: &Env, enabled: bool) {
+        e.storage()
+            .instance()
+            .set(&DataKey::InstantMintAllowed, &enabled);
+        Self::extend_ttl(e);
+        InstantMintModeEvent { enabled }.publish(e);
+    }
+
+    pub fn is_instant_mint_allowed(e: &Env) -> bool {
+        e.storage()
+            .instance()
+            .get(&DataKey::InstantMintAllowed)
+            .unwrap_or(false)
     }
 
     /// Devuelve el precio actual de una Cápsula Generativa Sorobit en stroops (default 7 XLM).
@@ -272,42 +431,74 @@ impl Sorobits {
         (minted_active, max_allowed)
     }
 
-    /// Acuña una Cápsula Generativa Sorobit pagando 7 XLM en XLM SAC hacia tesorería,
-    /// respetando el cupo anti-ballena desbloqueado por actividad y liberando cupo al forjar.
-    pub fn mint_capsule(e: &Env, user: Address, user_entropy: Bytes) -> u32 {
-        user.require_auth();
-        if user_entropy.is_empty() || user_entropy.len() > 64 {
+    /// Paso 1 (Commit-Reveal anti-frontrunning): compromete `sha256(minter_xdr || secret || "SBIT_CAP_V1")`
+    /// antes de revelar en un ledger posterior (`reveal_capsule`).
+    pub fn commit_capsule(e: &Env, minter: Address, commitment: BytesN<32>) {
+        minter.require_auth();
+        if commitment == BytesN::from_array(e, &[0u8; 32]) {
             panic_with_error!(e, SorobitsError::EntropyEmpty);
         }
-
-        let (minted_active, max_allowed) = Self::get_capsule_quota(e, user.clone());
+        let (minted_active, max_allowed) = Self::get_capsule_quota(e, minter.clone());
         if minted_active >= max_allowed {
             panic_with_error!(e, SorobitsError::CapsuleQuotaReached);
         }
-
-        let xlm_sac: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::XlmSac)
-            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
-        let treasury: Address = e
-            .storage()
-            .instance()
-            .get(&DataKey::Treasury)
-            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
-
-        let fee = Self::get_capsule_fee(e);
-        if fee > 0 {
-            token::Client::new(e, &xlm_sac).transfer(&user, &treasury, &fee);
-        }
-
-        let cap_key = DataKey::CapsulesMinted(user.clone());
+        let key = DataKey::CapsuleCommit(minter.clone());
+        let commit_ledger = e.ledger().sequence();
+        let commit = MintCommitData {
+            commitment: commitment.clone(),
+            commit_ledger,
+            commit_ts: e.ledger().timestamp(),
+        };
+        e.storage().temporary().set(&key, &commit);
         e.storage()
-            .persistent()
-            .set(&cap_key, &minted_active.saturating_add(1));
-        Self::bump_persistent(e, &cap_key);
+            .temporary()
+            .extend_ttl(&key, COMMIT_TTL_LEDGERS, COMMIT_TTL_LEDGERS);
+        Self::extend_ttl(e);
+        CapsuleCommittedEvent {
+            minter,
+            commitment,
+            commit_ledger,
+        }
+        .publish(e);
+    }
 
-        Self::mint_generative_internal(e, &user, &user_entropy, 0, 0, 100, false)
+    /// Paso 2 (Commit-Reveal): revela `secret` en un ledger posterior al commit, cobra 7 XLM
+    /// y acuña la Cápsula Generativa con entropía no pre-simulable en el bloque del commit.
+    pub fn reveal_capsule(e: &Env, minter: Address, secret: BytesN<32>) -> u32 {
+        minter.require_auth();
+        let key = DataKey::CapsuleCommit(minter.clone());
+        let commit: MintCommitData = e
+            .storage()
+            .temporary()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::CommitmentNotFound));
+        if e.ledger().sequence() <= commit.commit_ledger {
+            panic_with_error!(e, SorobitsError::CommitmentNotReady);
+        }
+        let mut preimage = minter.clone().to_xdr(e);
+        preimage.extend_from_slice(&secret.to_array());
+        preimage.extend_from_slice(b"SBIT_CAP_V1");
+        let expected: BytesN<32> = e.crypto().sha256(&preimage).into();
+        if expected != commit.commitment {
+            panic_with_error!(e, SorobitsError::CommitmentMismatch);
+        }
+        e.storage().temporary().remove(&key);
+
+        let entropy = Bytes::from_slice(e, &secret.to_array());
+        Self::execute_capsule_internal(e, &minter, &entropy)
+    }
+
+    /// Modo legado instantáneo de Cápsula (bloqueado por defecto con `InstantMintDisabled`;
+    /// use `commit_capsule` + `reveal_capsule` en producción).
+    pub fn mint_capsule(e: &Env, user: Address, user_entropy: Bytes) -> u32 {
+        user.require_auth();
+        if !Self::is_instant_mint_allowed(e) {
+            panic_with_error!(e, SorobitsError::InstantMintDisabled);
+        }
+        if user_entropy.is_empty() || user_entropy.len() > 64 {
+            panic_with_error!(e, SorobitsError::EntropyEmpty);
+        }
+        Self::execute_capsule_internal(e, &user, &user_entropy)
     }
 
     /// Permite a cualquier piloto reclamar 1 vez su Sorobit Genesis AGQ01 ("Floodgate Pioneer").
@@ -364,41 +555,21 @@ impl Sorobits {
         Self::mint_genesis_internal(e, &user, archetype_id, archetype_id == 1)
     }
 
-    /// Sincroniza sin permisos el XP y `rank_tier` epigenético de un Sorobit desde la actividad real on-chain de su dueño.
+    /// Sincroniza sin permisos el XP y `rank_tier` epigenético de un Sorobit desde la actividad
+    /// real on-chain de su dueño, descontando la línea base del receptor al transferir (`TokenXpBaseline`).
     pub fn sync_epigenetics(e: &Env, token_id: u32) -> SorobitRecord {
         let owner = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
-        let mut rec = Self::load_record(e, token_id);
+        let mut rec = Self::load_record_and_bump(e, token_id);
 
-        let mut claimed_count = 0u32;
-        for id in 1..=MAX_GENESIS_ARCHETYPES {
-            if Self::has_claimed(e, owner.clone(), id) {
-                claimed_count += 1;
-            }
-        }
+        let computed_xp = Self::compute_address_xp(e, &owner);
+        let baseline: u32 = e
+            .storage()
+            .persistent()
+            .get(&DataKey::TokenXpBaseline(token_id))
+            .unwrap_or(0);
+        let net_xp = computed_xp.saturating_sub(baseline);
 
-        let pilot = if let Some(lp) = Self::get_launchpad(e) {
-            LaunchpadPilotClient::new(e, &lp).get_pilot(&owner)
-        } else {
-            LaunchpadPilotRecord {
-                launches: 0,
-                graduations: 0,
-                trades: 0,
-                volume_xlm_stroops: 0,
-                shouts: 0,
-                king_shouts: 0,
-                burns_triggered: 0,
-            }
-        };
-
-        let computed_xp = claimed_count
-            .saturating_mul(150)
-            .saturating_add(pilot.launches.saturating_mul(250))
-            .saturating_add(pilot.graduations.saturating_mul(500))
-            .saturating_add(pilot.trades.saturating_mul(50))
-            .saturating_add(pilot.shouts.saturating_mul(100))
-            .saturating_add(pilot.king_shouts.saturating_mul(400));
-
-        rec.xp_score = rec.xp_score.max(computed_xp);
+        rec.xp_score = rec.xp_score.max(net_xp);
         let tier = if rec.xp_score >= 2_500 {
             4
         } else if rec.xp_score >= 1_200 {
@@ -426,7 +597,75 @@ impl Sorobits {
         rec
     }
 
-    /// Quema 2 Sorobits transferibles del dueño y forja 1 Sorobit ascendido de nueva generación (`Gen + 1`).
+    /// Paso 1 (Commit-Reveal de Forja): compromete `sha256(owner_xdr || secret || burn_a || burn_b || "SBIT_FRG_V1")`
+    /// verificando propiedad y estado no-soulbound de ambos Sorobits antes de revelar en ledger posterior.
+    pub fn commit_forge(
+        e: &Env,
+        owner: Address,
+        burn_id_a: u32,
+        burn_id_b: u32,
+        commitment: BytesN<32>,
+    ) {
+        owner.require_auth();
+        if commitment == BytesN::from_array(e, &[0u8; 32]) {
+            panic_with_error!(e, SorobitsError::EntropyEmpty);
+        }
+        Self::validate_forge_parents(e, &owner, burn_id_a, burn_id_b);
+
+        let key = DataKey::ForgeCommit(owner.clone());
+        let commit_ledger = e.ledger().sequence();
+        let commit = ForgeCommitData {
+            commitment: commitment.clone(),
+            burn_a: burn_id_a,
+            burn_b: burn_id_b,
+            commit_ledger,
+            commit_ts: e.ledger().timestamp(),
+        };
+        e.storage().temporary().set(&key, &commit);
+        e.storage()
+            .temporary()
+            .extend_ttl(&key, COMMIT_TTL_LEDGERS, COMMIT_TTL_LEDGERS);
+        Self::extend_ttl(e);
+        ForgeCommittedEvent {
+            owner,
+            burn_a: burn_id_a,
+            burn_b: burn_id_b,
+            commitment,
+            commit_ledger,
+        }
+        .publish(e);
+    }
+
+    /// Paso 2 (Commit-Reveal de Forja): revela `secret` en un ledger posterior, quema ambos Sorobits
+    /// transferibles y forja el Sorobit ascendido (`Gen + 1`).
+    pub fn reveal_forge(e: &Env, owner: Address, secret: BytesN<32>) -> u32 {
+        owner.require_auth();
+        let key = DataKey::ForgeCommit(owner.clone());
+        let commit: ForgeCommitData = e
+            .storage()
+            .temporary()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::CommitmentNotFound));
+        if e.ledger().sequence() <= commit.commit_ledger {
+            panic_with_error!(e, SorobitsError::CommitmentNotReady);
+        }
+        let mut preimage = owner.clone().to_xdr(e);
+        preimage.extend_from_slice(&secret.to_array());
+        preimage.extend_from_slice(&commit.burn_a.to_le_bytes());
+        preimage.extend_from_slice(&commit.burn_b.to_le_bytes());
+        preimage.extend_from_slice(b"SBIT_FRG_V1");
+        let expected: BytesN<32> = e.crypto().sha256(&preimage).into();
+        if expected != commit.commitment {
+            panic_with_error!(e, SorobitsError::CommitmentMismatch);
+        }
+        e.storage().temporary().remove(&key);
+
+        let entropy = Bytes::from_slice(e, &secret.to_array());
+        Self::execute_forge_internal(e, &owner, commit.burn_a, commit.burn_b, &entropy)
+    }
+
+    /// Modo legado instantáneo de Forja (bloqueado por defecto con `InstantMintDisabled`;
+    /// use `commit_forge` + `reveal_forge` en producción).
     pub fn forge_ascend(
         e: &Env,
         owner: Address,
@@ -435,51 +674,13 @@ impl Sorobits {
         user_entropy: Bytes,
     ) -> u32 {
         owner.require_auth();
-        if burn_id_a == burn_id_b {
-            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
+        if !Self::is_instant_mint_allowed(e) {
+            panic_with_error!(e, SorobitsError::InstantMintDisabled);
         }
         if user_entropy.is_empty() || user_entropy.len() > 64 {
             panic_with_error!(e, SorobitsError::EntropyEmpty);
         }
-        if <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_a) != owner
-            || <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_b) != owner
-        {
-            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
-        }
-
-        let rec_a = Self::load_record(e, burn_id_a);
-        let rec_b = Self::load_record(e, burn_id_b);
-        if rec_a.soulbound || rec_b.soulbound {
-            panic_with_error!(e, SorobitsError::SoulboundLocked);
-        }
-
-        Self::burn_without_reauth(e, &owner, burn_id_a);
-        Self::burn_without_reauth(e, &owner, burn_id_b);
-
-        // Forjar 2 Sorobits en 1 libera un slot activo de cápsula para mantener el loop deflacionario.
-        let cap_key = DataKey::CapsulesMinted(owner.clone());
-        let minted_active: u32 = e.storage().persistent().get(&cap_key).unwrap_or(0u32);
-        if minted_active > 0 {
-            e.storage().persistent().set(&cap_key, &(minted_active - 1));
-            Self::bump_persistent(e, &cap_key);
-        }
-
-        let next_gen = rec_a.generation.max(rec_b.generation).saturating_add(1);
-        let next_tier = (rec_a.rank_tier.max(rec_b.rank_tier) + 1).min(MAX_RANK_TIER);
-        let next_xp = rec_a
-            .xp_score
-            .saturating_add(rec_b.xp_score)
-            .saturating_add(500);
-
-        Self::mint_generative_internal(
-            e,
-            &owner,
-            &user_entropy,
-            next_gen,
-            next_tier,
-            next_xp,
-            false,
-        )
+        Self::execute_forge_internal(e, &owner, burn_id_a, burn_id_b, &user_entropy)
     }
 
     /// Indica si una wallet ya reclamó un arquetipo Genesis específico.
@@ -516,7 +717,7 @@ impl Sorobits {
             panic_with_error!(e, SorobitsError::InvalidRankTier);
         }
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
-        let mut rec = Self::load_record(e, token_id);
+        let mut rec = Self::load_record_and_bump(e, token_id);
         rec.rank_tier = new_rank_tier;
         rec.xp_score = rec.xp_score.saturating_add(add_xp);
 
@@ -545,6 +746,9 @@ impl Sorobits {
     ) {
         if !(2..=255).contains(&season) {
             panic_with_error!(e, SorobitsError::InvalidSeason);
+        }
+        if layer_id > MAX_CUSTOM_ASSET_ID {
+            panic_with_error!(e, SorobitsError::InvalidAssetId);
         }
         Self::assert_season_unsealed(e, season);
         let len = rle_bytes.len() as usize;
@@ -578,6 +782,9 @@ impl Sorobits {
         if !(2..=255).contains(&season) {
             panic_with_error!(e, SorobitsError::InvalidSeason);
         }
+        if faction_id > MAX_CUSTOM_ASSET_ID {
+            panic_with_error!(e, SorobitsError::InvalidAssetId);
+        }
         Self::assert_season_unsealed(e, season);
         if palette45.len() as usize != 45 {
             panic_with_error!(e, SorobitsError::InvalidPalette);
@@ -594,21 +801,95 @@ impl Sorobits {
         Self::extend_ttl(e);
     }
 
-    /// Actualiza el bytecode WASM del contrato (solo Admin).
+    /// Programa un upgrade WASM detrás de un timelock obligatorio de 48 horas (solo Admin).
     #[only_admin]
-    pub fn upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
-        e.deployer()
-            .update_current_contract(ContractExecutable::Wasm(new_wasm_hash));
+    pub fn schedule_upgrade(e: &Env, new_wasm_hash: BytesN<32>) {
+        if new_wasm_hash == BytesN::from_array(e, &[0u8; 32]) {
+            panic_with_error!(e, SorobitsError::InvalidUpgradeHash);
+        }
+        let key = DataKey::PendingUpgrade;
+        if e.storage().persistent().has(&key) {
+            panic_with_error!(e, SorobitsError::UpgradeAlreadyPending);
+        }
+        let now = e.ledger().timestamp();
+        let execute_after = now.saturating_add(UPGRADE_TIMELOCK_SECONDS);
+        let pending = PendingUpgradeData {
+            wasm_hash: new_wasm_hash.clone(),
+            scheduled_at: now,
+            execute_after,
+        };
+        e.storage().persistent().set(&key, &pending);
+        Self::bump_persistent(e, &key);
+        Self::extend_ttl(e);
+        UpgradeScheduledEvent {
+            wasm_hash: new_wasm_hash,
+            execute_after,
+        }
+        .publish(e);
     }
 
-    /// Cambia la temporada activa para nuevos mints generativos (`1..=255`).
+    /// Cancela un upgrade WASM programado antes de ejecutarse (solo Admin).
+    #[only_admin]
+    pub fn cancel_upgrade(e: &Env) {
+        let key = DataKey::PendingUpgrade;
+        let pending: PendingUpgradeData = e
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::NoPendingUpgrade));
+        e.storage().persistent().remove(&key);
+        Self::extend_ttl(e);
+        UpgradeCancelledEvent {
+            wasm_hash: pending.wasm_hash,
+        }
+        .publish(e);
+    }
+
+    /// Ejecuta el upgrade WASM programado tras vencer las 48 horas (solo Admin).
+    #[only_admin]
+    pub fn execute_upgrade(e: &Env) {
+        let key = DataKey::PendingUpgrade;
+        let pending: PendingUpgradeData = e
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::NoPendingUpgrade));
+        if e.ledger().timestamp() < pending.execute_after {
+            panic_with_error!(e, SorobitsError::UpgradeTimelockActive);
+        }
+        e.storage().persistent().remove(&key);
+        Self::extend_ttl(e);
+        UpgradeExecutedEvent {
+            wasm_hash: pending.wasm_hash.clone(),
+        }
+        .publish(e);
+        e.deployer()
+            .update_current_contract(ContractExecutable::Wasm(pending.wasm_hash));
+    }
+
+    pub fn get_pending_upgrade(e: &Env) -> Option<PendingUpgradeData> {
+        e.storage().persistent().get(&DataKey::PendingUpgrade)
+    }
+
+    pub fn get_storage_version(e: &Env) -> u32 {
+        e.storage()
+            .instance()
+            .get(&DataKey::StorageVersion)
+            .unwrap_or(STORAGE_VERSION_V1)
+    }
+
+    /// Cambia la temporada activa para nuevos mints generativos (`1..=255`, solo temporadas selladas).
     #[only_admin]
     pub fn set_active_season(e: &Env, season: u32) {
         if !(1..=255).contains(&season) {
             panic_with_error!(e, SorobitsError::InvalidSeason);
         }
+        if !Self::is_season_sealed(e, season) {
+            panic_with_error!(e, SorobitsError::SeasonNotSealed);
+        }
         e.storage().instance().set(&DataKey::SeasonActive, &season);
         Self::extend_ttl(e);
+        ActiveSeasonUpdatedEvent { season }.publish(e);
     }
 
     /// Sella de forma irreversible el arte y las paletas de una temporada (`seal_season`).
@@ -625,24 +906,25 @@ impl Sorobits {
         SeasonSealedEvent { season }.publish(e);
     }
 
-    /// Devuelve el SVG estático 100% nativo (`<svg ...>...</svg>`) del Sorobit.
+    /// Devuelve el SVG estático 100% nativo (`<svg ...>...</svg>`) del Sorobit (lectura pura).
     pub fn render_svg(e: &Env, token_id: u32) -> String {
         let (_rec, grid, pal) = Self::compose_for_token(e, token_id);
         let mut w = ByteWriter::new();
         write_svg(&mut w, &grid, &pal, false);
         w.to_soroban_string(e)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::SvgBudgetExceeded))
     }
 
-    /// Devuelve la versión animada (`5s` pulso de visor acorde al cierre SCP) para Mini App / galería.
+    /// Devuelve la versión animada (`5s` pulso de visor acorde al cierre SCP, lectura pura).
     pub fn animated_svg(e: &Env, token_id: u32) -> String {
         let (_rec, grid, pal) = Self::compose_for_token(e, token_id);
         let mut w = ByteWriter::new();
         write_svg(&mut w, &grid, &pal, true);
         w.to_soroban_string(e)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::SvgBudgetExceeded))
     }
 
-    /// Devuelve los 1,024 índices semánticos resueltos (`0..=15`) + 45 bytes de paleta RGB (`1,069` bytes)
-    /// para renderizado directo a `<canvas>` o mini-juegos futuros.
+    /// Devuelve los 1,024 índices semánticos resueltos (`0..=15`) + 45 bytes de paleta RGB (`1,069` bytes).
     pub fn raw_bitmap(e: &Env, token_id: u32) -> Bytes {
         let (_rec, grid, pal) = Self::compose_for_token(e, token_id);
         let mut out = Bytes::from_slice(e, &grid);
@@ -650,15 +932,16 @@ impl Sorobits {
         out
     }
 
-    /// Devuelve el registro genómico y telemétrico completo de un Sorobit.
+    /// Devuelve el registro genómico y telemétrico completo de un Sorobit (lectura pura).
     pub fn get_sorobit(e: &Env, token_id: u32) -> SorobitRecord {
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
-        Self::load_record(e, token_id)
+        Self::peek_record(e, token_id)
     }
 
-    /// Devuelve los IDs minteados para una cuenta (usando `Enumerable` on-chain sin base de datos).
+    /// Devuelve los primeros `MAX_TOKENS_PAGE` IDs minteados para una cuenta (`tokens_of_page` para más).
     pub fn tokens_of(e: &Env, owner: Address) -> Vec<u32> {
-        let count = <Self as NonFungibleToken>::ContractType::balance(e, &owner);
+        let count =
+            <Self as NonFungibleToken>::ContractType::balance(e, &owner).min(MAX_TOKENS_PAGE);
         let mut out = Vec::new(e);
         for idx in 0..count {
             out.push_back(Enumerable::get_owner_token_id(e, &owner, idx));
@@ -673,7 +956,7 @@ impl Sorobits {
         if offset >= count || limit == 0 {
             return out;
         }
-        let end = offset.saturating_add(limit.min(50)).min(count);
+        let end = offset.saturating_add(limit.min(MAX_TOKENS_PAGE)).min(count);
         for idx in offset..end {
             out.push_back(Enumerable::get_owner_token_id(e, &owner, idx));
         }
@@ -701,14 +984,142 @@ impl Sorobits {
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_BUMP_AMOUNT);
     }
 
-    /// Protege contra expiración/archivado el registro genómico y los assets de temporada de un token.
+    /// Protege contra expiración/archivado el registro genómico, baseline de XP y assets de temporada.
     pub fn extend_token_ttl(e: &Env, token_id: u32) {
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
-        let key = DataKey::Sorobit(token_id);
-        Self::bump_persistent(e, &key);
-        let rec = Self::load_record(e, token_id);
+        let rec = Self::load_record_and_bump(e, token_id);
+        Self::bump_persistent(e, &DataKey::TokenXpBaseline(token_id));
         Self::bump_season_assets_ttl(e, &rec.dna.to_array());
         Self::extend_ttl(e);
+    }
+
+    /// Extiende TTL de cupos de cápsulas y badges Genesis reclamados por `user`.
+    pub fn extend_user_ttl(e: &Env, user: Address) {
+        Self::bump_persistent(e, &DataKey::CapsulesMinted(user.clone()));
+        for id in 1..=MAX_GENESIS_ARCHETYPES {
+            Self::bump_persistent(e, &DataKey::ClaimedArchetype(user.clone(), id));
+        }
+        Self::extend_ttl(e);
+    }
+
+    // ---------------- Helpers privados ----------------
+
+    fn execute_capsule_internal(e: &Env, user: &Address, entropy: &Bytes) -> u32 {
+        let (minted_active, max_allowed) = Self::get_capsule_quota(e, user.clone());
+        if minted_active >= max_allowed {
+            panic_with_error!(e, SorobitsError::CapsuleQuotaReached);
+        }
+
+        let xlm_sac: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::XlmSac)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
+        let treasury: Address = e
+            .storage()
+            .instance()
+            .get(&DataKey::Treasury)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::PaymentNotConfigured));
+
+        let fee = Self::get_capsule_fee(e);
+        if fee > 0 {
+            token::Client::new(e, &xlm_sac).transfer(user, &treasury, &fee);
+        }
+
+        let cap_key = DataKey::CapsulesMinted(user.clone());
+        e.storage()
+            .persistent()
+            .set(&cap_key, &minted_active.saturating_add(1));
+        Self::bump_persistent(e, &cap_key);
+
+        Self::mint_generative_internal(e, user, entropy, 0, 0, 100, false)
+    }
+
+    fn validate_forge_parents(
+        e: &Env,
+        owner: &Address,
+        burn_id_a: u32,
+        burn_id_b: u32,
+    ) -> (SorobitRecord, SorobitRecord) {
+        if burn_id_a == burn_id_b {
+            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
+        }
+        if <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_a) != *owner
+            || <Self as NonFungibleToken>::ContractType::owner_of(e, burn_id_b) != *owner
+        {
+            panic_with_error!(e, SorobitsError::ForgeInvalidPair);
+        }
+        let rec_a = Self::peek_record(e, burn_id_a);
+        let rec_b = Self::peek_record(e, burn_id_b);
+        if rec_a.soulbound || rec_b.soulbound {
+            panic_with_error!(e, SorobitsError::SoulboundLocked);
+        }
+        (rec_a, rec_b)
+    }
+
+    fn execute_forge_internal(
+        e: &Env,
+        owner: &Address,
+        burn_id_a: u32,
+        burn_id_b: u32,
+        entropy: &Bytes,
+    ) -> u32 {
+        let (rec_a, rec_b) = Self::validate_forge_parents(e, owner, burn_id_a, burn_id_b);
+        Self::burn_without_reauth(e, owner, burn_id_a);
+        Self::burn_without_reauth(e, owner, burn_id_b);
+
+        // Forjar 2 Sorobits en 1 libera un slot activo de cápsula para mantener el loop deflacionario.
+        let cap_key = DataKey::CapsulesMinted(owner.clone());
+        let minted_active: u32 = e.storage().persistent().get(&cap_key).unwrap_or(0u32);
+        if minted_active > 0 {
+            e.storage().persistent().set(&cap_key, &(minted_active - 1));
+            Self::bump_persistent(e, &cap_key);
+        }
+
+        let next_gen = rec_a.generation.max(rec_b.generation).saturating_add(1);
+        let next_tier = (rec_a.rank_tier.max(rec_b.rank_tier) + 1).min(MAX_RANK_TIER);
+        let next_xp = rec_a
+            .xp_score
+            .saturating_add(rec_b.xp_score)
+            .saturating_add(500);
+
+        Self::mint_generative_internal(e, owner, entropy, next_gen, next_tier, next_xp, false)
+    }
+
+    fn compute_address_xp(e: &Env, owner: &Address) -> u32 {
+        let mut claimed_count = 0u32;
+        for id in 1..=MAX_GENESIS_ARCHETYPES {
+            if Self::has_claimed(e, owner.clone(), id) {
+                claimed_count += 1;
+            }
+        }
+        let pilot = if let Some(lp) = Self::get_launchpad(e) {
+            LaunchpadPilotClient::new(e, &lp).get_pilot(owner)
+        } else {
+            LaunchpadPilotRecord {
+                launches: 0,
+                graduations: 0,
+                trades: 0,
+                volume_xlm_stroops: 0,
+                shouts: 0,
+                king_shouts: 0,
+                burns_triggered: 0,
+            }
+        };
+        claimed_count
+            .saturating_mul(150)
+            .saturating_add(pilot.launches.saturating_mul(250))
+            .saturating_add(pilot.graduations.saturating_mul(500))
+            .saturating_add(pilot.trades.saturating_mul(50))
+            .saturating_add(pilot.shouts.saturating_mul(100))
+            .saturating_add(pilot.king_shouts.saturating_mul(400))
+    }
+
+    fn snapshot_transfer_baseline(e: &Env, to: &Address, token_id: u32) {
+        let baseline = Self::compute_address_xp(e, to);
+        let key = DataKey::TokenXpBaseline(token_id);
+        e.storage().persistent().set(&key, &baseline);
+        Self::bump_persistent(e, &key);
     }
 
     // ---------------- Helpers privados ----------------
@@ -859,9 +1270,20 @@ impl Sorobits {
         Enumerable::remove_from_enumerations(e, owner, token_id);
         emit_burn(e, owner, token_id);
         e.storage().persistent().remove(&DataKey::Sorobit(token_id));
+        e.storage()
+            .persistent()
+            .remove(&DataKey::TokenXpBaseline(token_id));
     }
 
-    fn load_record(e: &Env, token_id: u32) -> SorobitRecord {
+    fn peek_record(e: &Env, token_id: u32) -> SorobitRecord {
+        let key = DataKey::Sorobit(token_id);
+        e.storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::RecordMissing))
+    }
+
+    fn load_record_and_bump(e: &Env, token_id: u32) -> SorobitRecord {
         let key = DataKey::Sorobit(token_id);
         let rec: SorobitRecord = e
             .storage()
@@ -909,9 +1331,8 @@ impl Sorobits {
 
     fn compose_for_token(e: &Env, token_id: u32) -> (SorobitRecord, [u8; PIXELS], [u8; 45]) {
         let _ = <Self as NonFungibleToken>::ContractType::owner_of(e, token_id);
-        let rec = Self::load_record(e, token_id);
+        let rec = Self::peek_record(e, token_id);
         let dna = rec.dna.to_array();
-        Self::bump_season_assets_ttl(e, &dna);
         let season = dna[0] as u32;
         let mut grid = [0u8; PIXELS];
         render_procedural_sky(&dna, &mut grid);
@@ -970,20 +1391,22 @@ impl NonFungibleToken for Sorobits {
     type ContractType = Compose<(Enumerable, Burnable, Royalties)>;
 
     fn transfer(e: &Env, from: Address, to: Address, token_id: u32) {
-        let rec = Self::load_record(e, token_id);
+        let rec = Self::load_record_and_bump(e, token_id);
         if rec.soulbound {
             panic_with_error!(e, SorobitsError::SoulboundLocked);
         }
         Self::ContractType::transfer(e, &from, &to, token_id);
+        Self::snapshot_transfer_baseline(e, &to, token_id);
         Self::extend_ttl(e);
     }
 
     fn transfer_from(e: &Env, spender: Address, from: Address, to: Address, token_id: u32) {
-        let rec = Self::load_record(e, token_id);
+        let rec = Self::load_record_and_bump(e, token_id);
         if rec.soulbound {
             panic_with_error!(e, SorobitsError::SoulboundLocked);
         }
         Self::ContractType::transfer_from(e, &spender, &from, &to, token_id);
+        Self::snapshot_transfer_baseline(e, &to, token_id);
         Self::extend_ttl(e);
     }
 
@@ -993,6 +1416,7 @@ impl NonFungibleToken for Sorobits {
         let mut w = ByteWriter::new();
         write_token_uri_json(&mut w, token_id, &rec, &dna, &grid, &pal);
         w.to_soroban_string(e)
+            .unwrap_or_else(|| panic_with_error!(e, SorobitsError::SvgBudgetExceeded))
     }
 }
 
@@ -1002,14 +1426,28 @@ impl NonFungibleEnumerable for Sorobits {}
 #[contractimpl(contracttrait)]
 impl NonFungibleBurnable for Sorobits {
     fn burn(e: &Env, from: Address, token_id: u32) {
+        let rec = Self::peek_record(e, token_id);
+        if rec.soulbound {
+            panic_with_error!(e, SorobitsError::SoulboundLocked);
+        }
         Self::ContractType::burn(e, &from, token_id);
         e.storage().persistent().remove(&DataKey::Sorobit(token_id));
+        e.storage()
+            .persistent()
+            .remove(&DataKey::TokenXpBaseline(token_id));
         Self::extend_ttl(e);
     }
 
     fn burn_from(e: &Env, spender: Address, from: Address, token_id: u32) {
+        let rec = Self::peek_record(e, token_id);
+        if rec.soulbound {
+            panic_with_error!(e, SorobitsError::SoulboundLocked);
+        }
         Self::ContractType::burn_from(e, &spender, &from, token_id);
         e.storage().persistent().remove(&DataKey::Sorobit(token_id));
+        e.storage()
+            .persistent()
+            .remove(&DataKey::TokenXpBaseline(token_id));
         Self::extend_ttl(e);
     }
 }
