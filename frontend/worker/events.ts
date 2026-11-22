@@ -322,7 +322,7 @@ export function renderLaunchpadEventTelegramView(
   const safeSym = escapeHtml(meta.symbol || 'TOK')
   const safeName = escapeHtml(meta.name || 'Token')
   const tokenDeepLink = miniAppStartUrl(botUsername, ev.tokenId, hasMainApp)
-  const communityLink = 'https://t.me/AstroGateCommunity'
+  const communityLink = 'https://t.me/AstroSoroban'
   const marketDeepLink = miniAppStartUrl(botUsername, 'market', hasMainApp)
 
   if (ev.kind === 'shout') {
@@ -393,8 +393,12 @@ export function renderLaunchpadEventTelegramView(
         inline_keyboard: [
           [
             { text: `🎓 Trade $${meta.symbol.slice(0, 10)} on DEX`, url: tokenDeepLink },
-            { text: '💬 Community', url: communityLink },
+            {
+              text: '📊 AstroDex Chart',
+              url: `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(`token_${ev.tokenId}`)}`,
+            },
           ],
+          [{ text: '💬 Community', url: communityLink }],
         ],
       },
     }
@@ -519,8 +523,12 @@ export function renderLaunchpadEventTelegramView(
               : `📊 Check $${meta.symbol.slice(0, 12)}`,
             url: tokenDeepLink,
           },
-          { text: '💬 Community', url: communityLink },
+          {
+            text: '📊 AstroDex X-Ray',
+            url: `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(`token_${ev.tokenId}`)}`,
+          },
         ],
+        [{ text: '💬 Community', url: communityLink }],
       ],
     },
   }

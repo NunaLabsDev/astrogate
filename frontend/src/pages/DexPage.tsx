@@ -5,6 +5,7 @@ import { useTokenList } from '../hooks/useTokenList'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
 import { buildAstroDexMarketUrl } from '../lib/ecosystem'
 import { partitionMarketTokens } from '../lib/market'
+import { openTelegramDeepLink } from '../lib/telegram'
 import { formatUsdPrice } from '../lib/soroswap'
 import type { LaunchpadToken } from '../lib/token'
 import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
@@ -62,6 +63,10 @@ export function DexPage() {
                 href={astroDexUrl}
                 target="_blank"
                 rel="noreferrer"
+                onClick={(e) => {
+                  e.preventDefault()
+                  openTelegramDeepLink(astroDexUrl)
+                }}
                 className="inline-flex min-h-[40px] sm:min-h-[44px] shrink-0 items-center justify-center rounded-xl sm:rounded-2xl border border-cyan-400/45 bg-cyan-500/15 px-3.5 sm:px-4 py-2 text-xs sm:text-sm font-bold text-cyan-200 hover:bg-cyan-500/25 transition whitespace-nowrap"
               >
                 📊 Pro Terminal on AstroDex

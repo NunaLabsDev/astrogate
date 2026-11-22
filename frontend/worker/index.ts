@@ -58,6 +58,7 @@ import {
   buildWalletResolveView,
   buildWalletView,
   buildWelcomeView,
+  curvePercent,
   DEFAULT_APP_BASE_URL,
   DEFAULT_BOT_USERNAME,
   detectStellarAddress,
@@ -426,7 +427,13 @@ async function handleTextMessage(
   const feedChatId = Number(env.TELEGRAM_FEED_CHAT_ID || DEFAULT_FEED_CHAT_ID)
 
   if (msg.new_chat_members?.length && inGroup && chatId !== feedChatId) {
+    await tryDeleteMessage(token, chatId, msg.message_id)
     await sendGroupWelcomes(chatId, msg.new_chat_members, token, env, threadId)
+  }
+
+  if (msg.left_chat_member && inGroup && chatId !== feedChatId) {
+    await tryDeleteMessage(token, chatId, msg.message_id)
+    return
   }
 
   const text = (msg.text || msg.caption || '').trim()
@@ -454,8 +461,13 @@ async function handleTextMessage(
     return
   }
 
-  // 1b. Group anti-scam / phishing guard
-  if (inGroup && chatId !== feedChatId) {
+  // 1b. Group anti-scam / phishing guard (never delete messages from configured admins)
+  const adminIds = (env.TELEGRAM_ADMIN_IDS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const isConfiguredAdmin = Boolean(msg.from?.id && adminIds.includes(String(msg.from.id)))
+  if (inGroup && chatId !== feedChatId && !isConfiguredAdmin) {
     const mod = detectScamOrPhishing(text)
     if (mod.flagged && mod.reason) {
       const deletedInGroup = await tryDeleteMessage(token, chatId, msg.message_id)
@@ -1492,7 +1504,7 @@ export async function handleWorkerRequest(
     }
   }
 
-  if (url.pathname === '/telegram/webhook') {
+  if (url.pathname === '/telegram/webhook' || url.pathname === '/api/telegram/webhook') {
     if (request.method !== 'POST') {
       return new Response('Method Not Allowed', {
         status: 405,
@@ -1603,6 +1615,17 @@ async function maybeSendFeedDigest(token: string, env: Env): Promise<void> {
   ])
   if (snap.items.length === 0) return
 
+  const fingerprint = [
+    ...snap.items
+      .slice(0, 5)
+      .map((i) => `${i.id}:${i.graduated ? 'G' : curvePercent(i.curveXlmNet).toFixed(1)}`),
+    `sbit:${sorobits.totalSupply}`,
+  ].join('|')
+  const lastFp = await env.ASTRO_KV.get('last_feed_digest_fp')
+  if (lastFp === fingerprint) {
+    return
+  }
+
   const { botUsername, folderUrl, hasMainApp } = botFlags(env)
   const sent = await sendRenderedView(
     token,
@@ -1616,9 +1639,14 @@ async function maybeSendFeedDigest(token: string, env: Env): Promise<void> {
     ),
   )
   if (sent) {
-    await env.ASTRO_KV.put('last_feed_digest_ts', String(now), {
-      expirationTtl: 172_800,
-    })
+    await Promise.all([
+      env.ASTRO_KV.put('last_feed_digest_ts', String(now), {
+        expirationTtl: 172_800,
+      }),
+      env.ASTRO_KV.put('last_feed_digest_fp', fingerprint, {
+        expirationTtl: 172_800,
+      }),
+    ])
   }
 }
 

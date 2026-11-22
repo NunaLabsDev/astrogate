@@ -395,6 +395,79 @@ export async function linkWalletIdentity(
   return record
 }
 
+async function resolveFromAstroWalletDirectory(
+  rawQuery: string,
+  network: 'testnet' | 'mainnet',
+  env: Env,
+): Promise<StoredWalletLink | null> {
+  const cleanQuery = rawQuery.trim().replace(/^@/, '')
+  if (!cleanQuery) return null
+  const astroWalletBase = env.ASTROWALLET_API_BASE_URL?.trim().replace(/\/+$/, '')
+  if (!env.ASTROWALLET && !astroWalletBase) return null
+
+  try {
+    const signal =
+      typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+        ? AbortSignal.timeout(3_500)
+        : undefined
+    const path = `/v1/identity/resolve?q=${encodeURIComponent(cleanQuery)}`
+    let res: Response
+    if (env.ASTROWALLET) {
+      res = await env.ASTROWALLET.fetch(
+        new Request(`https://astrowallet.internal${path}`, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          ...(signal ? { signal } : {}),
+        }),
+      )
+    } else {
+      res = await fetch(`${astroWalletBase}${path}`, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        ...(signal ? { signal } : {}),
+      })
+    }
+    if (!res.ok) return null
+
+    const json = (await res.json().catch(() => null)) as {
+      ok?: boolean
+      found?: boolean
+      telegramUserId?: string
+      username?: string
+      primaryAddress?: string
+      accounts?: Array<{ address?: string }>
+    } | null
+    if (
+      json?.ok &&
+      json.found &&
+      typeof json.primaryAddress === 'string' &&
+      decodeStellarPublicKey(json.primaryAddress)
+    ) {
+      const wallets = (json.accounts ?? [])
+        .map((a) => a.address?.trim() ?? '')
+        .filter((addr) => Boolean(decodeStellarPublicKey(addr)))
+      const fallbackUname = /^[a-z0-9_]{3,32}$/i.test(cleanQuery)
+        ? cleanQuery.toLowerCase()
+        : ''
+      return {
+        network,
+        username: (json.username ?? fallbackUname).replace(/^@/, '').toLowerCase(),
+        tgUserId: /^\d+$/.test(json.telegramUserId ?? '')
+          ? Number(json.telegramUserId)
+          : 0,
+        primaryPublicKey: json.primaryAddress,
+        wallets: wallets.length > 0 ? wallets : [json.primaryAddress],
+        verifiedTelegram: true,
+        updatedAt: Date.now(),
+      }
+    }
+  } catch {
+    // Ignore transient AstroID lookup errors cleanly
+  }
+
+  return null
+}
+
 export async function resolveWalletIdentity(
   rawQuery: string,
   env: Env,
@@ -405,32 +478,47 @@ export async function resolveWalletIdentity(
 
   if (decodeStellarPublicKey(query)) {
     const pkRaw = await kvGet(`wlink:${network}:pk:${query}`, env)
-    if (!pkRaw) return null
-    try {
-      const ptr = JSON.parse(pkRaw) as StoredPkPointer
-      const fullRaw =
-        (ptr.tgUserId > 0
-          ? await kvGet(`wlink:${network}:uid:${ptr.tgUserId}`, env)
-          : null) ??
-        (await kvGet(`wlink:${network}:uname:${ptr.username}`, env))
-      if (fullRaw) return JSON.parse(fullRaw) as StoredWalletLink
-      return {
-        network,
-        username: ptr.username,
-        tgUserId: ptr.tgUserId,
-        primaryPublicKey: ptr.primaryPublicKey,
-        wallets: [query],
-        verifiedTelegram: ptr.tgUserId > 0,
-        updatedAt: ptr.updatedAt,
+    if (pkRaw) {
+      try {
+        const ptr = JSON.parse(pkRaw) as StoredPkPointer
+        const fullRaw =
+          (ptr.tgUserId > 0
+            ? await kvGet(`wlink:${network}:uid:${ptr.tgUserId}`, env)
+            : null) ??
+          (await kvGet(`wlink:${network}:uname:${ptr.username}`, env))
+        if (fullRaw) return JSON.parse(fullRaw) as StoredWalletLink
+        return {
+          network,
+          username: ptr.username,
+          tgUserId: ptr.tgUserId,
+          primaryPublicKey: ptr.primaryPublicKey,
+          wallets: [query],
+          verifiedTelegram: ptr.tgUserId > 0,
+          updatedAt: ptr.updatedAt,
+        }
+      } catch {
+        return null
       }
-    } catch {
-      return null
     }
+    return resolveFromAstroWalletDirectory(query, network, env)
   }
 
   if (/^\d+$/.test(query)) {
     const raw = await kvGet(`wlink:${network}:uid:${query}`, env)
-    if (!raw) return null
+    if (raw) {
+      try {
+        return JSON.parse(raw) as StoredWalletLink
+      } catch {
+        return null
+      }
+    }
+    return resolveFromAstroWalletDirectory(query, network, env)
+  }
+
+  const cleanUsername = normalizeTelegramUsername(query)
+  if (!/^[a-z0-9_]{3,32}$/.test(cleanUsername)) return null
+  const raw = await kvGet(`wlink:${network}:uname:${cleanUsername}`, env)
+  if (raw) {
     try {
       return JSON.parse(raw) as StoredWalletLink
     } catch {
@@ -438,15 +526,7 @@ export async function resolveWalletIdentity(
     }
   }
 
-  const cleanUsername = normalizeTelegramUsername(query)
-  if (!/^[a-z0-9_]{3,32}$/.test(cleanUsername)) return null
-  const raw = await kvGet(`wlink:${network}:uname:${cleanUsername}`, env)
-  if (!raw) return null
-  try {
-    return JSON.parse(raw) as StoredWalletLink
-  } catch {
-    return null
-  }
+  return resolveFromAstroWalletDirectory(cleanUsername, network, env)
 }
 
 export async function getVerifiedWalletVault(

@@ -194,7 +194,7 @@ export function TelegramLandingGate({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-xs font-semibold text-slate-200 hover:border-sky-400/40 hover:text-white transition-colors"
               >
-                💬 Community (@AstroGateCommunity)
+                💬 Community (@AstroSoroban)
               </a>
               <a
                 href={TELEGRAM_FEED_URL}

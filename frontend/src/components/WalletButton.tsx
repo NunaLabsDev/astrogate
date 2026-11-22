@@ -6,6 +6,7 @@ import { fundTestnetAddress, MAX_DEMO_ACCOUNTS } from '../lib/demo'
 import { buildAstroWalletConnectUrl } from '../lib/ecosystem'
 import { errorMessage, shortAddress } from '../lib/format'
 import { NETWORK_NAME } from '../lib/network'
+import { openTelegramDeepLink } from '../lib/telegram'
 import { toast } from '../lib/toast'
 
 export function WalletButton() {
@@ -241,6 +242,10 @@ export function WalletButton() {
           href={astroWalletSsoUrl}
           target="_blank"
           rel="noreferrer"
+          onClick={(e) => {
+            e.preventDefault()
+            openTelegramDeepLink(astroWalletSsoUrl)
+          }}
           title="Connect or sign via AstroWallet AstroID SSO"
           className="hidden sm:inline-flex min-h-[36px] sm:min-h-[40px] items-center whitespace-nowrap rounded-xl border border-violet-400/45 bg-violet-500/15 px-3 py-1.5 text-xs sm:text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
         >

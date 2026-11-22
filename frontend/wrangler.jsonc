@@ -10,12 +10,21 @@
   "vars": {
     "TELEGRAM_COMMUNITY_CHAT_ID": "-1001625368092",
     "TELEGRAM_FEED_CHAT_ID": "-1003912502880",
-    "TELEGRAM_FOLDER_URL": "https://t.me/addlist/dyMTkV2uU6hmYzE0"
+    "TELEGRAM_FOLDER_URL": "https://t.me/addlist/dyMTkV2uU6hmYzE0",
+    "TELEGRAM_MAIN_APP_ENABLED": "true",
+    "TELEGRAM_MINI_APP_SHORT_NAME": "app",
+    "ASTROWALLET_API_BASE_URL": "https://astrowallet-soroban.pages.dev"
   },
   "kv_namespaces": [
     {
       "binding": "ASTRO_KV",
       "id": "4e9766f1e476477bb1191f07f9a3c25f"
+    }
+  ],
+  "services": [
+    {
+      "binding": "ASTROWALLET",
+      "service": "astrowallet-server"
     }
   ],
   "ai": {

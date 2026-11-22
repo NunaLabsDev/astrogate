@@ -16,6 +16,7 @@ import {
 } from '../../worker/ai'
 import { buildTelegramLinkMessage } from './hot-wallet/vault'
 import { computePilotPerks, computeQuestSummary } from '../../worker/quests'
+import { resolveWalletIdentity } from '../../worker/wallet'
 import { MAINNET_XLM_SAC, resolveWorkerNetwork } from '../../worker/rpc'
 import {
   buildAccountInspectorView,
@@ -35,6 +36,7 @@ import {
   buildSorobitsView,
   buildTokenInspectorView,
   buildV42RulesView,
+  buildWalletResolveView,
   buildWalletView,
   buildWelcomeView,
   detectStellarAddress,
@@ -1114,7 +1116,7 @@ describe('Telegram bot views & parsers', () => {
       )
       expect(unauth.status).toBe(401)
 
-      // 2. New member joins @AstroGateCommunity -> welcome sent once, deduped on repeat
+      // 2. New member joins @AstroSoroban -> welcome sent once, deduped on repeat
       const joinUpdate = {
         update_id: 10,
         chat_member: {
@@ -1847,7 +1849,7 @@ describe('Telegram bot views & parsers', () => {
     expect(qualifyingPilot.unlocked.whale).toBe(true)
     expect(qualifyingPilot.unlocked.phoenix).toBe(true)
 
-    // 9. Scheduled cron (events + periodic Feed Digest) NEVER posts to @AstroGateCommunity
+    // 9. Scheduled cron (events + periodic Feed Digest) NEVER posts to @AstroSoroban
     const scheduledChatIds: string[] = []
     const origFetch = globalThis.fetch
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -2107,5 +2109,69 @@ describe('Telegram bot views & parsers', () => {
       env,
     )
     expect(vaultExpired.status).toBe(401)
+  })
+
+  it('resolves @username, numeric tgUserId, and G... via ASTROWALLET Service Binding and renders cross-pillar buttons', async () => {
+    const calledUrls: string[] = []
+    const envWithBinding = {
+      ASSETS: { fetch: async () => new Response('ok') },
+      ASTROWALLET: {
+        fetch: async (req: Request | string) => {
+          const u = typeof req === 'string' ? req : req.url
+          calledUrls.push(u)
+          return Response.json({
+            ok: true,
+            found: true,
+            telegramUserId: '5440899836',
+            username: 'nunalabs',
+            primaryAddress: SAMPLE_ACCOUNT,
+            accounts: [{ address: SAMPLE_ACCOUNT, kind: 'classic', label: 'Primary', isDefault: true }],
+          })
+        },
+      },
+    }
+
+    const byUsername = await resolveWalletIdentity('@nunalabs', envWithBinding)
+    const byTgId = await resolveWalletIdentity('5440899836', envWithBinding)
+    const byPk = await resolveWalletIdentity(SAMPLE_ACCOUNT, envWithBinding)
+
+    expect(byUsername?.primaryPublicKey).toBe(SAMPLE_ACCOUNT)
+    expect(byUsername?.username).toBe('nunalabs')
+    expect(byTgId?.primaryPublicKey).toBe(SAMPLE_ACCOUNT)
+    expect(byPk?.primaryPublicKey).toBe(SAMPLE_ACCOUNT)
+    expect(calledUrls).toHaveLength(3)
+    expect(calledUrls[0]).toContain('https://astrowallet.internal/v1/identity/resolve?q=nunalabs')
+
+    // Fallback to HTTP ASTROWALLET_API_BASE_URL when Service Binding is absent
+    const origFetch = globalThis.fetch
+    const httpCalls: string[] = []
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const u = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      httpCalls.push(u)
+      return Response.json({
+        ok: true,
+        found: true,
+        telegramUserId: '5440899836',
+        username: 'nunalabs',
+        primaryAddress: SAMPLE_ACCOUNT,
+        accounts: [{ address: SAMPLE_ACCOUNT }],
+      })
+    }) as typeof fetch
+    try {
+      const viaHttp = await resolveWalletIdentity('@nunalabs', {
+        ASSETS: { fetch: async () => new Response('ok') },
+        ASTROWALLET_API_BASE_URL: 'https://astrowallet-soroban.pages.dev',
+      })
+      expect(viaHttp?.primaryPublicKey).toBe(SAMPLE_ACCOUNT)
+      expect(httpCalls[0]).toBe('https://astrowallet-soroban.pages.dev/v1/identity/resolve?q=nunalabs')
+    } finally {
+      globalThis.fetch = origFetch
+    }
+
+    const resolveView = buildWalletResolveView('@nunalabs', byUsername, undefined, true)
+    expect(resolveView.text).toContain('Linked AstroID Wallet')
+    const allButtons = resolveView.reply_markup.inline_keyboard.flat()
+    expect(allButtons.some((b) => b.text.includes('AstroWallet') && b.url === 'https://t.me/AstroWalletAppBot/wallet')).toBe(true)
+    expect(allButtons.some((b) => b.text.includes('AstroDex') && b.url?.includes(`scan_${SAMPLE_ACCOUNT}`))).toBe(true)
   })
 })

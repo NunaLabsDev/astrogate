@@ -4,7 +4,7 @@
  */
 
 export const TELEGRAM_BOT_USERNAME = 'AstroGateSorobanBot'
-export const TELEGRAM_COMMUNITY_URL = 'https://t.me/AstroGateCommunity'
+export const TELEGRAM_COMMUNITY_URL = 'https://t.me/AstroSoroban'
 export const TELEGRAM_FEED_URL = 'https://t.me/AstroGateFeed'
 export const TELEGRAM_FOLDER_URL = 'https://t.me/addlist/dyMTkV2uU6hmYzE0'
 
@@ -564,6 +564,18 @@ export function openTelegramBiometricSettings(): void {
     bm.openSettings()
   } catch {
     // Unsupported client
+  }
+}
+
+/** Opens a Telegram deep link natively inside Telegram WebApp without leaving the app. */
+export function openTelegramDeepLink(url: string): void {
+  const tg = getTelegramWebApp()
+  if (tg?.openTelegramLink && url.startsWith('https://t.me/')) {
+    tg.openTelegramLink(url)
+    return
+  }
+  if (typeof window !== 'undefined') {
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 

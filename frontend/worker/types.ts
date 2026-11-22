@@ -20,6 +20,7 @@ export interface AiBinding {
 
 export interface Env {
   ASSETS: AssetsBinding
+  ASTROWALLET?: AssetsBinding
   ASTRO_KV?: KVNamespaceLike
   AI?: AiBinding
   TELEGRAM_BOT_TOKEN?: string
@@ -30,7 +31,9 @@ export interface Env {
   TELEGRAM_ADMIN_IDS?: string
   TELEGRAM_FOLDER_URL?: string
   TELEGRAM_MAIN_APP_ENABLED?: string
+  TELEGRAM_MINI_APP_SHORT_NAME?: string
   TELEGRAM_AI_ENABLED?: string
+  ASTROWALLET_API_BASE_URL?: string
   APP_BASE_URL?: string
   STELLAR_NETWORK?: 'testnet' | 'mainnet'
   NETWORK_PASSPHRASE?: string
@@ -75,6 +78,7 @@ export interface TelegramMessage {
   photo?: unknown[]
   reply_to_message?: TelegramMessage
   new_chat_members?: TelegramUser[]
+  left_chat_member?: TelegramUser
 }
 
 export interface TelegramChatMemberUpdated {

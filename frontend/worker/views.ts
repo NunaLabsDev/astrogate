@@ -181,10 +181,14 @@ export function miniAppStartUrl(
   botUsername = DEFAULT_BOT_USERNAME,
   startParam?: string,
   hasMainApp = false,
+  shortName?: string,
 ): string {
-  const base = `https://t.me/${botUsername}`
+  const cleanShort = shortName?.trim()
+  const base = cleanShort
+    ? `https://t.me/${botUsername}/${cleanShort}`
+    : `https://t.me/${botUsername}`
   const param = startParam || 'home'
-  if (hasMainApp) {
+  if (hasMainApp || cleanShort) {
     return `${base}?startapp=${encodeURIComponent(param)}`
   }
   return `${base}?start=${encodeURIComponent(param)}`
@@ -303,6 +307,11 @@ export function buildWelcomeView(
       cbBtn('🏆 Quests', 'nav:qst:e'),
       cbBtn('🧬 SBIT', 'nav:sbt:e'),
       { text: '📤 Share', url: shareUrl(botUsername) },
+    ],
+    [
+      { text: '🛡️ AstroWallet', url: 'https://t.me/AstroWalletAppBot/wallet' },
+      { text: '⚡ AstroDex', url: 'https://t.me/AstroDexBot/dex' },
+      { text: '💬 @AstroSoroban', url: 'https://t.me/AstroSoroban' },
     ],
   ]
 
@@ -532,22 +541,29 @@ export function buildWalletResolveView(
   hasMainApp = false,
 ): BotRenderedView {
   const cleanQuery = escapeHtml(query.trim())
+  const handleLabel = resolved?.username
+    ? `@${escapeHtml(resolved.username)}`
+    : cleanQuery
   const text = resolved
     ? [
-        `🪪 <b>@${escapeHtml(resolved.username)} · Linked Native Wallet</b>`,
+        `🪪 <b>${handleLabel} · Linked AstroID Wallet</b>`,
         ``,
         `✅ <b>Status:</b> ${resolved.verifiedTelegram ? 'Verified Telegram Identity' : 'Self-Signed Stellar Link'}`,
         `⭐ <b>Primary Address:</b> <code>${escapeHtml(resolved.primaryPublicKey)}</code>`,
         `🔐 <b>Linked Wallets:</b> <code>${resolved.wallets.length}</code>`,
         ``,
-        `<i>Send XLM or tokens directly to @${escapeHtml(resolved.username)} inside AstroGate.</i>`,
+        `<i>Synced across AstroWallet, AstroDex &amp; AstroGate.</i>`,
       ].join('\n')
     : [
         `🔎 <b>No Native Wallet Linked for ${cleanQuery}</b>`,
         ``,
-        `This user has not linked an AstroGate native wallet yet.`,
-        `Open the Mini App to create your 1-tap self-custodial wallet and link your <code>@username</code>.`,
+        `This user has not linked an AstroID or AstroGate wallet yet.`,
+        `Open AstroWallet or AstroGate Mini App to create your self-custodial wallet and link your <code>@username</code>.`,
       ].join('\n')
+
+  const astroDexUrl = `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(
+    resolved ? `scan_${resolved.primaryPublicKey}` : 'home',
+  )}`
 
   return {
     text,
@@ -563,6 +579,10 @@ export function buildWalletResolveView(
             botUsername,
             hasMainApp,
           ),
+        ],
+        [
+          { text: '🛡️ AstroWallet', url: 'https://t.me/AstroWalletAppBot/wallet' },
+          { text: '⚡ AstroDex', url: astroDexUrl },
         ],
         [
           cbBtn('📊 Live Curves', 'nav:mkt:e'),
@@ -847,6 +867,10 @@ export function buildTokenInspectorView(
         [
           cbBtn('💬 Shouts', `s:${tokenId}:e`),
           cbBtn('🔄 Refresh', `t:${tokenId}:e`),
+          {
+            text: '📊 AstroDex X-Ray',
+            url: `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(`token_${tokenId}`)}`,
+          },
           { text: '🔗 Explorer', url: explorerUrl },
         ],
         [
@@ -905,6 +929,7 @@ export function buildAccountInspectorView(
           ),
         ],
         [
+          { text: '🛡️ AstroWallet', url: 'https://t.me/AstroWalletAppBot/wallet' },
           { text: '🔗 Stellar Expert', url: explorerUrl },
           cbBtn('🔄 Refresh', `a:${accountId}:e`),
         ],
@@ -972,7 +997,7 @@ export function buildModerationWarningView(
       `🛡️ <b>AstroGate Anti-Scam Guard</b>`,
       ``,
       `${detail} ${deletedInGroup ? 'Message auto-removed.' : 'Please treat this message with caution.'}`,
-      `Official AstroGate surfaces are strictly <b>@${botUsername}</b>, <b>@AstroGateCommunity</b>, and <b>@AstroGateFeed</b>.`,
+      `Official Astro surfaces are strictly <b>@${botUsername}</b>, <b>@AstroSoroban</b>, <b>@AstroWalletAppBot</b>, <b>@AstroDexBot</b>, and <b>@AstroGateFeed</b>.`,
     ].join('\n'),
     reply_markup: {
       inline_keyboard: [
@@ -1434,35 +1459,35 @@ export function buildGroupWelcomeView(
   const keyboard: InlineKeyboardButton[][] = [
     [
       {
-        text: '🌊 Open Mini App',
-        url: miniAppStartUrl(botUsername, 'home', hasMainApp),
+        text: '🛡️ 1. Open AstroWallet',
+        url: 'https://t.me/AstroWalletAppBot/wallet',
       },
       {
-        text: '🧬 Claim Free AGQ01 NFT',
-        url: miniAppStartUrl(botUsername, 'sorobits', hasMainApp),
+        text: '⚡ 2. Open AstroDex',
+        url: 'https://t.me/AstroDexBot/dex',
       },
     ],
     [
-      { text: '📡 Live Alerts Feed', url: 'https://t.me/AstroGateFeed' },
+      {
+        text: '🚀 3. Open AstroGate',
+        url: miniAppStartUrl(botUsername, 'home', hasMainApp),
+      },
       ...(folderUrl && folderUrl.startsWith('https://t.me/')
-        ? [{ text: '📁 Add All 3 Chats', url: folderUrl }]
-        : [
-            {
-              text: '🔥 Market',
-              url: miniAppStartUrl(botUsername, 'market', hasMainApp),
-            },
-          ]),
+        ? [{ text: '📁 Astro Folder', url: folderUrl }]
+        : [{ text: '📡 Live Feed', url: 'https://t.me/AstroGateFeed' }]),
     ],
   ]
 
   return {
+    photoUrl: telegramHeroUrl(DEFAULT_APP_BASE_URL, 'astro-ecosystem-banner.png'),
     text: [
-      `👋 <b>Welcome to AstroGate Community, ${safeName}!</b>`,
+      `👋 <b>Welcome to Astro Soroban, ${safeName}!</b>`,
       ``,
-      `• 🚀 Launch &amp; trade Fair-Flywheel v4.5 tokens on Stellar Soroban`,
-      `• 💬 Paste any <code>$TICKER</code>, <code>CA…</code>, or <code>GA…</code> — or tag <code>@${botUsername}</code> for help`,
-      `• 📡 Automated live alerts stream cleanly in @AstroGateFeed`,
-      `• 🛡️ Never share your <code>S…</code> secret seed in any chat`,
+      `One unified Stellar, Soroban &amp; TON ecosystem inside Telegram:`,
+      `• <b>1. AstroWallet</b> — Vault, <code>/pay</code>, <code>/split</code> &amp; AstroID signer`,
+      `• <b>2. AstroDex</b> — <code>/scan</code>, <code>/chart</code>, <code>/book</code> &amp; <code>/route</code>`,
+      `• <b>3. AstroGate</b> — <code>/market</code>, <code>/king</code>, <code>/launch</code> &amp; <code>/sorobits</code>`,
+      `🛡️ <i>Admins never DM first · Never share your <code>S…</code> key.</i>`,
     ].join('\n'),
     reply_markup: { inline_keyboard: keyboard },
   }
@@ -1505,7 +1530,7 @@ export function buildCommunityDigestView(
   lines.push(
     `🧬 <b>Sorobits (SBIT) Minted On-Chain:</b> <code>${sorobitsTotal}</code>`,
     ``,
-    `<i>Chat &amp; run <code>/market</code>, <code>/king</code>, <code>/quests GA...</code>, or <code>/ask</code> in @AstroGateCommunity.</i>`,
+    `<i>Chat &amp; run <code>/market</code>, <code>/king</code>, <code>/quests GA...</code>, or <code>/ask</code> in @AstroSoroban.</i>`,
     `<i>Built by NunaLabs</i>`,
   )
 
@@ -1521,7 +1546,7 @@ export function buildCommunityDigestView(
       },
     ],
     [
-      { text: '💬 Community Chat', url: 'https://t.me/AstroGateCommunity' },
+      { text: '💬 Community Chat', url: 'https://t.me/AstroSoroban' },
       ...(folderUrl && folderUrl.startsWith('https://t.me/')
         ? [{ text: '📁 All 3 Chats', url: folderUrl }]
         : [
