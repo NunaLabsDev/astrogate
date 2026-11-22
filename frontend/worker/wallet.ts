@@ -476,6 +476,15 @@ export async function resolveWalletIdentity(
   if (!query) return null
   const { network } = resolveWorkerNetwork(env)
 
+  // Priorizar AstroWallet (AstroID SSO — Pillar 1) sobre caché local KV de AstroGate
+  const cleanOrRaw = decodeStellarPublicKey(query) || /^\d+$/.test(query)
+    ? query
+    : normalizeTelegramUsername(query)
+  const astroId = cleanOrRaw
+    ? await resolveFromAstroWalletDirectory(cleanOrRaw, network, env)
+    : null
+  if (astroId) return astroId
+
   if (decodeStellarPublicKey(query)) {
     const pkRaw = await kvGet(`wlink:${network}:pk:${query}`, env)
     if (pkRaw) {
@@ -500,7 +509,7 @@ export async function resolveWalletIdentity(
         return null
       }
     }
-    return resolveFromAstroWalletDirectory(query, network, env)
+    return null
   }
 
   if (/^\d+$/.test(query)) {
@@ -512,7 +521,7 @@ export async function resolveWalletIdentity(
         return null
       }
     }
-    return resolveFromAstroWalletDirectory(query, network, env)
+    return null
   }
 
   const cleanUsername = normalizeTelegramUsername(query)
@@ -526,7 +535,7 @@ export async function resolveWalletIdentity(
     }
   }
 
-  return resolveFromAstroWalletDirectory(cleanUsername, network, env)
+  return null
 }
 
 export async function getVerifiedWalletVault(

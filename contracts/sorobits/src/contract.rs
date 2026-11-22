@@ -283,6 +283,17 @@ impl Sorobits {
         Self::extend_ttl(e);
     }
 
+    /// Configura o desvincula el contrato Launchpad para operar Sorobits de forma autónoma
+    /// (Pilar 4 NFT Marketplace independiente).
+    #[only_admin]
+    pub fn set_launchpad_optional(e: &Env, launchpad: Option<Address>) {
+        match launchpad {
+            Some(lp) => e.storage().instance().set(&DataKey::LaunchpadAddress, &lp),
+            None => e.storage().instance().remove(&DataKey::LaunchpadAddress),
+        }
+        Self::extend_ttl(e);
+    }
+
     pub fn get_launchpad(e: &Env) -> Option<Address> {
         e.storage().instance().get(&DataKey::LaunchpadAddress)
     }
@@ -475,30 +486,50 @@ impl Sorobits {
         }
 
         if archetype_id > 1 {
-            let lp: Address = e
-                .storage()
-                .instance()
-                .get(&DataKey::LaunchpadAddress)
-                .unwrap_or_else(|| panic_with_error!(e, SorobitsError::QuestNotUnlocked));
-            let pilot = LaunchpadPilotClient::new(e, &lp).get_pilot(&user);
-            let unlocked = match archetype_id {
-                2 => pilot.launches > 0,
-                3 => pilot.shouts > 0,
-                4 => pilot.graduations > 0,
-                5 => pilot.trades > 0 || pilot.launches > 0 || pilot.shouts > 0,
-                6 => pilot.volume_xlm_stroops >= WHALE_MIN_VOLUME_STROOPS,
-                7 => pilot.king_shouts > 0 || pilot.burns_triggered >= 3,
-                8 => {
+            let unlocked = match Self::get_launchpad(e) {
+                Some(lp) => {
+                    let pilot = LaunchpadPilotClient::new(e, &lp).get_pilot(&user);
+                    match archetype_id {
+                        2 => pilot.launches > 0,
+                        3 => pilot.shouts > 0,
+                        4 => pilot.graduations > 0,
+                        5 => pilot.trades > 0 || pilot.launches > 0 || pilot.shouts > 0,
+                        6 => pilot.volume_xlm_stroops >= WHALE_MIN_VOLUME_STROOPS,
+                        7 => pilot.king_shouts > 0 || pilot.burns_triggered >= 3,
+                        8 => {
+                            let mut claimed_count = 0u32;
+                            for id in 1..=7u32 {
+                                if Self::has_claimed(e, user.clone(), id) {
+                                    claimed_count += 1;
+                                }
+                            }
+                            claimed_count >= 4
+                                && (pilot.graduations > 0
+                                    || Self::has_claimed(e, user.clone(), 4))
+                        }
+                        _ => false,
+                    }
+                }
+                // Modo autónomo (sin Launchpad vinculado — Pilar 4 NFT Marketplace):
+                // permite desbloquear hitos basados únicamente en progreso propio de Sorobits.
+                None => {
+                    let capsules: u32 = e
+                        .storage()
+                        .persistent()
+                        .get(&DataKey::CapsulesMinted(user.clone()))
+                        .unwrap_or(0);
                     let mut claimed_count = 0u32;
                     for id in 1..=7u32 {
                         if Self::has_claimed(e, user.clone(), id) {
                             claimed_count += 1;
                         }
                     }
-                    claimed_count >= 4
-                        && (pilot.graduations > 0 || Self::has_claimed(e, user.clone(), 4))
+                    match archetype_id {
+                        5 => capsules > 0 || claimed_count >= 1,
+                        8 => claimed_count >= 4 || Self::balance(e, user.clone()) >= 3,
+                        _ => false,
+                    }
                 }
-                _ => false,
             };
             if !unlocked {
                 panic_with_error!(e, SorobitsError::QuestNotUnlocked);

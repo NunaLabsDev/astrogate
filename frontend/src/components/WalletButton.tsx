@@ -216,7 +216,6 @@ export function WalletButton() {
     )
   }
 
-  const hasSavedVault = (hotAccounts?.length ?? 0) > 0
   const hasSavedDemo = (demoAccounts?.length ?? 0) > 0
   const astroWalletSsoUrl = buildAstroWalletConnectUrl()
 
@@ -246,27 +245,19 @@ export function WalletButton() {
             e.preventDefault()
             openTelegramDeepLink(astroWalletSsoUrl)
           }}
-          title="Connect or sign via AstroWallet AstroID SSO"
-          className="hidden sm:inline-flex min-h-[36px] sm:min-h-[40px] items-center whitespace-nowrap rounded-xl border border-violet-400/45 bg-violet-500/15 px-3 py-1.5 text-xs sm:text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
+          title="Open AstroWallet AstroID SSO in Telegram"
+          className="inline-flex min-h-[36px] sm:min-h-[40px] items-center whitespace-nowrap rounded-xl border border-violet-400/45 bg-violet-500/15 px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
         >
-          AstroWallet SSO
+          AstroID
         </a>
       ) : null}
       <button
         type="button"
         disabled={pending}
         onClick={onOpenWallet}
-        className={`min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-bold disabled:opacity-60 ${
-          hasSavedVault
-            ? 'bg-amber-400 text-slate-950 hover:bg-amber-300'
-            : 'bg-emerald-500 text-slate-950 hover:bg-emerald-400'
-        }`}
+        className="min-h-[36px] sm:min-h-[40px] whitespace-nowrap rounded-xl bg-emerald-500 px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
       >
-        {pending
-          ? 'Connecting…'
-          : hasSavedVault
-            ? '🔓 Unlock Vault'
-            : '⚡ Wallet'}
+        {pending ? 'Connecting…' : '⚡ Wallet'}
       </button>
     </div>
   )

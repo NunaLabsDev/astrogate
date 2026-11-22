@@ -1,6 +1,6 @@
 # AstroGate System Architecture
 
-This document explains how AstroGate's smart contracts, client application, cryptographic Hot Wallet vault, Soroswap AMM integration, Sorobits NFTs, and Telegram Worker fit together.
+This document explains how AstroGate's smart contracts, client application, AstroWallet SSO custody integration, Soroswap AMM integration, decoupled Sorobits SEP-50 NFTs, and Telegram Worker fit together.
 
 ---
 
@@ -52,22 +52,20 @@ stateDiagram-v2
 - **Curve Transfer Lock**: During active curve (`lock_until_graduated(gate)`), `transfer` and `transfer_from` reject P2P movements (only the Launchpad gate can move curve tokens). `burn` and `burn_from` stay enabled so `burn_shout` works on the curve. Once `unlock_transfers()` executes at graduation, standard SEP-41 transfers open permanently.
 - **TTL Preservation**: `extend_ttl` bumps instance TTL, `TotalSupply`, creator/lock metadata; `approve` also refreshes TTLs.
 
-### 2.3 `contracts/sorobits` (`astro-sorobits-contract`)
+### 2.3 `contracts/sorobits` (`astro-sorobits-contract`) — Decoupled for Pillar 4 NFT Marketplace
 - SEP-50 NFT contract rendering deterministic `32×32` pixel SVG (`render_svg`, `animated_svg`) from RLE-compressed trait bitmaps (`validate_rle_render_budget` bounds `<= 720` runs and `<= 12,800` SVG bytes), with dynamic Season 2+ layer/palette counts and 48-hour upgrade timelock (`propose_upgrade`/`execute_upgrade`/`cancel_upgrade`).
+- Supports standalone Pillar 4 operation via `set_launchpad_optional(Option<Address>)` and Launchpad-independent quest progression in `claim_quest_badge` (`CapsulesMinted` & collection count) alongside Launchpad telemetry when linked; frontend `src/lib/sorobits.ts` has zero compile-time coupling to Launchpad `token.ts` and surfaces standalone `buildSorobitsMarketplaceUrl` CTAs.
 - Edition-0 Genesis Archetypes (`AGQ01–AGQ08`), two-ledger commit-reveal RNG (`commit_capsule`/`reveal_capsule`, `commit_forge`/`reveal_forge`), and `TokenBaseXp` anti-XP-laundering protection alongside role-gated epigenetic `rank_tier` / `xp_score` progression.
 - `tokens_of_page(owner, offset, limit)` paginated enumeration and `extend_token_ttl` asset TTL refreshing.
 
 ---
 
-## 3. Frontend & Native Cryptographic Wallet (`frontend/src/`)
+## 3. Frontend & Exclusive `AstroWallet` Custody Integration (`frontend/src/`)
 
-- **100% Native Self-Custodial Wallet (`src/lib/hot-wallet/`, `src/lib/wallet-directory.ts`)**:
-  - Zero external wallet extensions required in the main UX: users create or unlock a native Stellar wallet directly inside Telegram Mini App or Web browsers under a single PIN (with optional `Telegram.WebApp.BiometricManager` / WebAuthn PRF quick-unlock).
-  - Keypairs are encrypted client-side with `PBKDF2-SHA256` (`210,000` iterations) + `AES-GCM-256`, binding the account `publicKey` as GCM `additionalData` (AAD).
-  - Unlocks only into volatile memory (`sessionKeys`), clears temporary byte arrays after derivation/import, verifies `Keypair.fromSecret(secret).publicKey() === record.meta.publicKey`, enforces brute-force cooldowns, and auto-locks after `15 minutes` of inactivity (`HOT_IDLE_AUTO_LOCK_MS`).
-  - **Multi-Wallet + `@username` Primary Routing**: Supports up to `10` connected sub-wallets (`MAX_HOT_WALLETS`) with `setPrimaryHotAccount` to designate which `G...` receives P2P transfers/tips addressed to `@username`. Users remain 100% sovereign and can reveal/export any individual `S...` key to manage it externally or import existing `S...` accounts.
-  - **Cross-Device Sync (Telegram ↔ Web)**: Syncs ciphertext to `Telegram.WebApp.CloudStorage` inside Telegram, syncs `AGVAULT1:` encrypted bundles to `/api/v1/wallet/vault` when `initData` is verified, and allows manual `AGVAULT1:<base64>` export/import across browsers.
-  - **Ed25519 Username Binding**: `signTelegramWalletLink` signs `astrogate:link:v1:<network>:<tgUserId>:<username>:<primaryPublicKey>:<wallets>:<timestamp>` with the Primary wallet so `TransferCard` (`resolveUsernameOrAddress`) can send directly to `@username` handles.
+- **Exclusive Pillar 1 `AstroWallet` SSO + AstroConnect v1 Clear-Sign (`src/store/wallet.ts`, `src/lib/signer.ts`):**
+  - `MiniAppShell.tsx` and `WalletButton.tsx` delegate authentication and transaction signing exclusively to `AstroWallet` (`AstroID` SSO + `/api/v1/wallet/connect/requests*` Clear-Sign proxy over `env.ASTROWALLET`, removing `<HotWalletModal />` and Reown `WalletConnectModule` runtime dependencies while retaining disposable Testnet `Demo` accounts and browser kit fallback).
+  - Inside Telegram Mini App, `hydrateFromTelegramCloud` auto-resolves `AstroID` (`GET /api/v1/wallet/resolve?q=<tgUserId|@username>`) with zero clicks and routes `mode: 'wallet'` signatures through `astroWalletConnectSigner`.
+  - Worker `resolveWalletIdentity` (`frontend/worker/wallet.ts`) strictly prioritizes `env.ASTROWALLET` (`resolveFromAstroWalletDirectory`) before consulting fallback `ASTRO_KV` records.
 - **Stellar Reserve Validation (`src/lib/xlm.ts`)**:
   - Reads exact `subentry_count`, `num_sponsoring`, `num_sponsored`, and `selling_liabilities` from Horizon to enforce `(2 + subentries + sponsoring - sponsored) * 0.5 XLM + liabilities + 0.5 XLM` fee headroom before signing.
 - **Multi-RPC Failover (`src/lib/network.ts`)**:
@@ -81,7 +79,7 @@ stateDiagram-v2
 
 - **Unified Domain Architecture (`https://astrogate.pages.dev`)**:
   - Static SPA assets (`/*`) are served directly from Cloudflare Pages edge CDN.
-  - Dynamic routes (`/telegram/webhook`, `/api/*`, `/mcp`, `/openapi.json`, `/health`, `/.well-known/stellar.toml`) are routed via thin Cloudflare Pages Functions (`frontend/functions/`) over an internal `ASTROW` Service Binding to the `astrogate-stellar` Worker (`workers_dev: false`), keeping same-origin API calls free of CORS overhead and running the `*/2 * * * *` Soroban event cron inside `astrogate-stellar`.
+  - Dynamic routes (`/telegram/webhook`, `/api/*`, `/mcp`, `/openapi.json`, `/health`, `/.well-known/stellar.toml`) are routed via thin Cloudflare Pages Functions (`frontend/functions/`) over an internal `ASTROW` Service Binding to the `astrogate-stellar` Worker (`workers_dev: false`), keeping same-origin API calls free of CORS overhead and running the `*/5 * * * *` Soroban event cron inside `astrogate-stellar`.
 - **Separation of Chat Roles**:
   - **`@AstroGateFeed`** (`TELEGRAM_FEED_CHAT_ID`): Receives ALL automated spam-filtered protocol alerts (`launch`, buys/sells `>= 2 XLM`, `>= 80%` near-graduation pushes, graduations, DEX buybacks, Stage-2 milestones, Burn-to-Chat shouts, Sorobits mints & rank evolutions).
   - **`@AstroGateCommunity`** (`TELEGRAM_COMMUNITY_CHAT_ID`): **Zero automated broadcasts** (`community: false` for all parsed contract events). Responds strictly to interactive commands (`/market`, `/king`, `/token`, `/wallet`, `/wallet @user`, `/quests`, `/sorobits`, etc.), `$TICKER` lookups, and secret-seed auto-deletion guards.

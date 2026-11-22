@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildAstroDexMarketUrl,
   buildAstroWalletConnectUrl,
+  buildSorobitsMarketplaceUrl,
   getAstroWalletApiBaseUrl,
   resolveAstroWalletIdentity,
 } from './ecosystem'
@@ -74,5 +75,24 @@ describe('ecosystem helpers (AstroWallet SSO & AstroDex)', () => {
       },
     })
     expect(offline).toBeNull()
+  })
+
+  it('builds standalone Sorobits Marketplace URLs via HTTPS base or Telegram bot deep link', () => {
+    expect(
+      buildSorobitsMarketplaceUrl({
+        baseUrl: 'https://sorobits.market/',
+        tokenId: 42,
+      }),
+    ).toBe('https://sorobits.market/sorobits/42')
+
+    expect(
+      buildSorobitsMarketplaceUrl({
+        botUsername: '@AstroMarketBot',
+        shortName: 'market',
+        tokenId: 7,
+      }),
+    ).toBe('https://t.me/AstroMarketBot/market?startapp=sorobit_7')
+
+    expect(buildSorobitsMarketplaceUrl({ baseUrl: 'http://evil.example' })).toBeNull()
   })
 })

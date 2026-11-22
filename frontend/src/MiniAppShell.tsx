@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { Link, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { WalletButton } from './components/WalletButton'
-import { HotWalletModal } from './components/HotWalletModal'
 import { ScrollToTop } from './components/ScrollToTop'
 import { OfflineBanner } from './components/OfflineBanner'
 import { SplashScreen } from './components/SplashScreen'
@@ -225,7 +224,6 @@ export default function MiniAppShell() {
         </div>
       </nav>
 
-      <HotWalletModal />
       <SplashScreen />
     </div>
   )

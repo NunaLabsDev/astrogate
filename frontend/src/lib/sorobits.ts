@@ -2,10 +2,11 @@ import type { Signer } from '@stellar/stellar-sdk/contract'
 import { Keypair, rpc as sorobanRpc } from '@stellar/stellar-sdk'
 
 import { Client as SorobitsClient } from '../contracts/sorobits'
-import { launchpadClient } from './token'
+import { Client as LaunchpadClient } from '../contracts/launchpad'
 import {
   DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
+  LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
   RPC_URL,
   SOROBITS_CONTRACT_ID,
@@ -726,10 +727,16 @@ export async function mintCapsuleOnChain(
 export async function fetchLaunchpadPilotTelemetry(
   ownerAddress: string,
 ): Promise<LaunchpadPilotTelemetry | null> {
-  if (!isStellarAccount(ownerAddress)) return null
+  if (!LAUNCHPAD_CONTRACT_ID || !isStellarAccount(ownerAddress)) return null
   try {
     return await executeWithRpcFailover(async (rpcUrl) => {
-      const tx = await launchpadClient(undefined, rpcUrl).get_pilot({
+      const lpClient = new LaunchpadClient({
+        contractId: LAUNCHPAD_CONTRACT_ID,
+        networkPassphrase: NETWORK_PASSPHRASE,
+        rpcUrl,
+        publicKey: READONLY_SOURCE,
+      })
+      const tx = await lpClient.get_pilot({
         user: ownerAddress,
       })
       const rec = unwrapSorobitOk<{

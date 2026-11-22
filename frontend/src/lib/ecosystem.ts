@@ -79,6 +79,46 @@ export function buildAstroDexMarketUrl(params?: {
   return `${base}?startapp=${encodeURIComponent(startParam)}`
 }
 
+export function buildSorobitsMarketplaceUrl(params?: {
+  tokenId?: number
+  baseUrl?: string
+  botUsername?: string
+  shortName?: string
+}): string | null {
+  const directBase = (params?.baseUrl ?? readEnvString('VITE_SOROBITS_MARKETPLACE_URL'))?.replace(
+    /\/+$/,
+    '',
+  )
+  if (directBase) {
+    try {
+      const parsed = new URL(directBase)
+      if (
+        parsed.protocol === 'https:' ||
+        (parsed.protocol === 'http:' && (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'))
+      ) {
+        return typeof params?.tokenId === 'number' && params.tokenId > 0
+          ? `${directBase}/sorobits/${params.tokenId}`
+          : directBase
+      }
+    } catch {
+      return null
+    }
+  }
+  const bot = cleanBotUsername(
+    params?.botUsername ?? readEnvString('VITE_ASTROMARKET_BOT_USERNAME'),
+  )
+  if (!bot) return null
+  const short = cleanShortName(
+    params?.shortName ?? readEnvString('VITE_ASTROMARKET_MINI_APP_SHORT_NAME'),
+  )
+  const base = short ? `https://t.me/${bot}/${short}` : `https://t.me/${bot}`
+  const startParam =
+    typeof params?.tokenId === 'number' && params.tokenId > 0
+      ? `sorobit_${params.tokenId}`
+      : 'tab_marketplace'
+  return `${base}?startapp=${encodeURIComponent(startParam)}`
+}
+
 /**
  * Resolves a Telegram user ID or @username via AstroWallet's public AstroID directory
  * (`/v1/identity/resolve`). Returns null cleanly when unconfigured or offline.

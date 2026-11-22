@@ -62,7 +62,7 @@ function walletCorsHeaders(request: Request, env: Env): Record<string, string> {
     ...SECURITY_RESPONSE_HEADERS,
     'Access-Control-Allow-Origin': allowedOrigin,
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, X-Telegram-Init-Data',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Telegram-Init-Data, X-Connect-Token',
     Vary: 'Origin',
     'Cache-Control': 'no-store',
   }
@@ -473,6 +473,46 @@ export async function handlePublicApiRequest(
     }
   }
 
+  if (path === '/api/v1/wallet/connect/requests' && request.method === 'POST') {
+    const walletCors = walletCorsHeaders(request, env)
+    if (!env.ASTROWALLET && !env.ASTROWALLET_API_BASE_URL) {
+      return jsonOk(
+        { ok: false, error: 'AstroWallet Connect service binding is not configured' },
+        503,
+        walletCors,
+      )
+    }
+    try {
+      const bodyText = await request.text()
+      const initHeaders = new Headers({ 'Content-Type': 'application/json' })
+      const initData = request.headers.get('X-Telegram-Init-Data')?.trim()
+      if (initData) initHeaders.set('X-Telegram-Init-Data', initData)
+
+      const upstreamRes = env.ASTROWALLET
+        ? await env.ASTROWALLET.fetch('https://astrowallet.internal/v1/connect/requests', {
+            method: 'POST',
+            headers: initHeaders,
+            body: bodyText,
+          })
+        : await fetch(
+            `${env.ASTROWALLET_API_BASE_URL!.replace(/\/+$/, '')}/v1/connect/requests`,
+            {
+              method: 'POST',
+              headers: initHeaders,
+              body: bodyText,
+            },
+          )
+      const data = await upstreamRes.json().catch(() => ({}))
+      return jsonOk(data, upstreamRes.status, walletCors)
+    } catch (err) {
+      return jsonOk(
+        { ok: false, error: err instanceof Error ? err.message : 'AstroConnect proxy failed' },
+        502,
+        walletCors,
+      )
+    }
+  }
+
   if (request.method !== 'GET') {
     return jsonError('Method Not Allowed', 405)
   }
@@ -599,6 +639,34 @@ export async function handlePublicApiRequest(
       return jsonOk({ ok: true, found: true, ...link }, 200, {
         'Cache-Control': 'no-store',
       })
+    }
+
+    const connectReqMatch = /^\/api\/v1\/wallet\/connect\/requests\/([A-Za-z0-9_-]{8,96})$/.exec(path)
+    if (connectReqMatch?.[1]) {
+      const walletCors = walletCorsHeaders(request, env)
+      const connectToken = request.headers.get('X-Connect-Token')?.trim()
+      if (!connectToken) {
+        return jsonOk({ ok: false, error: 'Missing X-Connect-Token header' }, 401, walletCors)
+      }
+      if (!env.ASTROWALLET && !env.ASTROWALLET_API_BASE_URL) {
+        return jsonOk(
+          { ok: false, error: 'AstroWallet Connect service binding is not configured' },
+          503,
+          walletCors,
+        )
+      }
+      const reqId = connectReqMatch[1]
+      const upstreamRes = env.ASTROWALLET
+        ? await env.ASTROWALLET.fetch(
+            `https://astrowallet.internal/v1/connect/requests/${reqId}`,
+            { headers: { 'X-Connect-Token': connectToken } },
+          )
+        : await fetch(
+            `${env.ASTROWALLET_API_BASE_URL!.replace(/\/+$/, '')}/v1/connect/requests/${reqId}`,
+            { headers: { 'X-Connect-Token': connectToken } },
+          )
+      const data = await upstreamRes.json().catch(() => ({}))
+      return jsonOk(data, upstreamRes.status, walletCors)
     }
 
     if (path === '/api/v1/wallet/vault') {

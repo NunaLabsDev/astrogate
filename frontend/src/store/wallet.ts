@@ -1,14 +1,11 @@
 import { create } from 'zustand'
 import { Networks, StellarWalletsKit } from '@creit.tech/stellar-wallets-kit'
 import { defaultModules } from '@creit.tech/stellar-wallets-kit/modules/utils'
-import {
-  WalletConnectModule,
-  WalletConnectTargetChain,
-} from '@creit.tech/stellar-wallets-kit/modules/wallet-connect'
 import type { Signer } from '@stellar/stellar-sdk/contract'
 import { BRAND } from '../lib/brand'
+import { isValidStellarAddress } from '../lib/address'
 import { NETWORK_NAME, networkStorageKey } from '../lib/network'
-import { walletSigner } from '../lib/signer'
+import { astroWalletConnectSigner, walletSigner } from '../lib/signer'
 import { readStorageString, removeStorageKey, writeStorageString } from '../lib/storage'
 import {
   changeVaultPin,
@@ -42,7 +39,11 @@ import {
   type HotAccountMeta,
   type TelegramWalletLinkMeta,
 } from '../lib/hot-wallet'
-import { readTelegramUser } from '../lib/telegram'
+import {
+  getTelegramWebApp,
+  openTelegramDeepLink,
+  readTelegramUser,
+} from '../lib/telegram'
 import {
   fetchRemoteTelegramWalletVault,
   publishWalletTelegramLink,
@@ -62,37 +63,78 @@ import {
   type DemoAccount,
 } from '../lib/demo'
 
-const wcProjectId = import.meta.env.VITE_WC_PROJECT_ID?.trim() ?? ''
-
 /** Origin tolerante a SSR (el smoke test renderiza en node sin window). */
 function appOrigin(): string {
   return globalThis.location?.origin ?? 'https://astrogate.local'
 }
 
 /**
- * Módulos de wallet: los nativos siempre; WalletConnect v2 (Freighter Mobile,
- * xBull móvil, etc. vía QR) solo si hay `VITE_WC_PROJECT_ID` de Reown Cloud
- * (https://cloud.reown.com, gratis). Nuestros flujos solo necesitan
- * signTransaction/signAndSubmitTransaction, y WalletConnect los cubre.
+ * Módulos de wallet de escritorio / navegador (fallback fuera de Telegram).
+ * En Telegram Mini App y móviles, la firma y custodia pasan exclusivamente
+ * por AstroWallet (Pillar 1 AstroConnect v1 / AstroID SSO).
  */
 function walletModules() {
-  if (!wcProjectId) return defaultModules()
-  const targetChain =
-    NETWORK_NAME === 'mainnet'
-      ? WalletConnectTargetChain.PUBLIC
-      : WalletConnectTargetChain.TESTNET
-  return defaultModules().concat(
-    new WalletConnectModule({
-      projectId: wcProjectId,
-      metadata: {
-        name: `${BRAND.emoji} ${BRAND.name}`,
-        description: BRAND.manifestDescription,
-        url: appOrigin(),
-        icons: [`${appOrigin()}/icon-192.png`],
+  return defaultModules()
+}
+
+async function connectViaAstroWalletSso(): Promise<
+  | { kind: 'connected'; address: string; username?: string | null }
+  | { kind: 'unavailable' }
+> {
+  const initData = getTelegramWebApp()?.initData?.trim()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (initData) headers['X-Telegram-Init-Data'] = initData
+
+  const createRes = await fetch('/api/v1/wallet/connect/requests', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      action: 'auth',
+      app: {
+        name: BRAND.name,
+        origin: appOrigin(),
       },
-      allowedChains: [targetChain],
+      payload: {
+        humanSummary: `Sign in to ${BRAND.name} via AstroWallet`,
+      },
     }),
-  )
+  })
+
+  if (createRes.status === 503 || createRes.status === 404) {
+    return { kind: 'unavailable' }
+  }
+  const created = (await createRes.json().catch(() => ({}))) as {
+    requestId?: string
+    resultToken?: string
+    deepLink?: string
+    error?: string
+  }
+  if (!createRes.ok || !created.requestId || !created.resultToken) {
+    throw new Error(created.error ?? 'Failed to initialize AstroWallet SSO session.')
+  }
+  if (created.deepLink) {
+    openTelegramDeepLink(created.deepLink)
+  }
+
+  const deadline = Date.now() + 180_000
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    const pollRes = await fetch(`/api/v1/wallet/connect/requests/${created.requestId}`, {
+      headers: { 'X-Connect-Token': created.resultToken },
+    })
+    if (!pollRes.ok) continue
+    const poll = (await pollRes.json().catch(() => ({}))) as {
+      status?: string
+      result?: { address?: string; reason?: string }
+    }
+    if (poll.status === 'approved' && poll.result?.address && isValidStellarAddress(poll.result.address)) {
+      return { kind: 'connected', address: poll.result.address }
+    }
+    if (poll.status === 'rejected' || poll.status === 'expired') {
+      throw new Error(poll.result?.reason ?? `AstroWallet login ${poll.status}.`)
+    }
+  }
+  throw new Error('Timed out waiting for AstroWallet SSO confirmation.')
 }
 
 /**
@@ -159,6 +201,7 @@ type WalletState = {
   pending: boolean
   error: string | null
   mode: WalletMode
+  walletProvider: 'astro' | 'kit'
   /** Embedded self-custodial Hot Wallet Vault metadata & lock state. */
   hotAccounts: HotAccountMeta[]
   hotActiveId: string | null
@@ -246,6 +289,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   pending: false,
   error: null,
   mode: startInDemo ? 'demo' : startInHot ? 'hot' : 'wallet',
+  walletProvider: 'astro',
   hotAccounts: initialHot.accounts,
   hotActiveId: initialHot.activeId,
   hotPrimaryId: initialHot.primaryId,
@@ -271,18 +315,9 @@ export const useWallet = create<WalletState>((set, get) => ({
   demoStage: null,
   demoError: null,
 
-  openWalletModal: (view) =>
-    set((state) => ({
-      walletModalOpen: true,
-      walletModalView:
-        view ??
-        (state.hotAccounts.length > 0
-          ? state.hotUnlocked && state.mode === 'hot' && state.publicKey
-            ? 'manage'
-            : 'unlock'
-          : 'connect'),
-      error: null,
-    })),
+  openWalletModal: (_view) => {
+    void get().connect()
+  },
 
   closeWalletModal: () => set({ walletModalOpen: false, error: null }),
 
@@ -294,6 +329,51 @@ export const useWallet = create<WalletState>((set, get) => ({
 
   hydrateFromTelegramCloud: async () => {
     void get().refreshBiometricCapability()
+    const current = get()
+    const tgUser = readTelegramUser()
+    // 0-click AstroID SSO auto-resolution inside Telegram Mini App
+    if (
+      !current.publicKey &&
+      current.mode !== 'demo' &&
+      (tgUser.id || tgUser.username) &&
+      typeof fetch === 'function'
+    ) {
+      const q = tgUser.id ? String(tgUser.id) : tgUser.username!
+      try {
+        const res = await fetch(`/api/v1/wallet/resolve?q=${encodeURIComponent(q)}`)
+        if (res.ok) {
+          const data = (await res.json()) as {
+            found?: boolean
+            primaryPublicKey?: string
+            username?: string | null
+            tgUserId?: number
+            verifiedTelegram?: boolean
+          }
+          if (data.found && data.primaryPublicKey && isValidStellarAddress(data.primaryPublicKey)) {
+            saveDemoMode(false)
+            saveHotMode(false)
+            set({
+              mode: 'wallet',
+              walletProvider: 'astro',
+              publicKey: data.primaryPublicKey,
+              telegramLink: data.username
+                ? {
+                    username: data.username,
+                    tgUserId: data.tgUserId ?? tgUser.id ?? 0,
+                    primaryPublicKey: data.primaryPublicKey,
+                    verifiedTelegram: Boolean(data.verifiedTelegram ?? true),
+                    linkedAt: Date.now(),
+                  }
+                : null,
+            })
+            return
+          }
+        }
+      } catch {
+        // Offline or worker unreachable: proceed cleanly without blocking startup
+      }
+    }
+
     const syncRes = await syncVaultWithTelegramCloud()
     const currentSnap = readHotVaultSnapshot()
     if (currentSnap.cloudBackupEnabled) {
@@ -313,15 +393,15 @@ export const useWallet = create<WalletState>((set, get) => ({
     }
     if (!syncRes.synced) return
     const snap = readHotVaultSnapshot()
-    const current = get()
+    const latestState = get()
     // Never overwrite an active external wallet or demo session when background sync resolves.
-    const hasExternalWallet = current.mode === 'wallet' && Boolean(current.publicKey)
+    const hasExternalWallet = latestState.mode === 'wallet' && Boolean(latestState.publicKey)
     const shouldActivateHot =
       !hasExternalWallet &&
       snap.exists &&
       snap.activePublicKey &&
-      ((syncRes.restoredFromCloud && current.mode !== 'demo' && !current.publicKey) ||
-        (current.mode !== 'demo' && !current.publicKey && loadHotMode()))
+      ((syncRes.restoredFromCloud && latestState.mode !== 'demo' && !latestState.publicKey) ||
+        (latestState.mode !== 'demo' && !latestState.publicKey && loadHotMode()))
 
     if (shouldActivateHot) {
       saveHotMode(true)
@@ -353,12 +433,25 @@ export const useWallet = create<WalletState>((set, get) => ({
   connect: async () => {
     set({ pending: true, error: null })
     try {
+      const sso = await connectViaAstroWalletSso()
+      if (sso.kind === 'connected') {
+        saveDemoMode(false)
+        saveHotMode(false)
+        set({
+          publicKey: sso.address,
+          mode: 'wallet',
+          walletProvider: 'astro',
+          walletModalOpen: false,
+        })
+        return
+      }
       const { address } = await walletKit().authModal()
       saveDemoMode(false)
       saveHotMode(false)
       set({
         publicKey: address,
         mode: 'wallet',
+        walletProvider: 'kit',
         walletModalOpen: false,
       })
     } catch (error) {
@@ -913,7 +1006,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   },
 
   getSigner: () => {
-    const { mode, publicKey, demoAccounts, demoActive } = get()
+    const { mode, publicKey, demoAccounts, demoActive, walletProvider } = get()
     if (!publicKey) return null
     if (mode === 'hot') {
       const signer = getHotWalletSigner(publicKey)
@@ -923,6 +1016,9 @@ export const useWallet = create<WalletState>((set, get) => ({
     if (mode === 'demo') {
       const account = demoAccounts[demoActive]
       return account ? demoSigner(account) : null
+    }
+    if (walletProvider === 'astro' || Boolean(readTelegramUser().id)) {
+      return astroWalletConnectSigner(publicKey)
     }
     return walletSigner(publicKey)
   },

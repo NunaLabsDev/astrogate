@@ -637,3 +637,22 @@ fn test_sorobits_upgrade_timelock_and_invalid_fee_error() {
     client.cancel_upgrade();
     assert!(client.get_pending_upgrade().is_none());
 }
+
+#[test]
+fn test_sorobits_standalone_mode_decouples_from_launchpad() {
+    let (e, _admin, _treasury, collector, client) = setup(10);
+    let mock_lp = e.register(MockPilotLaunchpad, ());
+    client.set_launchpad(&mock_lp);
+    assert_eq!(client.get_launchpad(), Some(mock_lp));
+
+    // Unlink launchpad -> standalone Pillar 4 NFT Marketplace mode
+    client.set_launchpad_optional(&None);
+    assert_eq!(client.get_launchpad(), None);
+
+    // Claiming Pioneer badge (1) unlocks archetype 5 via standalone progress
+    client.claim_quest_badge(&collector, &1);
+    let trader_id = client.claim_quest_badge(&collector, &5);
+    assert_eq!(client.owner_of(&trader_id), collector);
+    // Launchpad-only quest (e.g. 2: Deployer) still rejects without Launchpad
+    assert!(client.try_claim_quest_badge(&collector, &2).is_err());
+}

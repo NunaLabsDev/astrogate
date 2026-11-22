@@ -9,6 +9,7 @@ import {
   type QuestProgressSummary,
 } from '../../worker/quests'
 import { explorerAccountUrl, explorerContractUrl } from '../lib/explorer'
+import { buildSorobitsMarketplaceUrl } from '../lib/ecosystem'
 import { errorMessage, shortAddress } from '../lib/format'
 import { formatUsdPrice } from '../lib/soroswap'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve } from '../lib/xlm'
@@ -621,6 +622,19 @@ export function SorobitsPage() {
             >
               👛 Portfolio
             </Link>
+            {(() => {
+              const marketUrl = buildSorobitsMarketplaceUrl()
+              return marketUrl ? (
+                <a
+                  href={marketUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-violet-500/40 bg-violet-500/15 px-3.5 py-2.5 text-xs font-semibold text-violet-200 hover:bg-violet-500/25 transition"
+                >
+                  🏛️ Pillar 4 NFT Market
+                </a>
+              ) : null
+            })()}
           </div>
         </div>
 
