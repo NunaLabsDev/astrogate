@@ -5,6 +5,8 @@
 
 export const TELEGRAM_BOT_USERNAME = 'AstroGateSorobanBot'
 export const TELEGRAM_COMMUNITY_URL = 'https://t.me/AstroGateCommunity'
+export const TELEGRAM_FEED_URL = 'https://t.me/AstroGateFeed'
+export const TELEGRAM_FOLDER_URL = 'https://t.me/addlist/dyMTkV2uU6hmYzE0'
 
 export interface TelegramCloudStorage {
   setItem: (
@@ -78,6 +80,31 @@ export interface TelegramWebApp {
     impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void
     notificationOccurred: (type: 'error' | 'success' | 'warning') => void
   }
+  BiometricManager?: TelegramBiometricManager
+}
+
+export interface TelegramBiometricManager {
+  isInited: boolean
+  isBiometricAvailable: boolean
+  biometricType: 'finger' | 'face' | 'unknown'
+  isAccessRequested: boolean
+  isAccessGranted: boolean
+  isBiometricTokenSaved: boolean
+  deviceId: string
+  init: (callback?: () => void) => TelegramBiometricManager
+  requestAccess: (
+    params: { reason?: string },
+    callback?: (granted: boolean) => void,
+  ) => TelegramBiometricManager
+  authenticate: (
+    params: { reason?: string },
+    callback?: (authenticated: boolean, biometricToken?: string) => void,
+  ) => TelegramBiometricManager
+  updateBiometricToken: (
+    token: string,
+    callback?: (updated: boolean) => void,
+  ) => TelegramBiometricManager
+  openSettings: () => TelegramBiometricManager
 }
 
 export interface TelegramContextInfo {
@@ -90,6 +117,7 @@ export interface TelegramContextInfo {
 }
 
 const CLOUD_TIMEOUT_MS = 3_000
+const BIOMETRIC_TIMEOUT_MS = 15_000
 
 export function getTelegramWebApp(): TelegramWebApp | null {
   const win = (globalThis as { window?: { Telegram?: { WebApp?: TelegramWebApp } } })
@@ -144,6 +172,107 @@ export function telegramMiniAppUrl(startParam?: string): string {
   return startParam
     ? `${base}?start=${encodeURIComponent(startParam)}`
     : base
+}
+
+/**
+ * Extracts raw Telegram WebApp `initData` strictly when signed (`hash=` & `auth_date=`),
+ * checking `window.Telegram.WebApp.initData` first and `#tgWebAppData=...` URL hash fallback.
+ */
+export function getTelegramInitDataRaw(): string {
+  const win = (
+    globalThis as {
+      window?: {
+        Telegram?: { WebApp?: TelegramWebApp }
+        location?: { hash?: string }
+      }
+    }
+  ).window
+  let candidate = win?.Telegram?.WebApp?.initData?.trim() || ''
+  if (!candidate) {
+    const rawHash = win?.location?.hash?.trim() || ''
+    if (rawHash) {
+      const cleaned = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash
+      const hashParam = new URLSearchParams(cleaned).get('tgWebAppData')?.trim()
+      if (hashParam) candidate = hashParam
+    }
+  }
+  if (!candidate) return ''
+  const parsed = new URLSearchParams(candidate)
+  if (!parsed.get('hash')?.trim() || !parsed.get('auth_date')?.trim()) {
+    return ''
+  }
+  return candidate
+}
+
+/** Maps a web pathname to an internal Telegram bot start deep link (`?start=...`). */
+export function buildTelegramDeepLinkForPath(pathname: string): string {
+  const clean = pathname.trim().replace(/\/+$/, '') || '/'
+  const tokenMatch = /^\/token\/(C[A-Z2-7]{55})$/.exec(clean)
+  if (tokenMatch?.[1]) {
+    return telegramMiniAppUrl(tokenMatch[1])
+  }
+  const routeMap: Record<string, string> = {
+    '/market': 'market',
+    '/dex': 'dex',
+    '/create': 'create',
+    '/sorobits': 'sorobits',
+    '/portfolio': 'portfolio',
+    '/docs': 'docs',
+  }
+  const param = routeMap[clean] ?? 'home'
+  return telegramMiniAppUrl(param)
+}
+
+export interface TelegramVerifiedUser {
+  id: number
+  firstName?: string
+  username?: string | null
+}
+
+export type TelegramSessionVerificationResult =
+  | { status: 'verified'; user: TelegramVerifiedUser }
+  | { status: 'rejected'; reason: string }
+  | { status: 'network_error'; reason: string }
+
+/** Verifies Telegram WebApp `initData` HMAC-SHA256 signature against the Cloudflare Worker. */
+export async function verifyTelegramSession(
+  initData: string,
+): Promise<TelegramSessionVerificationResult> {
+  const clean = initData.trim()
+  if (!clean) {
+    return { status: 'rejected', reason: 'Invalid or expired Telegram session' }
+  }
+  try {
+    const signal =
+      typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+        ? AbortSignal.timeout(8_000)
+        : undefined
+    const res = await fetch('/api/telegram/session', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': clean,
+      },
+      body: '{}',
+      signal,
+    })
+    if (res.status === 401 || res.status === 403) {
+      return { status: 'rejected', reason: 'Invalid or expired Telegram session' }
+    }
+    if (!res.ok) {
+      return { status: 'network_error', reason: 'Could not verify Telegram session' }
+    }
+    const json = (await res.json()) as {
+      ok?: boolean
+      user?: TelegramVerifiedUser
+    }
+    if (json?.ok && json.user && typeof json.user.id === 'number') {
+      return { status: 'verified', user: json.user }
+    }
+    return { status: 'network_error', reason: 'Could not verify Telegram session' }
+  } catch {
+    return { status: 'network_error', reason: 'Could not verify Telegram session' }
+  }
 }
 
 /** Promisified CloudStorage wrappers with timeout guard so broken WebViews never hang. */
@@ -339,6 +468,105 @@ export function triggerTelegramHaptic(
   }
 }
 
+export function isTelegramBiometricSupported(): boolean {
+  const tg = getTelegramWebApp()
+  if (!tg?.BiometricManager) return false
+  if (typeof tg.isVersionAtLeast === 'function' && !tg.isVersionAtLeast('7.2')) {
+    return false
+  }
+  return true
+}
+
+function runBiometricOp<T>(
+  fallback: T,
+  timeoutMs: number,
+  exec: (resolve: (value: T) => void) => void,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true
+        resolve(fallback)
+      }
+    }, timeoutMs)
+
+    const done = (val: T) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(val)
+    }
+
+    try {
+      exec(done)
+    } catch {
+      done(fallback)
+    }
+  })
+}
+
+export async function initTelegramBiometric(): Promise<TelegramBiometricManager | null> {
+  const bm = getTelegramWebApp()?.BiometricManager
+  if (!bm || !isTelegramBiometricSupported()) return null
+  if (bm.isInited) return bm
+  return runBiometricOp<TelegramBiometricManager | null>(null, CLOUD_TIMEOUT_MS, (done) => {
+    bm.init(() => done(getTelegramWebApp()?.BiometricManager ?? bm))
+  })
+}
+
+export async function requestTelegramBiometricAccess(
+  reason = 'Enable fingerprint / Face ID unlock for AstroGate Wallet',
+): Promise<boolean> {
+  const bm = await initTelegramBiometric()
+  if (!bm || !bm.isBiometricAvailable) return false
+  if (bm.isAccessGranted) return true
+  return runBiometricOp<boolean>(false, BIOMETRIC_TIMEOUT_MS, (done) => {
+    bm.requestAccess({ reason }, (granted) => done(Boolean(granted)))
+  })
+}
+
+export async function authenticateTelegramBiometric(
+  reason = 'Unlock AstroGate Wallet',
+): Promise<{ authenticated: boolean; token?: string }> {
+  const bm = await initTelegramBiometric()
+  if (!bm || !bm.isBiometricAvailable || !bm.isAccessGranted) {
+    return { authenticated: false }
+  }
+  return runBiometricOp<{ authenticated: boolean; token?: string }>(
+    { authenticated: false },
+    BIOMETRIC_TIMEOUT_MS,
+    (done) => {
+      bm.authenticate({ reason }, (authenticated, biometricToken) => {
+        done({
+          authenticated: Boolean(authenticated),
+          ...(typeof biometricToken === 'string' && biometricToken.length > 0
+            ? { token: biometricToken }
+            : {}),
+        })
+      })
+    },
+  )
+}
+
+export async function updateTelegramBiometricToken(token: string): Promise<boolean> {
+  const bm = await initTelegramBiometric()
+  if (!bm || !bm.isBiometricAvailable || !bm.isAccessGranted) return false
+  return runBiometricOp<boolean>(false, CLOUD_TIMEOUT_MS, (done) => {
+    bm.updateBiometricToken(token, (updated) => done(Boolean(updated)))
+  })
+}
+
+export function openTelegramBiometricSettings(): void {
+  const bm = getTelegramWebApp()?.BiometricManager
+  if (!bm) return
+  try {
+    bm.openSettings()
+  } catch {
+    // Unsupported client
+  }
+}
+
 /** Shares text + URL directly via Telegram native share sheet when inside TMA. */
 export function shareToTelegram(text: string, url: string): void {
   const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`
@@ -369,7 +597,7 @@ export async function notifyTelegramPulse(txHash: string): Promise<void> {
   const clean = txHash.trim().toLowerCase()
   if (!/^[0-9a-f]{64}$/.test(clean) || typeof fetch !== 'function') return
   const pulseUrl = resolvePulseUrl()
-  const initData = getTelegramWebApp()?.initData
+  const initData = getTelegramInitDataRaw()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (initData) headers['X-Telegram-Init-Data'] = initData
   try {

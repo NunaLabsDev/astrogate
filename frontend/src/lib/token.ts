@@ -8,6 +8,7 @@ import type {
   TradeResult,
 } from '../contracts/launchpad/types'
 import {
+  DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
   isRetryableRpcError,
   LAUNCHPAD_CONTRACT_ID,
@@ -95,18 +96,21 @@ export async function launchTokenAtomic(params: {
   const client = launchpadClient(signer)
   const salt = crypto.getRandomValues(new Uint8Array(32))
 
-  const tx = await client.launch_token({
-    params: {
-      creator: signer.address,
-      name,
-      symbol,
-      decimals,
-      initial_supply: initialSupply,
-      token_lp_amount: tokenLpAmount,
-      xlm_lp_amount: xlmLpAmount,
-      salt,
+  const tx = await client.launch_token(
+    {
+      params: {
+        creator: signer.address,
+        name,
+        symbol,
+        decimals,
+        initial_supply: initialSupply,
+        token_lp_amount: tokenLpAmount,
+        xlm_lp_amount: xlmLpAmount,
+        salt,
+      },
     },
-  })
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
 
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
@@ -142,16 +146,19 @@ export async function launchFairAtomic(params: {
   const client = launchpadClient(signer)
   const salt = crypto.getRandomValues(new Uint8Array(32))
 
-  const tx = await client.launch_fair({
-    params: {
-      creator: signer.address,
-      name,
-      symbol,
-      xlm_lp_amount: xlmLpAmount,
-      meta,
-      salt,
+  const tx = await client.launch_fair(
+    {
+      params: {
+        creator: signer.address,
+        name,
+        symbol,
+        xlm_lp_amount: xlmLpAmount,
+        meta,
+        salt,
+      },
     },
-  })
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
 
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
@@ -184,12 +191,15 @@ export async function burnAndShout(params: {
 }): Promise<{ hash?: string }> {
   const { tokenId, amount, message, signer, onHash } = params
   const client = launchpadClient(signer)
-  const tx = await client.burn_shout({
-    sender: signer.address,
-    token: tokenId,
-    amount,
-    message,
-  })
+  const tx = await client.burn_shout(
+    {
+      sender: signer.address,
+      token: tokenId,
+      amount,
+      message,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -293,12 +303,15 @@ export async function buyCurveToken(params: {
   onHash?: (hash: string) => void
 }): Promise<{ trade: TradeResult; hash?: string }> {
   const { tokenId, maxXlmIn, minTokensOut, signer, onHash } = params
-  const tx = await launchpadClient(signer).buy_curve({
-    buyer: signer.address,
-    token: tokenId,
-    max_xlm_in: maxXlmIn,
-    min_tokens_out: minTokensOut,
-  })
+  const tx = await launchpadClient(signer).buy_curve(
+    {
+      buyer: signer.address,
+      token: tokenId,
+      max_xlm_in: maxXlmIn,
+      min_tokens_out: minTokensOut,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -320,12 +333,15 @@ export async function sellCurveToken(params: {
   onHash?: (hash: string) => void
 }): Promise<{ trade: TradeResult; hash?: string }> {
   const { tokenId, tokenAmount, minXlmOut, signer, onHash } = params
-  const tx = await launchpadClient(signer).sell_curve({
-    seller: signer.address,
-    token: tokenId,
-    token_amount: tokenAmount,
-    min_xlm_out: minXlmOut,
-  })
+  const tx = await launchpadClient(signer).sell_curve(
+    {
+      seller: signer.address,
+      token: tokenId,
+      token_amount: tokenAmount,
+      min_xlm_out: minXlmOut,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -345,10 +361,13 @@ export async function claimCreatorVesting(params: {
   onHash?: (hash: string) => void
 }): Promise<{ claimed: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).claim_creator_vesting({
-    creator: signer.address,
-    token: tokenId,
-  })
+  const tx = await launchpadClient(signer).claim_creator_vesting(
+    {
+      creator: signer.address,
+      token: tokenId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -368,10 +387,13 @@ export async function refundStalledLaunch(params: {
   onHash?: (hash: string) => void
 }): Promise<{ refunded: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).refund_stalled_launch({
-    creator: signer.address,
-    token: tokenId,
-  })
+  const tx = await launchpadClient(signer).refund_stalled_launch(
+    {
+      creator: signer.address,
+      token: tokenId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -391,9 +413,12 @@ export async function triggerMilestoneBurn(params: {
   onHash?: (hash: string) => void
 }): Promise<{ burned: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).trigger_milestone_burn({
-    token: tokenId,
-  })
+  const tx = await launchpadClient(signer).trigger_milestone_burn(
+    {
+      token: tokenId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -413,9 +438,121 @@ export async function triggerBuybackBurn(params: {
   onHash?: (hash: string) => void
 }): Promise<{ burned: bigint; hash?: string }> {
   const { tokenId, signer, onHash } = params
-  const tx = await launchpadClient(signer).trigger_buyback_burn({
-    token: tokenId,
-  })
+  const tx = await launchpadClient(signer).trigger_buyback_burn(
+    {
+      token: tokenId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Buyback burn error: ${JSON.stringify(err)}`)
+  }
+  return { burned: unwrap.unwrap(), hash }
+}
+
+/** Reads escrowed Spark/Crown jackpot tokens waiting to be claimed after graduation (v4.5). */
+export async function fetchPendingJackpot(
+  tokenId: string,
+  userAddress: string,
+): Promise<bigint> {
+  if (!tokenId || !userAddress) return 0n
+  try {
+    return await executeWithRpcFailover(async (rpcUrl) => {
+      const tx = await launchpadClient(undefined, rpcUrl).get_pending_jackpot({
+        token: tokenId,
+        user: userAddress,
+      })
+      return BigInt(tx.result ?? 0n)
+    })
+  } catch {
+    return 0n
+  }
+}
+
+/** Claims escrowed Spark (+5K) / Crown (+10K) checkpoint jackpots once a token has graduated (v4.5). */
+export async function claimJackpotOnChain(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ claimed: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  const tx = await launchpadClient(signer).claim_jackpot(
+    {
+      user: signer.address,
+      token: tokenId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
+  const sent = await tx.signAndSend()
+  const hash = sent.sendTransactionResponse?.hash
+  if (hash) onHash?.(hash)
+
+  const unwrap = sent.result
+  if (unwrap.isErr()) {
+    const err = unwrap.unwrapErr()
+    throw new Error(err?.message ?? `Claim jackpot error: ${JSON.stringify(err)}`)
+  }
+  return { claimed: unwrap.unwrap(), hash }
+}
+
+/** Checks whether an ungraduated curve has been permanently closed via refund/sweep (v4.5). */
+export async function fetchIsCurveClosed(tokenId: string): Promise<boolean> {
+  if (!tokenId) return false
+  try {
+    return await executeWithRpcFailover(async (rpcUrl) => {
+      const tx = await launchpadClient(undefined, rpcUrl).is_curve_closed({
+        token: tokenId,
+      })
+      return Boolean(tx.result)
+    })
+  } catch {
+    return false
+  }
+}
+
+function isUnsupportedMethodError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return (
+    msg.includes('function') &&
+    (msg.includes('not found') ||
+      msg.includes('missing') ||
+      msg.includes('does not exist') ||
+      msg.includes('invalidaction') ||
+      msg.includes('unknown'))
+  ) || msg.includes('wasm does not have') || msg.includes('not in spec')
+}
+
+/**
+ * Permissionlessly executes anti-MEV DEX Buyback & Burn with 2% (<= 0.05 XLM) keeper gas rebate (v4.5),
+ * falling back cleanly to `trigger_buyback_burn` when talking to a pre-v4.5 contract.
+ */
+export async function triggerBuybackBurnWithBounty(params: {
+  tokenId: string
+  signer: Signer
+  onHash?: (hash: string) => void
+}): Promise<{ burned: bigint; hash?: string }> {
+  const { tokenId, signer, onHash } = params
+  let tx
+  try {
+    tx = await launchpadClient(signer).trigger_buyback_burn_with_bounty(
+      {
+        caller: signer.address,
+        token: tokenId,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+  } catch (err) {
+    if (isUnsupportedMethodError(err)) {
+      return triggerBuybackBurn(params)
+    }
+    throw err
+  }
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -443,7 +580,9 @@ export async function extendTokenTtl(params: {
   let lastError: unknown
 
   try {
-    const tokTx = await tokenClient(tokenId, signer).extend_ttl()
+    const tokTx = await tokenClient(tokenId, signer).extend_ttl({
+      fee: DEFAULT_SOROBAN_INCLUSION_FEE,
+    })
     const sentTok = await tokTx.signAndSend({ force: true })
     lastHash = sentTok.sendTransactionResponse?.hash ?? lastHash
   } catch (err) {
@@ -456,7 +595,10 @@ export async function extendTokenTtl(params: {
   }
 
   try {
-    const lpTx = await launchpadClient(signer).extend_launch_ttl({ token: tokenId })
+    const lpTx = await launchpadClient(signer).extend_launch_ttl(
+      { token: tokenId },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
     const sentLp = await lpTx.signAndSend({ force: true })
     lastHash = sentLp.sendTransactionResponse?.hash ?? lastHash
   } catch (err) {

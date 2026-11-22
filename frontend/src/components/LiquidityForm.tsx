@@ -9,7 +9,13 @@ import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
 import { useXlmBalance } from '../hooks/useXlmBalance'
-import { validateXlmReserve, XLM_DECIMALS, XLM_FEE_BUFFER, xlmToStroops } from '../lib/xlm'
+import {
+  getCachedMinReserveStroops,
+  validateXlmReserve,
+  XLM_DECIMALS,
+  XLM_FEE_BUFFER,
+  xlmToStroops,
+} from '../lib/xlm'
 import { ShareButton } from './ShareButton'
 import type { LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
@@ -39,10 +45,17 @@ export function LiquidityForm({
   const xlmBalance = useXlmBalance(publicKey)
   const xlmBase =
     xlmBalance.data !== undefined ? xlmToStroops(xlmBalance.data) : undefined
+  const accountReserve = getCachedMinReserveStroops(publicKey)
+  const reserveFloor =
+    accountReserve !== undefined
+      ? accountReserve + 5_000_000n
+      : XLM_FEE_BUFFER
+  const effectiveBuffer =
+    reserveFloor > XLM_FEE_BUFFER ? reserveFloor : XLM_FEE_BUFFER
   const maxXlm =
     xlmBase !== undefined
-      ? xlmBase > XLM_FEE_BUFFER
-        ? xlmBase - XLM_FEE_BUFFER
+      ? xlmBase > effectiveBuffer
+        ? xlmBase - effectiveBuffer
         : 0n
       : undefined
   const hasExistingPool = Boolean(

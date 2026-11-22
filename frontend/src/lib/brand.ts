@@ -19,9 +19,9 @@ export const BRAND = {
   taglineEn: 'Open the Floodgates',
   hero: 'Fair Meme Launchpad + AMM on Stellar',
   description:
-    `Launch fair meme tokens in seconds, burn 100% LP permanently to the dead address, and trade live on Stellar ${NETWORK_NAME} — 100% on-chain, zero rug-pulls.`,
+    `Launch Fair-Flywheel v4.5 tokens with 7-year Soroswap LP locks, escrowed 40K jackpots & on-chain Sorobits NFTs on Stellar ${NETWORK_NAME} — exclusively inside Telegram.`,
   manifestDescription:
-    `AstroGate — Fair meme launchpad & instant AMM trading on Stellar ${NETWORK_NAME}.`,
+    `AstroGate — Fair-Flywheel v4.5 Launchpad, Soroswap AMM & Sorobits NFTs on Stellar ${NETWORK_NAME}.`,
   provenance:
     'Union of stellar-core Floodgate (src/overlay/Floodgate.cpp) and Astro meme',
 } as const

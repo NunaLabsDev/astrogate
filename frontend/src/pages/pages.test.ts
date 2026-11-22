@@ -38,6 +38,7 @@ vi.mock('../store/wallet', () => ({
 
 import { CreateTokenForm } from '../components/CreateTokenForm'
 import { SorobitEvolutionModal } from '../components/SorobitEvolutionModal'
+import { TelegramLandingGate } from '../components/TelegramLandingGate'
 import { WalletButton } from '../components/WalletButton'
 import { DexPage } from './DexPage'
 import { DocsPage } from './DocsPage'
@@ -289,6 +290,37 @@ describe('Page Components and Lifecycle', () => {
         ),
       )
       expect(html).toBe('')
+    })
+  })
+
+  describe('TelegramLandingGate', () => {
+    it('renders presentation landing gate with Telegram deep links and session notices', () => {
+      const defaultHtml = renderToString(
+        createElement(TelegramLandingGate, { pathname: '/sorobits' }),
+      )
+      expect(defaultHtml).toContain('Open AstroGate in Telegram')
+      expect(defaultHtml).toContain('https://t.me/AstroGateSorobanBot?start=sorobits')
+      expect(defaultHtml).toContain('Fair-Flywheel v4.5 Curves')
+      expect(defaultHtml).toContain('/.well-known/stellar.toml')
+
+      const expiredHtml = renderToString(
+        createElement(TelegramLandingGate, {
+          pathname: '/',
+          sessionNotice: 'expired',
+        }),
+      )
+      expect(expiredHtml).toContain('Your Telegram session expired')
+      expect(expiredHtml).toContain('Reopen in Telegram')
+
+      const networkErrHtml = renderToString(
+        createElement(TelegramLandingGate, {
+          pathname: '/market',
+          sessionNotice: 'network_error',
+          onRetry: vi.fn(),
+        }),
+      )
+      expect(networkErrHtml).toContain('Retry Verification')
+      expect(networkErrHtml).toContain('https://t.me/AstroGateSorobanBot?start=market')
     })
   })
 })

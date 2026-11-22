@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTokenInfo } from '../hooks/useTokenInfo'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useSoroswapPool } from '../hooks/useSoroswapPool'
@@ -48,6 +48,7 @@ import { useTokenShouts } from '../hooks/useTokenShouts'
 import { isValidContractAddress } from '../lib/address'
 import { analyzeTokenHolders, type HolderRiskLevel } from '../lib/holders'
 import {
+  BUYBACK_MIN_DUST_STROOPS,
   calculateSupplySharePercent,
   curveVirtualReserves,
   DEVELOPER_TREASURY_ADDRESS,
@@ -64,12 +65,15 @@ import {
 } from '../lib/tokenomics'
 import {
   claimCreatorVesting,
+  claimJackpotOnChain,
   extendTokenTtl,
+  fetchPendingJackpot,
   refundStalledLaunch,
-  triggerBuybackBurn,
+  triggerBuybackBurnWithBounty,
   triggerMilestoneBurn,
   type LaunchpadToken,
 } from '../lib/token'
+import { LAUNCHPAD_CONTRACT_ID } from '../lib/network'
 import { getTelegramWebApp, telegramMiniAppUrl } from '../lib/telegram'
 import { DEFAULT_XLM_USD_PRICE, validateXlmReserve, XLM_DECIMALS } from '../lib/xlm'
 import { useXlmBalance } from '../hooks/useXlmBalance'
@@ -197,9 +201,16 @@ export function TokenPage() {
     useState<CurveRewardCelebration | null>(null)
   const [showRewardModal, setShowRewardModal] = useState(false)
   const [dexPanelTab, setDexPanelTab] = useState<'swap' | 'liquidity' | 'tools'>('swap')
+  const [confirmRefund, setConfirmRefund] = useState(false)
   const [busyFlywheel, setBusyFlywheel] = useState<
-    'milestone' | 'vesting' | 'buyback' | 'refund' | null
+    'milestone' | 'vesting' | 'buyback' | 'refund' | 'jackpot' | null
   >(null)
+  const pendingJackpot = useQuery({
+    queryKey: ['pending-jackpot', id, publicKey],
+    queryFn: () => fetchPendingJackpot(id, publicKey!),
+    enabled: Boolean(validId && curve.data?.graduated && publicKey),
+    staleTime: 15_000,
+  })
   const isDeveloperTreasury = Boolean(
     publicKey &&
       DEVELOPER_TREASURY_ADDRESS &&
@@ -242,7 +253,7 @@ export function TokenPage() {
       openWalletModal('connect')
       return
     }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data)
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
     if (xlmReserveError) {
       toast.error('Insufficient XLM reserve', { message: xlmReserveError })
       return
@@ -270,6 +281,11 @@ export function TokenPage() {
       openWalletModal('connect')
       return
     }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) {
       if (useWallet.getState().mode !== 'hot') {
@@ -288,6 +304,7 @@ export function TokenPage() {
         queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
         queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
       ])
     } catch (err) {
@@ -300,6 +317,11 @@ export function TokenPage() {
   async function onClaimCreatorVesting() {
     if (!publicKey) {
       openWalletModal('connect')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
       return
     }
     const signer = requireSignerOrPrompt()
@@ -319,6 +341,7 @@ export function TokenPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['launch-curve', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
       ])
@@ -334,6 +357,11 @@ export function TokenPage() {
       openWalletModal('connect')
       return
     }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) {
       if (useWallet.getState().mode !== 'hot') {
@@ -343,9 +371,9 @@ export function TokenPage() {
     }
     setBusyFlywheel('buyback')
     try {
-      const { burned, hash } = await triggerBuybackBurn({ tokenId: id, signer })
+      const { burned, hash } = await triggerBuybackBurnWithBounty({ tokenId: id, signer })
       toast.success('🔥 Soroswap Buyback & Burn executed!', {
-        message: `Bought & burned ${formatAmount(burned, token.decimals)} $${token.symbol}`,
+        message: `Bought & burned ${formatAmount(burned, token.decimals)} $${token.symbol} (+2% XLM keeper rebate sent)`,
         hash,
       })
       await Promise.all([
@@ -353,10 +381,50 @@ export function TokenPage() {
         queryClient.invalidateQueries({ queryKey: ['soroswap-pool', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
         queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
+        queryClient.invalidateQueries({ queryKey: ['launchpad-pilot'] }),
         queryClient.invalidateQueries({ queryKey: ['token-list'], refetchType: 'none' }),
       ])
     } catch (err) {
       toast.error('Buyback burn unavailable', { message: errorMessage(err) })
+    } finally {
+      setBusyFlywheel(null)
+    }
+  }
+
+  async function onClaimJackpot() {
+    if (!publicKey) {
+      openWalletModal('connect')
+      return
+    }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
+      return
+    }
+    const signer = requireSignerOrPrompt()
+    if (!signer) {
+      if (useWallet.getState().mode !== 'hot') {
+        toast.error('Active wallet does not support signing')
+      }
+      return
+    }
+    setBusyFlywheel('jackpot')
+    try {
+      const { claimed, hash } = await claimJackpotOnChain({ tokenId: id, signer })
+      toast.success('🏆 Escrowed Checkpoint Jackpot claimed!', {
+        message: `Received ${formatAmount(claimed, token.decimals)} $${token.symbol}`,
+        hash,
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['pending-jackpot', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-balance', id] }),
+        queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
+        queryClient.invalidateQueries({ queryKey: ['token-info', id] }),
+        queryClient.invalidateQueries({ queryKey: ['token-events', id] }),
+      ])
+    } catch (err) {
+      toast.error('Jackpot claim unavailable', { message: errorMessage(err) })
     } finally {
       setBusyFlywheel(null)
     }
@@ -367,6 +435,16 @@ export function TokenPage() {
       openWalletModal('connect')
       return
     }
+    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmReserveError) {
+      toast.error('Insufficient XLM reserve', { message: xlmReserveError })
+      return
+    }
+    if (!confirmRefund) {
+      setConfirmRefund(true)
+      return
+    }
+    setConfirmRefund(false)
     const signer = requireSignerOrPrompt()
     if (!signer) {
       if (useWallet.getState().mode !== 'hot') {
@@ -730,7 +808,7 @@ export function TokenPage() {
           {isBondingCurve && info.data.verifiedLaunchpad && owner === null ? (
             <span
               className="shrink-0 rounded-full bg-sky-500/15 border border-sky-500/30 px-2 py-0.5 text-[11px] font-semibold text-sky-300 flex items-center gap-1 whitespace-nowrap"
-              title="Mint renounced & reserves locked in Launchpad v4.3 Virtual Bonding Curve"
+              title="Mint renounced & reserves locked in Launchpad v4.5 Virtual Bonding Curve"
             >
               ⚡ Fair Curve
             </span>
@@ -919,16 +997,39 @@ export function TokenPage() {
                 No external traders remain in this curve after 7 days. Recover your full curve vault XLM or rescue your seed tokens.
               </p>
               <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busyFlywheel !== null}
-                  onClick={() => void onRefundStalledLaunch()}
-                  className="min-h-[38px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
-                >
-                  {busyFlywheel === 'refund'
-                    ? 'Refunding Vault…'
-                    : `🌊 Refund ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM`}
-                </button>
+                {confirmRefund ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busyFlywheel !== null}
+                      onClick={() => void onRefundStalledLaunch()}
+                      className="min-h-[38px] rounded-xl bg-rose-500 px-3 py-2 font-bold text-white hover:bg-rose-400 disabled:opacity-50"
+                    >
+                      {busyFlywheel === 'refund'
+                        ? 'Refunding Vault…'
+                        : `⚠️ Confirm Refund ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM`}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyFlywheel !== null}
+                      onClick={() => setConfirmRefund(false)}
+                      className="min-h-[38px] rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busyFlywheel !== null}
+                    onClick={() => void onRefundStalledLaunch()}
+                    className="min-h-[38px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-50"
+                  >
+                    {busyFlywheel === 'refund'
+                      ? 'Refunding Vault…'
+                      : `🌊 Refund ${formatAmount(curve.data.real_xlm_vault, XLM_DECIMALS)} XLM`}
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={busyFlywheel !== null}
@@ -975,23 +1076,78 @@ export function TokenPage() {
             </div>
           ) : null}
 
-          {/* Developer-Only Panel: 7-Year LP Lock & Protocol Buyback/Milestone Controls */}
+          {/* Escrowed Checkpoint Jackpot Claim Card */}
+          {!isBondingCurve &&
+          curve.data?.graduated &&
+          (pendingJackpot.data ?? 0n) > 0n ? (
+            <div className="rounded-2xl border border-amber-400/40 bg-amber-950/20 p-4 space-y-2 text-xs sm:text-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-amber-300">
+                  🏆 Escrowed Checkpoint Jackpot Ready!
+                </span>
+                <span className="font-mono font-semibold text-amber-200">
+                  +{formatAmount(pendingJackpot.data!, token.decimals)} ${token.symbol}
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Your 250 XLM Spark or 500 XLM King Crown checkpoint bonus is unlocked and ready to claim from escrow now that ${token.symbol} graduated to Soroswap.
+              </p>
+              <button
+                type="button"
+                disabled={busyFlywheel !== null}
+                onClick={() => void onClaimJackpot()}
+                className="w-full min-h-[40px] rounded-xl bg-amber-400 px-3 py-2 text-xs font-black text-slate-950 hover:bg-amber-300 disabled:opacity-50 transition"
+              >
+                {busyFlywheel === 'jackpot'
+                  ? 'Claiming Jackpot…'
+                  : `🏆 Claim Escrowed Checkpoint Jackpot (+${formatAmount(pendingJackpot.data!, token.decimals)} $${token.symbol})`}
+              </button>
+            </div>
+          ) : null}
+
+          {/* Permissionless Anti-MEV Buyback & Burn Keeper Console (+2% XLM Rebate) */}
+          {!isBondingCurve &&
+          curve.data?.graduated &&
+          curve.data.buyback_xlm_reserve >= BUYBACK_MIN_DUST_STROOPS ? (
+            <div className="rounded-2xl border border-emerald-500/35 bg-slate-900/50 p-4 space-y-2 text-xs sm:text-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold text-emerald-300">
+                  🔥 Permissionless Buyback &amp; Burn Keeper
+                </span>
+                <span className="font-mono text-emerald-200">
+                  {formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM Vault
+                </span>
+              </div>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Any wallet can trigger an anti-MEV capped buyback &amp; burn chunk (min 0.25% pool depth / 0.8000000 XLM) and earn a 2% XLM keeper rebate.
+              </p>
+              <button
+                type="button"
+                disabled={busyFlywheel !== null}
+                onClick={() => void onTriggerBuybackBurn()}
+                className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
+              >
+                {busyFlywheel === 'buyback'
+                  ? 'Executing Buyback & Burn…'
+                  : `🔥 Trigger Buyback & Burn (+2% XLM Keeper Rebate)`}
+              </button>
+            </div>
+          ) : null}
+
+          {/* Developer-Only Panel: 7-Year LP Lock & Protocol Milestone Controls */}
           {isDeveloperTreasury && curve.data && !isBondingCurve ? (
             <details
-              open={
-                Boolean(
-                  (curve.data.graduated &&
-                    curve.data.burn_milestone_stage === 1 &&
-                    pool.data?.exists &&
-                    pool.data.reserveXlm >=
-                      BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT) ||
-                    curve.data.buyback_xlm_reserve > 0n,
-                )
-              }
+              open={Boolean(
+                curve.data.graduated &&
+                  curve.data.burn_milestone_stage === 1 &&
+                  pool.data?.exists &&
+                  pool.data.reserveXlm >=
+                    BigInt(MILESTONE_2_PAIR_XLM) * STROOPS_PER_UNIT,
+              )}
               className="rounded-2xl border border-amber-500/35 bg-slate-900/60 p-4 text-xs"
             >
               <summary className="cursor-pointer select-none font-semibold text-amber-300 flex items-center justify-between gap-2">
-                <span>🛡️ Developer Console · 7Y LP Lock &amp; Buyback</span>
+                <span>🛡️ Developer Console · 7Y LP Lock &amp; Milestone</span>
                 <span className="font-mono text-xs text-slate-400">
                   7Y LP Locked ✓
                 </span>
@@ -1001,18 +1157,6 @@ export function TokenPage() {
                 <p className="text-xs text-slate-300 leading-relaxed">
                   66% curve / 33% Soroswap DEX (LP contract-locked 7 years at graduation) / 0.30% creator / 0.25% graduation jackpot / 0.45% ecosystem.
                 </p>
-                {curve.data.graduated && curve.data.buyback_xlm_reserve > 0n ? (
-                  <button
-                    type="button"
-                    disabled={busyFlywheel !== null}
-                    onClick={() => void onTriggerBuybackBurn()}
-                    className="w-full min-h-[40px] rounded-xl border border-emerald-500/40 bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-200 hover:bg-emerald-500/25 disabled:opacity-45 transition"
-                  >
-                    {busyFlywheel === 'buyback'
-                      ? 'Executing DEX Buyback…'
-                      : `🔥 Trigger DEX Buyback & Burn (${formatAmount(curve.data.buyback_xlm_reserve, XLM_DECIMALS)} XLM)`}
-                  </button>
-                ) : null}
                 {curve.data.graduated &&
                 curve.data.burn_milestone_stage === 1 &&
                 curve.data.burn_vault_remaining > 0n ? (
@@ -1230,10 +1374,9 @@ export function TokenPage() {
                               : entry.tag === 'burn'
                                 ? { text: 'Burned', cls: 'bg-slate-700/40 text-slate-300' }
                                 : { text: 'Wallet', cls: 'bg-sky-500/20 text-sky-300' }
-                        const url =
-                          entry.tag === 'pool'
-                            ? explorerContractUrl(entry.address)
-                            : explorerAccountUrl(entry.address)
+                        const url = entry.address.startsWith('C')
+                          ? explorerContractUrl(entry.address)
+                          : explorerAccountUrl(entry.address)
                         return (
                           <div
                             key={entry.address}
@@ -1309,12 +1452,14 @@ export function TokenPage() {
                     <p className="text-slate-400">Soroswap LP Lock</p>
                     <p className="mt-1 font-semibold text-white">
                       {lpBurn.isPending
-                        ? 'Verifying LP burn…'
-                        : lpBurn.data?.fullyBurned
-                          ? '✓ 100% Withdrawable LP Burned'
-                          : lpBurn.data
-                            ? `${lpBurn.data.burnedPercent.toFixed(1)}% in burn address`
-                            : 'No AMM pair'}
+                        ? 'Verifying LP lock…'
+                        : lpBurn.data?.lpProtection === 'locked-7y'
+                          ? '✓ 100% Initial LP Locked 7 Years (Launchpad)'
+                          : lpBurn.data?.fullyBurned
+                            ? '✓ 100% Withdrawable LP Burned'
+                            : lpBurn.data
+                              ? `${lpBurn.data.burnedPercent.toFixed(1)}% LP protected`
+                              : 'No AMM pair'}
                     </p>
                     {lpBurn.data ? (
                       <div className="mt-1.5 space-y-1">
@@ -1333,14 +1478,25 @@ export function TokenPage() {
                         <p className="font-mono text-[10px] text-slate-400">
                           {formatAmount(lpBurn.data.burnedLp, XLM_DECIMALS)} /{' '}
                           {formatAmount(lpBurn.data.totalSupply, XLM_DECIMALS)} LP @{' '}
-                          <a
-                            href={explorerAccountUrl(STELLAR_BURN_ADDRESS)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sky-400 hover:underline"
-                          >
-                            {shortAddress(STELLAR_BURN_ADDRESS)} ↗
-                          </a>
+                          {lpBurn.data.lpProtection === 'locked-7y' ? (
+                            <a
+                              href={explorerContractUrl(LAUNCHPAD_CONTRACT_ID)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sky-400 hover:underline"
+                            >
+                              {shortAddress(LAUNCHPAD_CONTRACT_ID)} ↗
+                            </a>
+                          ) : (
+                            <a
+                              href={explorerAccountUrl(STELLAR_BURN_ADDRESS)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sky-400 hover:underline"
+                            >
+                              {shortAddress(STELLAR_BURN_ADDRESS)} ↗
+                            </a>
+                          )}
                         </p>
                         <p className="font-mono text-[10px] text-slate-500">
                           + {SOROSWAP_MINIMUM_LIQUIDITY.toString()} stroops locked permanently in Pair
@@ -1666,7 +1822,11 @@ export function TokenPage() {
             <div className="text-[11px] font-mono text-slate-500 px-1">
               Owner:{' '}
               <a
-                href={explorerAccountUrl(owner)}
+                href={
+                  owner.startsWith('C')
+                    ? explorerContractUrl(owner)
+                    : explorerAccountUrl(owner)
+                }
                 target="_blank"
                 rel="noreferrer"
                 className="underline text-slate-400"

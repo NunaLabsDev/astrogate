@@ -36,7 +36,7 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
     emoji: '🚀',
     title: 'Fair Launcher',
     subtitle: 'Sorobits · 2014 Rocket Delta',
-    criteria: 'Launch a Fair-Flywheel v4.4 token on-chain.',
+    criteria: 'Launch a Fair-Flywheel v4.5 token on-chain.',
     imagePath: '/badges/launcher.png',
     tier: 'Silver',
   },
@@ -76,7 +76,7 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
     emoji: '🐳',
     title: 'Curve Trader',
     subtitle: 'Sorobits · Abyssal Circle',
-    criteria: 'Execute at least 1 buy or sell trade on AstroGate curves.',
+    criteria: 'Reach >= 100 XLM cumulative trading volume on AstroGate curves.',
     imagePath: '/badges/whale.png',
     tier: 'Gold',
   },
@@ -86,7 +86,7 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
     emoji: '🔥',
     title: 'Burn Guardian',
     subtitle: 'Sorobits · Burn Phoenix',
-    criteria: 'Crown a King Shout (>= 5,000 tokens) or trigger a supply burn.',
+    criteria: 'Crown a King Shout (>= 5,000 tokens) or trigger 3+ Buyback & Burns.',
     imagePath: '/badges/phoenix.png',
     tier: 'Mythic',
   },
@@ -102,6 +102,8 @@ export const ASTROGATE_QUEST_BADGES: readonly QuestBadgeSpec[] = [
   },
 ] as const
 
+export const WHALE_MIN_VOLUME_STROOPS = 1_000_000_000n // 100.0000000 XLM
+
 export interface QuestProgressSummary {
   accountId: string
   funded: boolean
@@ -113,6 +115,8 @@ export interface QuestProgressSummary {
   swapCount: number
   assetCount: number
   kingBurnCount: number
+  volumeXlmStroops?: string
+  burnsTriggered?: number
   sorobitsIds?: number[]
   sorobitsBalance?: number
 }
@@ -127,11 +131,14 @@ export function computeQuestSummary(input: {
   assetCount?: number
   ecosystemTokenCount?: number
   kingBurnCount?: number
+  volumeXlmStroops?: bigint
+  burnsTriggered?: number
 }): QuestProgressSummary {
   const swapCount = input.swapCount ?? 0
   const assetCount = input.assetCount ?? 0
   const ecosystemTokenCount = input.ecosystemTokenCount
   const kingBurnCount = input.kingBurnCount ?? 0
+  const burnsTriggered = input.burnsTriggered ?? 0
 
   const hasEcosystemAsset =
     ecosystemTokenCount !== undefined
@@ -144,8 +151,11 @@ export function computeQuestSummary(input: {
     shouter: input.shoutCount > 0,
     graduate: input.graduatedCount > 0,
     og: hasEcosystemAsset || input.launchedCount > 0 || swapCount > 0,
-    whale: swapCount > 0 || input.graduatedCount > 0,
-    phoenix: kingBurnCount > 0,
+    whale:
+      input.volumeXlmStroops !== undefined
+        ? input.volumeXlmStroops >= WHALE_MIN_VOLUME_STROOPS
+        : swapCount > 0 || input.graduatedCount > 0,
+    phoenix: kingBurnCount > 0 || burnsTriggered >= 3,
     legend: false,
   }
 
@@ -164,6 +174,10 @@ export function computeQuestSummary(input: {
     swapCount,
     assetCount,
     kingBurnCount,
+    ...(input.volumeXlmStroops !== undefined
+      ? { volumeXlmStroops: input.volumeXlmStroops.toString() }
+      : {}),
+    ...(input.burnsTriggered !== undefined ? { burnsTriggered } : {}),
   }
 }
 

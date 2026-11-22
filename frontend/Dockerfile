@@ -14,6 +14,13 @@ RUN npm ci
 # Copy application source code
 COPY . .
 
+ARG VITE_STELLAR_NETWORK=testnet
+ARG VITE_SOROBAN_RPC_URL=
+ARG VITE_HORIZON_URL=
+ENV VITE_STELLAR_NETWORK=${VITE_STELLAR_NETWORK}
+ENV VITE_SOROBAN_RPC_URL=${VITE_SOROBAN_RPC_URL}
+ENV VITE_HORIZON_URL=${VITE_HORIZON_URL}
+
 # Run production build and stamp service worker
 RUN npm run build
 

@@ -1,4 +1,5 @@
 import { isValidStellarAddress } from './address'
+import { resolveAstroWalletIdentity } from './ecosystem'
 import {
   normalizeTelegramUsername,
   readHotVaultSnapshot,
@@ -7,9 +8,7 @@ import {
   type TelegramWalletLinkMeta,
 } from './hot-wallet'
 import { NETWORK_NAME } from './network'
-import { getTelegramWebApp, readTelegramUser } from './telegram'
-
-const DEFAULT_PUBLIC_ORIGIN = 'https://astrogate.pages.dev'
+import { getTelegramInitDataRaw, readTelegramUser } from './telegram'
 
 export interface ResolvedRecipient {
   address: string
@@ -21,7 +20,7 @@ function directoryEndpoints(path: string, customBase?: string): string[] {
   if (customBase) {
     return [`${customBase.replace(/\/+$/, '')}${path}`]
   }
-  return [path, `${DEFAULT_PUBLIC_ORIGIN}${path}`]
+  return [path]
 }
 
 function timeoutSignal(ms = 5_000): AbortSignal | undefined {
@@ -43,7 +42,7 @@ export async function publishWalletTelegramLink(params: {
   fetchFn?: typeof fetch
 }): Promise<TelegramWalletLinkMeta> {
   const tgUser = readTelegramUser()
-  const tgWebApp = getTelegramWebApp()
+  const initData = getTelegramInitDataRaw()
   const effectiveTgUserId = params.tgUserId ?? tgUser.id ?? 0
 
   const signed = signTelegramWalletLink({
@@ -55,8 +54,8 @@ export async function publishWalletTelegramLink(params: {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-  if (tgWebApp?.initData) {
-    headers['X-Telegram-Init-Data'] = tgWebApp.initData
+  if (initData) {
+    headers['X-Telegram-Init-Data'] = initData
   }
 
   const fetchImpl = params.fetchFn ?? globalThis.fetch
@@ -168,6 +167,13 @@ export async function resolveUsernameOrAddress(
   const fetchImpl = options?.fetchFn ?? globalThis.fetch
   if (typeof fetchImpl !== 'function') return null
 
+  const astroIdMatch = await resolveAstroWalletIdentity(cleanUsername, {
+    fetchFn: fetchImpl,
+  })
+  if (astroIdMatch) {
+    return astroIdMatch
+  }
+
   const queryPath = `/api/v1/wallet/resolve?q=${encodeURIComponent(cleanUsername)}`
   for (const endpoint of directoryEndpoints(queryPath, options?.baseUrl)) {
     try {
@@ -214,7 +220,7 @@ export async function fetchRemoteTelegramWalletVault(options?: {
   link: TelegramWalletLinkMeta | null
   encryptedVaultBundle: string | null
 } | null> {
-  const initData = getTelegramWebApp()?.initData?.trim()
+  const initData = getTelegramInitDataRaw()
   if (!initData) return null
 
   const fetchImpl = options?.fetchFn ?? globalThis.fetch

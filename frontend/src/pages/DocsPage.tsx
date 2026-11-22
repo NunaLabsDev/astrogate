@@ -22,7 +22,7 @@ const API_ENDPOINTS = [
   {
     method: 'GET',
     path: '/api/v1/health',
-    desc: 'Network, live contract IDs, 3-stage curve fees, Graduation Jackpot, and Fair-Flywheel v4.4 constants.',
+    desc: 'Network, live contract IDs, 3-stage curve fees, Graduation Jackpot, and Fair-Flywheel v4.5 constants.',
   },
   {
     method: 'GET',
@@ -37,7 +37,7 @@ const API_ENDPOINTS = [
   {
     method: 'GET',
     path: '/api/v1/tokens/:id/audit',
-    desc: 'Automated on-chain check: renounced ownership, Fair-Flywheel registry, LP blackhole lock.',
+    desc: 'Automated on-chain check: renounced ownership, Fair-Flywheel registry, 7-year LP contract lock (or legacy blackhole burn).',
   },
   {
     method: 'GET',
@@ -74,39 +74,39 @@ const API_ENDPOINTS = [
 const AUDITED_CONTROLS = [
   {
     badge: 'CRITICAL · CONTRACTS',
-    title: 'Pre-Graduation Pool Griefing Fix (C-01)',
+    title: 'Escrowed Jackpots & Pool Griefing Fix (C-01)',
     detail:
-      'seed_soroswap_and_burn_lp inspects pair.total_supply() > 0 || (r0 > 0 && r1 > 0) alongside pre-graduation P2P transfer lock, preventing 1-stroop pair.sync() DoS while blocking LP dilution.',
+      'Spark (+5K) and Crown (+10K) checkpoint rewards accrue in Launchpad escrow and claim after graduation via claim_jackpot(); seed_soroswap_and_burn_lp checks pair liquidity and pre-graduation P2P lock to prevent 1-stroop pair.sync() griefing.',
   },
   {
     badge: 'HIGH · CONTRACTS',
-    title: 'Anti-MEV Buyback Chunking & Cooldown (H-01)',
+    title: 'Anti-MEV Buyback Chunking & 2% Keeper Rebate (H-01)',
     detail:
-      'Permissionless DEX buyback-and-burn swaps are capped at 0.50% (50 bps) of pool XLM reserve per call with a 300-second cooldown per token, preventing sandwich extraction.',
+      'Permissionless DEX buyback-and-burn swaps are capped at min(0.25% of pool XLM reserve, 0.8000000 XLM) per call with a 300-second cooldown and a 2% XLM keeper bounty (max 0.05 XLM).',
   },
   {
-    badge: 'HIGH · CONTRACTS',
-    title: 'Reentrancy Lock & CEI Curve Accounting',
+    badge: 'CRITICAL · GOVERNANCE',
+    title: '48h Upgrade Timelock & Curve Timeout Return (C-02 / C-04)',
     detail:
-      'execute_curve_buy persists CurveState before external token/XLM transfers and holds a temporary ReentrancyLock; set_paused pauses only new launches while keeping user sells and claims open.',
+      'Both Launchpad and Sorobits enforce a 48-hour schedule/execute upgrade timelock; stalled curves can enter CurveClosed and refund contributor principal after 30 days alongside CEI + ReentrancyLock guards.',
   },
   {
-    badge: 'HIGH · CRYPTO VAULT',
-    title: 'Native Wallet AEAD + @username Ed25519 Link',
+    badge: 'CRITICAL · CRYPTO VAULT',
+    title: 'Biometric Unlock, WebAuthn PRF & Ed25519 Link (C-03)',
     detail:
-      'Client-side PBKDF2-SHA256 (210k) + AES-GCM-256 vault binds publicKey as AAD, supports up to 10 sub-wallets with Primary @username routing via anti-replay Ed25519 proofs, portable AGVAULT1: sync, and exportable S... keys.',
+      'Client-side PBKDF2-SHA256 (210k) + AES-GCM-256 vault binds publicKey as AAD, supports BiometricManager / WebAuthn PRF unlock, verifies Telegram initData HMAC on /api/v1/wallet/link (C-03), and protects @username routing via Ed25519 proofs.',
   },
   {
     badge: 'MEDIUM · SEP-50 NFTS',
-    title: 'Bounded On-Chain SVG Renderer',
+    title: 'Commit-Reveal RNG & Anti-XP-Laundering (M-01)',
     detail:
-      'Sorobits register_layer rejects dense RLE bitmaps above 720 runs or 12,800 SVG bytes and extends Season asset TTLs automatically on extend_token_ttl and compose_for_token.',
+      'Mystery Capsules and Astral Forge require two-ledger commit-reveal entropy (commit_capsule / reveal_capsule, commit_forge / reveal_forge), TokenBaseXp baselines block transfer/forge XP farming, and RLE layers stay bounded (720 runs / 12,800 bytes).',
   },
   {
     badge: 'MEDIUM · TELEGRAM WORKER',
-    title: 'HMAC InitData, KV Dedupe & Feed-Only Routing',
+    title: 'HMAC InitData, IP Rate-Limits & Pulse Dedupe',
     detail:
-      'Automated on-chain broadcasts route exclusively to @AstroGateFeed with anti-dust filtering (>= 2 XLM or >= 80% push). Webhook uses SHA-256 constant-time secret verification and AGQ05 validates Soroban balances.',
+      'Automated broadcasts route to @AstroGateFeed with anti-dust filtering (>= 2 XLM or >= 80%). API routes enforce sliding-window IP rate limits, restricted wallet CORS, and single-claim pulse tx deduplication.',
   },
 ] as const
 
@@ -232,7 +232,7 @@ export function DocsPage() {
         </div>
 
         <div className="rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-3 text-xs text-amber-200">
-          <strong>Audit Transparency:</strong> All contracts, client crypto modules, and Worker endpoints have undergone internal security hardening and automated test suites (59 Rust contract tests + 217 Vitest specs). External third-party audit is pending prior to Mainnet deployment — currently active on <strong>Stellar Testnet</strong>.
+          <strong>Audit Transparency:</strong> All contracts, client crypto modules, and Worker endpoints have undergone internal security hardening and automated Rust + Vitest test suites. External third-party audit is pending prior to Mainnet deployment — currently active on <strong>Stellar Testnet</strong>.
         </div>
       </section>
 
@@ -240,7 +240,7 @@ export function DocsPage() {
       <section className="rounded-3xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6 space-y-4">
         <div>
           <h2 className="text-lg sm:text-xl font-bold text-white">
-            1. How AstroGate Fair-Flywheel v4.4 Works
+            1. How AstroGate Fair-Flywheel v4.5 Works
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
             End-to-end lifecycle from atomic token creation to 7-year time-locked Soroswap liquidity.
@@ -252,28 +252,28 @@ export function DocsPage() {
             <span className="text-xs font-mono font-bold text-sky-400">STEP 1 · LAUNCH</span>
             <h3 className="text-sm font-bold text-white">Atomic Fair Mint</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              10,000,000 fixed supply minted with immediate <code className="text-sky-300">renounce_ownership()</code>. Creation costs 7 XLM + minimum 2 XLM initial curve seed (locked until graduation or 7d fallback).
+              10,000,000 fixed supply minted with immediate <code className="text-sky-300">renounce_ownership()</code>. Creation costs 7 XLM + minimum 2 XLM initial curve seed (locked until graduation, 7d stalled rescue, or 30d closed refund).
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-1.5">
             <span className="text-xs font-mono font-bold text-emerald-400">STEP 2 · BONDING CURVE</span>
             <h3 className="text-sm font-bold text-white">66% Virtual Curve</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              6.6M tokens trade along a 1,000 vXLM → 1,000 XLM curve (4.00× range). Soft 3-stage buy fees (0.30% → 0.50% → 0.25%), gentle sell fees (1.20% → 1.80% → 1.50%), +5K Spark at 250 XLM, +10K Crown at 500 XLM, and P2P transfers locked until graduation.
+              6.6M tokens trade along a 1,000 vXLM → 1,000 XLM curve (4.00× range). Soft 3-stage buy fees (0.30% → 0.50% → 0.25%), gentle sell fees (1.20% → 1.80% → 1.50%), escrowed +5K Spark at 250 XLM, escrowed +10K Crown at 500 XLM, and P2P transfers locked until graduation.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-1.5">
             <span className="text-xs font-mono font-bold text-amber-400">STEP 3 · GRADUATION</span>
             <h3 className="text-sm font-bold text-white">33% DEX + 25K Jackpot + 7Y Lock</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              At 1,000 real XLM, 3.3M tokens + 1,000 XLM seed Soroswap (0% price cliff) with LP locked in-contract for 7 years, the final buyer wins +25K (completing 40K total jackpots), 0.30% goes to ecosystem treasury, and P2P transfers unlock.
+              At 1,000 real XLM, 3.3M tokens + 1,000 XLM seed Soroswap (0% price cliff) with LP locked in-contract for 7 years, the final buyer wins +25K &amp; unlocks escrowed checkpoint jackpots (40K total), 0.30% goes to ecosystem treasury, and P2P transfers unlock.
             </p>
           </div>
           <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 space-y-1.5">
             <span className="text-xs font-mono font-bold text-purple-400">STEP 4 · FLYWHEEL</span>
             <h3 className="text-sm font-bold text-white">Organic Burns &amp; Vesting</h3>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Zero idle burn waste: real supply burns via chunked DEX buybacks (0.50% cap / 300s cooldown) and Burn-to-Chat shouts. Creators vest 0.3% (30K tokens) over 15 days.
+              Zero idle burn waste: real supply burns via chunked DEX buybacks (min(0.25% pool, 0.8000000 XLM) cap / 300s cooldown / 2% keeper XLM rebate) and Burn-to-Chat shouts. Creators vest 0.3% (30K tokens) over 15 days.
             </p>
           </div>
         </div>
@@ -401,7 +401,7 @@ export function DocsPage() {
         </h2>
         <div className="grid gap-2 text-xs font-mono">
           {[
-            ['Launchpad v4.4', LAUNCHPAD_CONTRACT_ID, explorerContractUrl(LAUNCHPAD_CONTRACT_ID)],
+            ['Launchpad v4.5', LAUNCHPAD_CONTRACT_ID, explorerContractUrl(LAUNCHPAD_CONTRACT_ID)],
             ['Sorobits SEP-50 NFTs', SOROBITS_CONTRACT_ID, explorerContractUrl(SOROBITS_CONTRACT_ID)],
             ['Genesis $ASTRO Token', ASTRO_TOKEN_ID, explorerContractUrl(ASTRO_TOKEN_ID)],
             ['Soroswap Factory', SOROSWAP_FACTORY, explorerContractUrl(SOROSWAP_FACTORY)],

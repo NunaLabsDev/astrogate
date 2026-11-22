@@ -48,6 +48,25 @@ export interface SorobitRecord {
 }
 
 /**
+ * Struct: ForgeCommit
+ */
+export interface ForgeCommit {
+  commit_hash: Uint8Array;
+  commit_ledger: number;
+  next_base_xp: number;
+  next_gen: number;
+  next_tier: number;
+}
+
+/**
+ * Struct: CapsuleCommit
+ */
+export interface CapsuleCommit {
+  commit_hash: Uint8Array;
+  commit_ledger: number;
+}
+
+/**
  * Error Enum: SorobitsError
  */
 export const SorobitsError = {
@@ -66,7 +85,23 @@ export const SorobitsError = {
   312 : { message: "QuestNotUnlocked" },
   313 : { message: "ForgeInvalidPair" },
   314 : { message: "CapsuleQuotaReached" },
-  315 : { message: "PaymentNotConfigured" }
+  315 : { message: "PaymentNotConfigured" },
+  316 : { message: "InvalidFee" },
+  317 : { message: "UpgradeNotReady" },
+  318 : { message: "NoPendingUpgrade" },
+  319 : { message: "CommitPending" },
+  320 : { message: "CommitMissing" },
+  321 : { message: "CommitNotReady" },
+  322 : { message: "CommitMismatch" },
+  323 : { message: "DirectMintDisabled" }
+}
+
+/**
+ * Struct: PendingUpgrade
+ */
+export interface PendingUpgrade {
+  execute_after: bigint;
+  wasm_hash: Uint8Array;
 }
 
 /**
@@ -90,6 +125,61 @@ export interface SorobitMintedEventEvent {
     edition?: number;
     dna?: Uint8Array;
     soulbound?: boolean;
+  };
+}
+
+/**
+ * Event: ForgeCommittedEvent
+ */
+export interface ForgeCommittedEventEvent {
+  name: "ForgeCommittedEvent";
+  data: {
+    owner: string;
+    burn_id_a?: number;
+    burn_id_b?: number;
+    commit_ledger?: number;
+  };
+}
+
+/**
+ * Event: UpgradeExecutedEvent
+ */
+export interface UpgradeExecutedEventEvent {
+  name: "UpgradeExecutedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: UpgradeProposedEvent
+ */
+export interface UpgradeProposedEventEvent {
+  name: "UpgradeProposedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+    execute_after?: bigint;
+  };
+}
+
+/**
+ * Event: CapsuleCommittedEvent
+ */
+export interface CapsuleCommittedEventEvent {
+  name: "CapsuleCommittedEvent";
+  data: {
+    user: string;
+    commit_ledger?: number;
+  };
+}
+
+/**
+ * Event: UpgradeCancelledEvent
+ */
+export interface UpgradeCancelledEventEvent {
+  name: "UpgradeCancelledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
   };
 }
 
@@ -361,7 +451,7 @@ export const NonFungibleTokenError = {
    */
   214 : { message: "SymbolMaxLenExceeded" }
 }
-    export type ContractEvent = SeasonSealedEventEvent | SorobitMintedEventEvent | EpigeneticUpdatedEventEvent | RoleGrantedEvent | RoleRevokedEvent | AdminRenouncedEvent | RoleAdminChangedEvent | AdminTransferCompletedEvent | AdminTransferInitiatedEvent | BurnEvent | SetTokenRoyaltyEvent | SetDefaultRoyaltyEvent | RemoveTokenRoyaltyEvent | MintEvent | ApproveEvent | TransferEvent | ApproveForAllEvent;
+    export type ContractEvent = SeasonSealedEventEvent | SorobitMintedEventEvent | ForgeCommittedEventEvent | UpgradeExecutedEventEvent | UpgradeProposedEventEvent | CapsuleCommittedEventEvent | UpgradeCancelledEventEvent | EpigeneticUpdatedEventEvent | RoleGrantedEvent | RoleRevokedEvent | AdminRenouncedEvent | RoleAdminChangedEvent | AdminTransferCompletedEvent | AdminTransferInitiatedEvent | BurnEvent | SetTokenRoyaltyEvent | SetDefaultRoyaltyEvent | RemoveTokenRoyaltyEvent | MintEvent | ApproveEvent | TransferEvent | ApproveForAllEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
 export type SorobitsError = { message: string }

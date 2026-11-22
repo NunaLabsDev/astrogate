@@ -1,9 +1,10 @@
 import type { Signer } from '@stellar/stellar-sdk/contract'
-import { Keypair } from '@stellar/stellar-sdk'
+import { Keypair, rpc as sorobanRpc } from '@stellar/stellar-sdk'
 
 import { Client as SorobitsClient } from '../contracts/sorobits'
 import { launchpadClient } from './token'
 import {
+  DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
   NETWORK_PASSPHRASE,
   RPC_URL,
@@ -48,6 +49,7 @@ export interface LaunchpadPilotTelemetry {
   launches: number
   graduations: number
   trades: number
+  volumeXlmStroops?: bigint
   shouts: number
   kingShouts: number
   burnsTriggered: number
@@ -480,7 +482,10 @@ export async function claimPioneerOnChain(
   signer: Signer,
 ): Promise<{ tokenId: number; hash?: string }> {
   const client = makeSignedSorobitsClient(signer)
-  const tx = await client.claim_pioneer({ user: signer.address })
+  const tx = await client.claim_pioneer(
+    { user: signer.address },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   return {
     tokenId: Number(sent.result ?? 0),
@@ -493,10 +498,13 @@ export async function claimQuestBadgeOnChain(
   archetypeId: number,
 ): Promise<{ tokenId: number; hash?: string }> {
   const client = makeSignedSorobitsClient(signer)
-  const tx = await client.claim_quest_badge({
-    user: signer.address,
-    archetype_id: archetypeId,
-  })
+  const tx = await client.claim_quest_badge(
+    {
+      user: signer.address,
+      archetype_id: archetypeId,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   return {
     tokenId: Number(sent.result ?? 0),
@@ -509,7 +517,10 @@ export async function syncEpigeneticsOnChain(
   tokenId: number,
 ): Promise<{ xpScore: number; rankTier: number; hash?: string }> {
   const client = makeSignedSorobitsClient(signer)
-  const tx = await client.sync_epigenetics({ token_id: tokenId })
+  const tx = await client.sync_epigenetics(
+    { token_id: tokenId },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   return {
     xpScore: Number(sent.result?.xp_score ?? 0),
@@ -530,6 +541,51 @@ function randomEntropy32(): Uint8Array {
   return out
 }
 
+async function sha256Bytes(bytes: Uint8Array): Promise<Uint8Array> {
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', copy.buffer)
+  return new Uint8Array(digest)
+}
+
+function isMissingCommitMethodError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  return (
+    (msg.includes('function') &&
+      (msg.includes('not found') ||
+        msg.includes('missing') ||
+        msg.includes('does not exist') ||
+        msg.includes('invalidaction') ||
+        msg.includes('unknown'))) ||
+    msg.includes('wasm does not have') ||
+    msg.includes('not in spec')
+  )
+}
+
+async function waitForNextLedger(afterLedger: number): Promise<void> {
+  const server = new sorobanRpc.Server(RPC_URL)
+  let baseLedger = afterLedger
+  if (baseLedger <= 0) {
+    try {
+      const latest = await server.getLatestLedger()
+      baseLedger = Number(latest.sequence ?? 0)
+    } catch {
+      baseLedger = 0
+    }
+  }
+  for (let attempt = 0; attempt < 15; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    try {
+      const latest = await server.getLatestLedger()
+      if (Number(latest.sequence ?? 0) > baseLedger) {
+        return
+      }
+    } catch {
+      // Retry on transient RPC failure
+    }
+  }
+}
+
 export async function forgeAscendOnChain(
   signer: Signer,
   burnIdA: number,
@@ -537,16 +593,57 @@ export async function forgeAscendOnChain(
   userEntropy?: Uint8Array,
 ): Promise<{ tokenId: number; hash?: string }> {
   const client = makeSignedSorobitsClient(signer)
-  const tx = await client.forge_ascend({
-    owner: signer.address,
-    burn_id_a: burnIdA,
-    burn_id_b: burnIdB,
-    user_entropy: userEntropy ?? randomEntropy32(),
-  })
-  const sent = await tx.signAndSend()
+  const entropy = userEntropy ?? randomEntropy32()
+  const commitHash = await sha256Bytes(entropy)
+
+  let commitTx
+  try {
+    commitTx = await client.commit_forge(
+      {
+        owner: signer.address,
+        burn_id_a: burnIdA,
+        burn_id_b: burnIdB,
+        commit_hash: commitHash,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+  } catch (err) {
+    if (isMissingCommitMethodError(err)) {
+      const legacyTx = await client.forge_ascend(
+        {
+          owner: signer.address,
+          burn_id_a: burnIdA,
+          burn_id_b: burnIdB,
+          user_entropy: entropy,
+        },
+        { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+      )
+      const sentLegacy = await legacyTx.signAndSend()
+      return {
+        tokenId: Number(sentLegacy.result ?? 0),
+        hash: sentLegacy.sendTransactionResponse?.hash,
+      }
+    }
+    throw err
+  }
+
+  const sentCommit = await commitTx.signAndSend()
+  const commitLedger = Number(
+    (sentCommit.getTransactionResponse as { ledger?: number } | undefined)?.ledger ?? 0,
+  )
+  await waitForNextLedger(commitLedger)
+
+  const revealTx = await client.reveal_forge(
+    {
+      owner: signer.address,
+      user_entropy: entropy,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
+  const sentReveal = await revealTx.signAndSend()
   return {
-    tokenId: Number(sent.result ?? 0),
-    hash: sent.sendTransactionResponse?.hash,
+    tokenId: Number(sentReveal.result ?? 0),
+    hash: sentReveal.sendTransactionResponse?.hash,
   }
 }
 
@@ -576,14 +673,53 @@ export async function mintCapsuleOnChain(
   userEntropy?: Uint8Array,
 ): Promise<{ tokenId: number; hash?: string }> {
   const client = makeSignedSorobitsClient(signer)
-  const tx = await client.mint_capsule({
-    user: signer.address,
-    user_entropy: userEntropy ?? randomEntropy32(),
-  })
-  const sent = await tx.signAndSend()
+  const entropy = userEntropy ?? randomEntropy32()
+  const commitHash = await sha256Bytes(entropy)
+
+  let commitTx
+  try {
+    commitTx = await client.commit_capsule(
+      {
+        user: signer.address,
+        commit_hash: commitHash,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
+  } catch (err) {
+    if (isMissingCommitMethodError(err)) {
+      const legacyTx = await client.mint_capsule(
+        {
+          user: signer.address,
+          user_entropy: entropy,
+        },
+        { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+      )
+      const sentLegacy = await legacyTx.signAndSend()
+      return {
+        tokenId: Number(sentLegacy.result ?? 0),
+        hash: sentLegacy.sendTransactionResponse?.hash,
+      }
+    }
+    throw err
+  }
+
+  const sentCommit = await commitTx.signAndSend()
+  const commitLedger = Number(
+    (sentCommit.getTransactionResponse as { ledger?: number } | undefined)?.ledger ?? 0,
+  )
+  await waitForNextLedger(commitLedger)
+
+  const revealTx = await client.reveal_capsule(
+    {
+      user: signer.address,
+      user_entropy: entropy,
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
+  const sentReveal = await revealTx.signAndSend()
   return {
-    tokenId: Number(sent.result ?? 0),
-    hash: sent.sendTransactionResponse?.hash,
+    tokenId: Number(sentReveal.result ?? 0),
+    hash: sentReveal.sendTransactionResponse?.hash,
   }
 }
 
@@ -600,6 +736,7 @@ export async function fetchLaunchpadPilotTelemetry(
         launches?: number
         graduations?: number
         trades?: number
+        volume_xlm_stroops?: bigint | string | number
         shouts?: number
         king_shouts?: number
         burns_triggered?: number
@@ -609,6 +746,7 @@ export async function fetchLaunchpadPilotTelemetry(
         launches: Number(rec.launches ?? 0),
         graduations: Number(rec.graduations ?? 0),
         trades: Number(rec.trades ?? 0),
+        volumeXlmStroops: BigInt(rec.volume_xlm_stroops ?? 0n),
         shouts: Number(rec.shouts ?? 0),
         kingShouts: Number(rec.king_shouts ?? 0),
         burnsTriggered: Number(rec.burns_triggered ?? 0),

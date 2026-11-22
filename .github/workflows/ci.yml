@@ -26,7 +26,7 @@ jobs:
       - name: Escanear secretos (gitleaks)
         run: |
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.24.2/gitleaks_8.24.2_linux_x64.tar.gz | sudo tar -xz -C /usr/local/bin gitleaks
-          gitleaks git --verbose
+          gitleaks git --redact
 
   frontend:
     name: Frontend (build + lint + tests + smoke)
@@ -48,11 +48,9 @@ jobs:
         run: npm ci
 
       - name: Escaneo de dependencias (ratchet)
-        # Vulnerabilidades transitivas actuales de los módulos de wallet del
-        # kit (@hot-wallet/sdk → near/elliptic, @reown/appkit → zod) sin fix
-        # posible sin downgrade. Gate de regresión, no de perfección: si una
-        # dependencia nueva añade vulnerabilidades, falla. Cuando el kit suba
-        # limpio, bajar AUDIT_BASELINE aquí y en scripts/npm-audit-ratchet.mjs.
+        # Gate fail-closed con baseline=29 y AUDIT_MAX_HIGH=11 (vulnerabilidades
+        # transitivas upstream de @creit.tech/stellar-wallets-kit). Si una
+        # dependencia nueva o el registro añade riesgos por encima del límite, falla.
         run: node scripts/npm-audit-ratchet.mjs
 
       - name: Worker typecheck, build, lint, tests y smoke

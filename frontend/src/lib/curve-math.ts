@@ -1,5 +1,5 @@
 /**
- * Pure, runtime-agnostic Fair-Flywheel v4.4 bonding-curve constants and
+ * Pure, runtime-agnostic Fair-Flywheel v4.5 bonding-curve constants and
  * integer quoting formulas (1:1 parity with `contracts/launchpad/src/contract.rs`).
  *
  * Kept strictly free of Vite (`import.meta.env`) and DOM globals so both
@@ -71,6 +71,12 @@ export const SELL_FLOOR_LATE_BPS = SELL_FLOOR_SPRINT_BPS
 export const BASE_CURVE_FEE_BPS = BUY_TREASURY_MID_BPS + BUY_FLOOR_MID_BPS
 export const WHALE_FREE_SHARE_BPS = 10_000n
 export const MAX_WHALE_SURCHARGE_BPS = 0n
+
+export const BUYBACK_MAX_CHUNK_BPS = 25n
+export const BUYBACK_MAX_CHUNK_STROOPS = 8_000_000n // 0.8000000 XLM
+export const BUYBACK_MIN_DUST_STROOPS = 10_000n // 0.0010000 XLM
+export const BUYBACK_KEEPER_BOUNTY_BPS = 200n // 2%
+export const BUYBACK_MAX_BOUNTY_STROOPS = 500_000n // 0.0500000 XLM
 
 export const STELLAR_BURN_ADDRESS =
   'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'

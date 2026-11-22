@@ -54,7 +54,9 @@ try {
   const launchpad = tokenLib.launchpadClient(signer)
 
   try {
-    const lpTx = await launchpad.extend_ttl()
+    const lpTx = await launchpad.extend_ttl({
+      fee: networkLib.DEFAULT_SOROBAN_INCLUSION_FEE,
+    })
     const lpSent = await lpTx.signAndSend({ force: true })
     console.log(
       `ok   launchpad.extend_ttl · ${networkLib.LAUNCHPAD_CONTRACT_ID} · tx=${lpSent.sendTransactionResponse?.hash ?? 'ok'}`,
@@ -90,6 +92,12 @@ try {
     launches.push(...page)
   }
   console.log(`launches found on-chain: ${launches.length} / ${totalLaunches}`)
+  if (totalLaunches > 0 && launches.length === 0) {
+    failures++
+    console.error(
+      `FAIL get_launches returned 0 entries despite totalLaunches=${totalLaunches}`,
+    )
+  }
 
   const seen = new Set([networkLib.ASTRO_TOKEN_ID])
   for (const record of launches) {
@@ -99,7 +107,10 @@ try {
     seen.add(tokenId)
     try {
       if (alreadyRefreshedToken) {
-        const recTx = await launchpad.extend_launch_ttl({ token: tokenId })
+        const recTx = await launchpad.extend_launch_ttl(
+          { token: tokenId },
+          { fee: networkLib.DEFAULT_SOROBAN_INCLUSION_FEE },
+        )
         const recSent = await recTx.signAndSend({ force: true })
         console.log(
           `ok   extend_launch_ttl · ${record.symbol} (${tokenId}) · tx=${recSent.sendTransactionResponse?.hash ?? 'ok'}`,
@@ -120,49 +131,60 @@ try {
   }
 
   // Refresh Sorobits (SBIT) contract & minted NFTs
-  try {
-    const { Client: SorobitsClient } = await vite.ssrLoadModule('/src/contracts/sorobits/index.ts')
-    const sorobits = new SorobitsClient({
-      contractId: networkLib.SOROBITS_CONTRACT_ID,
-      rpcUrl: networkLib.RPC_URL,
-      networkPassphrase: networkLib.NETWORK_PASSPHRASE,
-      publicKey: signer.address,
-      signTransaction: signer,
-      signAuthEntry: signer,
-    })
-    const sbTx = await sorobits.extend_ttl()
-    const sbSent = await sbTx.signAndSend({ force: true })
-    console.log(
-      `ok   sorobits.extend_ttl · ${networkLib.SOROBITS_CONTRACT_ID} · tx=${sbSent.sendTransactionResponse?.hash ?? 'ok'}`,
+  if (!networkLib.SOROBITS_CONTRACT_ID) {
+    console.warn(
+      `WARN sorobits keep-alive skipped: SOROBITS_CONTRACT_ID unset for ${networkLib.NETWORK_NAME}`,
     )
-    const supplyTx = await sorobits.total_supply()
-    const totalNfts = Number(supplyTx.result ?? 0)
-    console.log(`sorobits minted on-chain: ${totalNfts}`)
-    for (let index = 0; index < totalNfts; index++) {
-      let tokenId = index
-      try {
-        const idTx = await sorobits.get_token_id({ index })
-        if (typeof idTx.result === 'number') tokenId = idTx.result
-      } catch {
-        // Fallback to index if contract does not expose enumerable get_token_id
+  } else {
+    try {
+      const { Client: SorobitsClient } = await vite.ssrLoadModule('/src/contracts/sorobits/index.ts')
+      const sorobits = new SorobitsClient({
+        contractId: networkLib.SOROBITS_CONTRACT_ID,
+        rpcUrl: networkLib.RPC_URL,
+        networkPassphrase: networkLib.NETWORK_PASSPHRASE,
+        publicKey: signer.address,
+        signTransaction: signer,
+        signAuthEntry: signer,
+      })
+      const sbTx = await sorobits.extend_ttl({
+        fee: networkLib.DEFAULT_SOROBAN_INCLUSION_FEE,
+      })
+      const sbSent = await sbTx.signAndSend({ force: true })
+      console.log(
+        `ok   sorobits.extend_ttl · ${networkLib.SOROBITS_CONTRACT_ID} · tx=${sbSent.sendTransactionResponse?.hash ?? 'ok'}`,
+      )
+      const supplyTx = await sorobits.total_supply()
+      const totalNfts = Number(supplyTx.result ?? 0)
+      console.log(`sorobits minted on-chain: ${totalNfts}`)
+      for (let index = 0; index < totalNfts; index++) {
+        let tokenId = index
+        try {
+          const idTx = await sorobits.get_token_id({ index })
+          if (typeof idTx.result === 'number') tokenId = idTx.result
+        } catch {
+          // Fallback to index if contract does not expose enumerable get_token_id
+        }
+        try {
+          const nftTx = await sorobits.extend_token_ttl(
+            { token_id: tokenId },
+            { fee: networkLib.DEFAULT_SOROBAN_INCLUSION_FEE },
+          )
+          const nftSent = await nftTx.signAndSend({ force: true })
+          console.log(
+            `ok   sorobits.extend_token_ttl · #${tokenId} · tx=${nftSent.sendTransactionResponse?.hash ?? 'ok'}`,
+          )
+        } catch (err) {
+          failures++
+          console.error(
+            `FAIL sorobits.extend_token_ttl #${tokenId}:`,
+            err instanceof Error ? err.message : String(err),
+          )
+        }
       }
-      try {
-        const nftTx = await sorobits.extend_token_ttl({ token_id: tokenId })
-        const nftSent = await nftTx.signAndSend({ force: true })
-        console.log(
-          `ok   sorobits.extend_token_ttl · #${tokenId} · tx=${nftSent.sendTransactionResponse?.hash ?? 'ok'}`,
-        )
-      } catch (err) {
-        failures++
-        console.error(
-          `FAIL sorobits.extend_token_ttl #${tokenId}:`,
-          err instanceof Error ? err.message : String(err),
-        )
-      }
+    } catch (err) {
+      failures++
+      console.error('FAIL sorobits keep-alive:', err instanceof Error ? err.message : String(err))
     }
-  } catch (err) {
-    failures++
-    console.error('FAIL sorobits keep-alive:', err instanceof Error ? err.message : String(err))
   }
 } finally {
   await vite.close()

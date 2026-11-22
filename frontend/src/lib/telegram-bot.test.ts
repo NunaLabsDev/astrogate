@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest'
-import { Keypair, nativeToScVal } from '@stellar/stellar-sdk'
-import {
+import { describe, expect, it, vi } from 'vitest'
+import { Keypair, nativeToScVal, rpc as sorobanRpc } from '@stellar/stellar-sdk'
+import workerDefault, {
   handleWorkerRequest,
   pulseCorsHeaders,
   verifyTelegramInitData,
@@ -815,7 +815,7 @@ describe('Telegram bot views & parsers', () => {
     const overview = JSON.parse(callJson.result.content[0]?.text ?? '{}') as {
       version: string
     }
-    expect(overview.version).toBe('v4.4-fair-flywheel')
+    expect(overview.version).toBe('v4.5-fair-flywheel')
   })
 
   it('stores and serves immutable SHA-256 content-addressed logos and fails closed on mainnet config', async () => {
@@ -1374,9 +1374,17 @@ describe('Telegram bot views & parsers', () => {
     expect(resolvedJson.wallets).toHaveLength(2)
     expect(resolvedJson.encryptedVaultBundle).toBeUndefined()
 
-    const resolveByPk = await handleWorkerRequest(
+    const resolveByUnsignedSecondary = await handleWorkerRequest(
       new Request(
         `https://astrogate-bot.workers.dev/api/v1/wallet/resolve?q=${kp1.publicKey()}`,
+      ),
+      env,
+    )
+    expect(resolveByUnsignedSecondary.status).toBe(404)
+
+    const resolveByPk = await handleWorkerRequest(
+      new Request(
+        `https://astrogate-bot.workers.dev/api/v1/wallet/resolve?q=${kp2.publicKey()}`,
       ),
       env,
     )
@@ -1597,5 +1605,507 @@ describe('Telegram bot views & parsers', () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+
+  it('enforces C-03 wallet takeover guards, restricted wallet CORS, IP rate limits, MCP batch cap, secret regex, AI URL sanitization, and v4.5 quest thresholds', async () => {
+    const kvStore = new Map<string, string>()
+    const env = {
+      ASSETS: { fetch: async () => new Response('ok') },
+      ASTRO_KV: {
+        get: async (k: string) => kvStore.get(k) ?? null,
+        put: async (k: string, v: string) => {
+          kvStore.set(k, v)
+        },
+      },
+      TELEGRAM_BOT_TOKEN: '987654:hardening-test-token',
+    }
+    const nowSec = Math.floor(Date.now() / 1000)
+
+    // 1. Unverified request spoofing tgUserId > 0 is rejected (401)
+    const kpA = Keypair.random()
+    const spoofMsg = buildTelegramLinkMessage({
+      network: 'testnet',
+      tgUserId: 12345,
+      username: 'bobstellar',
+      primaryPublicKey: kpA.publicKey(),
+      wallets: [kpA.publicKey()],
+      timestamp: nowSec,
+    })
+    const spoofSig = Array.from(kpA.sign(new TextEncoder().encode(spoofMsg)), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+    const spoofRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example',
+          'CF-Connecting-IP': '203.0.113.10',
+        },
+        body: JSON.stringify({
+          username: 'bobstellar',
+          tgUserId: 12345,
+          primaryPublicKey: kpA.publicKey(),
+          wallets: [kpA.publicKey()],
+          timestamp: nowSec,
+          signatureHex: spoofSig,
+        }),
+      }),
+      env,
+    )
+    expect(spoofRes.status).toBe(401)
+    expect(spoofRes.headers.get('Access-Control-Allow-Origin')).toBe('https://astrogate.pages.dev')
+    expect(spoofRes.headers.get('Vary')).toBe('Origin')
+    expect(spoofRes.headers.get('Strict-Transport-Security')).toContain('max-age=')
+
+    // 2. Legitimate unverified @username link succeeds, and another unverified wallet CANNOT overwrite it (403)
+    const claimMsg = buildTelegramLinkMessage({
+      network: 'testnet',
+      tgUserId: 0,
+      username: 'bobstellar',
+      primaryPublicKey: kpA.publicKey(),
+      wallets: [kpA.publicKey()],
+      timestamp: nowSec,
+    })
+    const claimSig = Array.from(kpA.sign(new TextEncoder().encode(claimMsg)), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+    const claimRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://astrogate.pages.dev',
+          'CF-Connecting-IP': '203.0.113.10',
+        },
+        body: JSON.stringify({
+          username: 'bobstellar',
+          tgUserId: 0,
+          primaryPublicKey: kpA.publicKey(),
+          wallets: [kpA.publicKey()],
+          timestamp: nowSec,
+          signatureHex: claimSig,
+        }),
+      }),
+      env,
+    )
+    expect(claimRes.status).toBe(200)
+    expect(claimRes.headers.get('Access-Control-Allow-Origin')).toBe('https://astrogate.pages.dev')
+
+    const kpB = Keypair.random()
+    const overwriteMsg = buildTelegramLinkMessage({
+      network: 'testnet',
+      tgUserId: 0,
+      username: 'bobstellar',
+      primaryPublicKey: kpB.publicKey(),
+      wallets: [kpB.publicKey(), kpA.publicKey()],
+      timestamp: nowSec,
+    })
+    const overwriteSig = Array.from(kpB.sign(new TextEncoder().encode(overwriteMsg)), (b) =>
+      b.toString(16).padStart(2, '0'),
+    ).join('')
+    const overwriteRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/wallet/link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.11',
+        },
+        body: JSON.stringify({
+          username: 'bobstellar',
+          tgUserId: 0,
+          primaryPublicKey: kpB.publicKey(),
+          wallets: [kpB.publicKey(), kpA.publicKey()],
+          timestamp: nowSec,
+          signatureHex: overwriteSig,
+        }),
+      }),
+      env,
+    )
+    expect(overwriteRes.status).toBe(403)
+
+    // 3. Per-IP rate limit on POST /api/v1/logos (10/min -> 11th returns 429)
+    const webpBytes = new Uint8Array([
+      0x52, 0x49, 0x46, 0x46, 0x10, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+      0x56, 0x50, 0x38, 0x20,
+    ])
+    for (let i = 0; i < 10; i++) {
+      const okUp = await handleWorkerRequest(
+        new Request('https://astrogate-bot.workers.dev/api/v1/logos', {
+          method: 'POST',
+          headers: { 'CF-Connecting-IP': '198.51.100.99' },
+          body: webpBytes,
+        }),
+        env,
+      )
+      expect(okUp.status).toBe(200)
+    }
+    const rateLimitedUp = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/api/v1/logos', {
+        method: 'POST',
+        headers: { 'CF-Connecting-IP': '198.51.100.99' },
+        body: webpBytes,
+      }),
+      env,
+    )
+    expect(rateLimitedUp.status).toBe(429)
+    expect(rateLimitedUp.headers.get('Retry-After')).toBe('60')
+
+    // 4. MCP JSON-RPC batch > 10 is rejected with -32600
+    const batch11 = Array.from({ length: 11 }, (_, idx) => ({
+      jsonrpc: '2.0',
+      id: idx + 1,
+      method: 'initialize',
+    }))
+    const mcpBatchRes = await handleWorkerRequest(
+      new Request('https://astrogate-bot.workers.dev/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(batch11),
+      }),
+      env,
+    )
+    expect(mcpBatchRes.status).toBe(400)
+    const mcpBatchJson = (await mcpBatchRes.json()) as { error: { code: number } }
+    expect(mcpBatchJson.error.code).toBe(-32600)
+
+    // 5. Secret seed regex catches embedded KEY=S... and JSON formats
+    expect(detectStellarAddress(`SECRET=${SAMPLE_SECRET}`)).toEqual({
+      kind: 'secret',
+      value: SAMPLE_SECRET,
+    })
+    expect(detectStellarAddress(`{"seed":"${SAMPLE_SECRET}"}`)).toEqual({
+      kind: 'secret',
+      value: SAMPLE_SECRET,
+    })
+
+    // 6. Mainnet explorer URL uses /public/ instead of /mainnet/
+    const mainnetCard = buildTokenInspectorView(
+      SAMPLE_CONTRACT,
+      null,
+      'en',
+      undefined,
+      false,
+      'AstroGateSorobanBot',
+      false,
+      'mainnet',
+    )
+    const explorerBtn = mainnetCard.reply_markup.inline_keyboard
+      .flat()
+      .find((b) => b.text.includes('Stellar Expert'))
+    expect(explorerBtn?.url).toBe(
+      `https://stellar.expert/explorer/public/contract/${SAMPLE_CONTRACT}`,
+    )
+
+    // 7. AI output strips non-Telegram URLs and isolates market data from system prompt
+    let seenMessages: Array<{ role: string; content: string }> = []
+    const aiOut = await answerProtocolQuestion('what is astrogate?', 888, {
+      ...env,
+      AI: {
+        run: async (_model, inputs) => {
+          seenMessages = (inputs.messages as Array<{ role: string; content: string }>) ?? []
+          return {
+            response:
+              'Visit https://evil-phishing.xyz/airdrop or https://t.me/AstroGateSorobanBot for live curves.',
+          }
+        },
+      },
+    })
+    expect(aiOut.poweredByAi).toBe(true)
+    expect(aiOut.answer).not.toContain('evil-phishing.xyz')
+    expect(aiOut.answer).toContain('https://t.me/AstroGateSorobanBot')
+    expect(seenMessages[0]?.role).toBe('system')
+    expect(seenMessages[0]?.content).not.toContain('Live market:')
+    expect(seenMessages[1]?.content).toContain('<live_market_data>')
+
+    // 8. v4.5 AGQ06 (>= 100 XLM) and AGQ07 (3 burns or King Shout) thresholds
+    const lowPilot = computeQuestSummary({
+      accountId: SAMPLE_ACCOUNT,
+      funded: true,
+      launchedCount: 0,
+      shoutCount: 0,
+      graduatedCount: 0,
+      swapCount: 5,
+      volumeXlmStroops: 999_999_999n, // 99.9999999 XLM (< 100 XLM)
+      kingBurnCount: 0,
+      burnsTriggered: 2,
+    })
+    expect(lowPilot.unlocked.whale).toBe(false)
+    expect(lowPilot.unlocked.phoenix).toBe(false)
+
+    const qualifyingPilot = computeQuestSummary({
+      accountId: SAMPLE_ACCOUNT,
+      funded: true,
+      launchedCount: 0,
+      shoutCount: 0,
+      graduatedCount: 0,
+      swapCount: 5,
+      volumeXlmStroops: 1_000_000_000n, // 100.0000000 XLM
+      kingBurnCount: 0,
+      burnsTriggered: 3,
+    })
+    expect(qualifyingPilot.unlocked.whale).toBe(true)
+    expect(qualifyingPilot.unlocked.phoenix).toBe(true)
+
+    // 9. Scheduled cron (events + periodic Feed Digest) NEVER posts to @AstroGateCommunity
+    const scheduledChatIds: string[] = []
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (urlStr.startsWith('https://api.telegram.org/')) {
+        const body = init?.body ? (JSON.parse(String(init.body)) as { chat_id?: number | string }) : {}
+        if (body.chat_id !== undefined) scheduledChatIds.push(String(body.chat_id))
+        return Response.json({ ok: true, result: { message_id: 1 } })
+      }
+      if (urlStr.includes('horizon-testnet.stellar.org')) {
+        return new Response('Not Found', { status: 404 })
+      }
+      return Response.json({
+        jsonrpc: '2.0',
+        id: 1,
+        result: {
+          sequence: 1000,
+          latestLedger: 1000,
+          events: [],
+          results: [],
+        },
+      })
+    }) as typeof fetch
+
+    try {
+      await workerDefault.scheduled(null, {
+        ...env,
+        TELEGRAM_BOT_TOKEN: '123456:cron-test',
+        TELEGRAM_COMMUNITY_CHAT_ID: '-1001625368092',
+        TELEGRAM_FEED_CHAT_ID: '-1003912502880',
+      })
+      // Even when triggered with Community chat configured, zero cron messages go to Community
+      expect(scheduledChatIds).not.toContain('-1001625368092')
+    } finally {
+      globalThis.fetch = origFetch
+    }
+  })
+
+  it('throttles idle last_polled_ledger KV writes in scheduled() until 720 ledgers or events occur', async () => {
+    let mockLatestLedger = 20000
+    const kvPuts: Array<{ key: string; value: string }> = []
+    const origFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (urlStr.startsWith('https://api.telegram.org/')) {
+        return Response.json({ ok: true, result: { message_id: 1 } })
+      }
+      return new Response('Not Found', { status: 404 })
+    }) as typeof fetch
+
+    const latestSpy = vi
+      .spyOn(sorobanRpc.Server.prototype, 'getLatestLedger')
+      .mockImplementation(async () => ({
+        id: 'mock',
+        protocolVersion: 23,
+        sequence: mockLatestLedger,
+      }) as unknown as Awaited<ReturnType<sorobanRpc.Server['getLatestLedger']>>)
+    const eventsSpy = vi
+      .spyOn(sorobanRpc.Server.prototype, 'getEvents')
+      .mockImplementation(async () => ({
+        events: [],
+        latestLedger: mockLatestLedger,
+        oldestLedger: 1,
+        latestLedgerCloseTime: '0',
+        oldestLedgerCloseTime: '0',
+        cursor: `${mockLatestLedger}-0`,
+      }))
+
+    const mockEnv = {
+      TELEGRAM_BOT_TOKEN: '123456:kv-throttle-test',
+      ASTRO_KV: {
+        get: async () => null,
+        put: async (key: string, value: string) => {
+          kvPuts.push({ key, value })
+        },
+        delete: async () => undefined,
+      },
+      ASSETS: { fetch: async () => new Response('ok') },
+    }
+
+    try {
+      // 1. Initial checkpoint writes once
+      await workerDefault.scheduled(null, mockEnv)
+      expect(kvPuts.filter((p) => p.key === 'last_polled_ledger')).toEqual([
+        { key: 'last_polled_ledger', value: '20001' },
+      ])
+
+      // 2. Idle delta < 720 ledgers skips redundant KV write
+      mockLatestLedger = 20050
+      await workerDefault.scheduled(null, mockEnv)
+      expect(kvPuts.filter((p) => p.key === 'last_polled_ledger')).toHaveLength(1)
+
+      // 3. Delta >= 720 ledgers writes next checkpoint
+      mockLatestLedger = 20800
+      await workerDefault.scheduled(null, mockEnv)
+      expect(kvPuts.filter((p) => p.key === 'last_polled_ledger')).toEqual([
+        { key: 'last_polled_ledger', value: '20001' },
+        { key: 'last_polled_ledger', value: '20801' },
+      ])
+    } finally {
+      latestSpy.mockRestore()
+      eventsSpy.mockRestore()
+      globalThis.fetch = origFetch
+    }
+  })
+
+  it('enforces cryptographic /api/telegram/session verification and requires initData on /api/telegram/pulse', async () => {
+    const botToken = '123456:session-test-token'
+    const env = {
+      TELEGRAM_BOT_TOKEN: botToken,
+      ASSETS: { fetch: async () => new Response('ok') },
+    }
+
+    const optRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'OPTIONS',
+        headers: { Origin: 'https://astrogate.pages.dev' },
+      }),
+      env,
+    )
+    expect(optRes.status).toBe(204)
+
+    const missingHeaderRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'POST',
+        headers: { Origin: 'https://astrogate.pages.dev', 'Content-Type': 'application/json' },
+        body: '{}',
+      }),
+      env,
+    )
+    expect(missingHeaderRes.status).toBe(401)
+
+    const unconfiguredRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': 'auth_date=1&hash=abc' },
+      }),
+      { ASSETS: { fetch: async () => new Response('ok') } },
+    )
+    expect(unconfiguredRes.status).toBe(503)
+
+    const signInitData = async (authDate: number, userObj: Record<string, unknown>) => {
+      const enc = new TextEncoder()
+      const webAppKey = await crypto.subtle.importKey(
+        'raw',
+        enc.encode('WebAppData'),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      )
+      const secretKey = await crypto.subtle.sign('HMAC', webAppKey, enc.encode(botToken))
+      const signKey = await crypto.subtle.importKey(
+        'raw',
+        secretKey,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      )
+      const dataCheck = `auth_date=${authDate}\nuser=${JSON.stringify(userObj)}`
+      const sig = await crypto.subtle.sign('HMAC', signKey, enc.encode(dataCheck))
+      const hash = Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('')
+      return new URLSearchParams({
+        auth_date: String(authDate),
+        user: JSON.stringify(userObj),
+        hash,
+      }).toString()
+    }
+
+    const nowSec = Math.floor(Date.now() / 1000)
+    const validInit = await signInitData(nowSec, { id: 777, first_name: 'Kawsay', username: 'kawsay' })
+    const tamperedInit = `${validInit.slice(0, -4)}0000`
+    const expiredInit = await signInitData(nowSec - 90_000, { id: 777, first_name: 'Kawsay' })
+
+    const tamperedRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': tamperedInit },
+      }),
+      env,
+    )
+    expect(tamperedRes.status).toBe(401)
+
+    const expiredRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'POST',
+        headers: { 'X-Telegram-Init-Data': expiredInit },
+      }),
+      env,
+    )
+    expect(expiredRes.status).toBe(401)
+
+    const validRes = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/session', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://astrogate.pages.dev',
+          'X-Telegram-Init-Data': validInit,
+        },
+      }),
+      env,
+    )
+    expect(validRes.status).toBe(200)
+    const validJson = (await validRes.json()) as {
+      ok: boolean
+      user: { id: number; firstName: string; username: string | null }
+    }
+    expect(validJson.ok).toBe(true)
+    expect(validJson.user).toEqual({
+      id: 777,
+      firstName: 'Kawsay',
+      username: 'kawsay',
+    })
+
+    // /api/telegram/pulse requires X-Telegram-Init-Data even on valid Origin, and 403 on untrusted Origin
+    const pulseValidOriginNoInit = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/pulse', {
+        method: 'POST',
+        headers: { Origin: 'https://astrogate.pages.dev', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txHash: 'a'.repeat(64) }),
+      }),
+      env,
+    )
+    expect(pulseValidOriginNoInit.status).toBe(401)
+
+    const pulseBadOrigin = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/telegram/pulse', {
+        method: 'POST',
+        headers: { Origin: 'https://evil.example', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txHash: 'a'.repeat(64) }),
+      }),
+      env,
+    )
+    expect(pulseBadOrigin.status).toBe(403)
+
+    // Regression: GET /api/v1/wallet/vault honors 24h initData TTL (accepts 600s old, rejects >24h)
+    const init600s = await signInitData(nowSec - 600, { id: 777, first_name: 'Kawsay', username: 'kawsay' })
+    const vaultOk = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/v1/wallet/vault', {
+        method: 'GET',
+        headers: {
+          Origin: 'https://astrogate.pages.dev',
+          'X-Telegram-Init-Data': init600s,
+        },
+      }),
+      env,
+    )
+    expect(vaultOk.status).toBe(200)
+
+    const vaultExpired = await handleWorkerRequest(
+      new Request('https://astrogate.pages.dev/api/v1/wallet/vault', {
+        method: 'GET',
+        headers: {
+          Origin: 'https://astrogate.pages.dev',
+          'X-Telegram-Init-Data': expiredInit,
+        },
+      }),
+      env,
+    )
+    expect(vaultExpired.status).toBe(401)
   })
 })

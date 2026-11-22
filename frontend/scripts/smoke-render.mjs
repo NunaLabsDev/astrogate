@@ -40,12 +40,13 @@ const vite = await createServer({
 let failed = false
 try {
   const { default: App } = await vite.ssrLoadModule('/src/App.tsx')
+  const { default: MiniAppShell } = await vite.ssrLoadModule('/src/MiniAppShell.tsx')
 
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, enabled: false } },
   })
 
-  function renderApp(path) {
+  function renderTree(Component, path) {
     return renderToString(
       createElement(
         QueryClientProvider,
@@ -53,10 +54,43 @@ try {
         createElement(
           MemoryRouter,
           { initialEntries: [path] },
-          createElement(App),
+          createElement(Component),
         ),
       ),
     )
+  }
+
+  // External browser visitors see the Telegram-only presentation landing gate
+  const gateRootHtml = renderTree(App, '/')
+  for (const text of [
+    'AstroGate',
+    'Open AstroGate in Telegram',
+    'https://t.me/AstroGateSorobanBot?start=home',
+    'Fair-Flywheel v4.5',
+    'Sorobits',
+  ]) {
+    if (!gateRootHtml.includes(text)) {
+      throw new Error(`el landing gate externo no contiene "${text}"`)
+    }
+  }
+  if (gateRootHtml.includes('Memecoin Market')) {
+    throw new Error('App.tsx expuso el shell interno del Mini App fuera de Telegram')
+  }
+
+  const gateTokenHtml = renderTree(
+    App,
+    '/token/CCJ7NWS2SDTNVGAGW5J7K5Z54ATFAPKDBVJNBTKBSPBK7E5IHFOXWMQU',
+  )
+  if (
+    !gateTokenHtml.includes(
+      'https://t.me/AstroGateSorobanBot?start=CCJ7NWS2SDTNVGAGW5J7K5Z54ATFAPKDBVJNBTKBSPBK7E5IHFOXWMQU',
+    )
+  ) {
+    throw new Error('el landing gate no preserva el deep link para /token/:id')
+  }
+
+  function renderApp(path) {
+    return renderTree(MiniAppShell, path)
   }
 
   const html = renderApp('/')

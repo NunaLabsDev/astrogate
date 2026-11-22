@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "astrogate-soroban": {
+      "command": "node",
+      "args": ["frontend/scripts/mcp-server.mjs"]
+    }
+  }
+}

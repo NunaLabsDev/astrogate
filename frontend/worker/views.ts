@@ -111,15 +111,27 @@ export function isSecretSeed(value: string): boolean {
   return /^S[A-Z2-7]{55}$/.test(value)
 }
 
+export function explorerNetworkSegment(network?: string): 'public' | 'testnet' {
+  return network === 'mainnet' ? 'public' : 'testnet'
+}
+
 export function detectStellarAddress(
   text: string,
 ): { kind: 'contract' | 'account' | 'secret'; value: string } | null {
-  const tokens = text.trim().split(/\s+/)
+  const parts = text.trim().split(/[^A-Z2-7]+/)
   // Always prioritize Stellar secret seeds (S...) anywhere in the message
-  // so pasting "CA... SB..." still triggers immediate auto-deletion & warning.
+  // so pasting "SECRET=SB..." or "CA... SB..." still triggers immediate auto-deletion & warning.
+  for (const part of parts) {
+    if (isSecretSeed(part)) return { kind: 'secret', value: part }
+  }
+  const tokens = text.trim().split(/\s+/)
   for (const raw of tokens) {
     const clean = raw.replace(/[^A-Z2-7]/g, '')
     if (isSecretSeed(clean)) return { kind: 'secret', value: clean }
+  }
+  for (const part of parts) {
+    if (isContractAddr(part)) return { kind: 'contract', value: part }
+    if (isAccountAddr(part)) return { kind: 'account', value: part }
   }
   for (const raw of tokens) {
     const clean = raw.replace(/[^A-Z2-7]/g, '')
@@ -204,7 +216,7 @@ function cbBtn(text: string, data: string): InlineKeyboardButton {
 function shareUrl(botUsername: string): string {
   const target = `https://t.me/${botUsername}?start=home`
   const caption =
-    'Launch or trade fair memecoins on Stellar Soroban with 100% LP burned on AstroGate.'
+    'Launch or trade Fair-Flywheel v4.5 tokens on Stellar Soroban with 7Y LP lock on AstroGate.'
   return `https://t.me/share/url?url=${encodeURIComponent(target)}&text=${encodeURIComponent(caption)}`
 }
 
@@ -223,12 +235,12 @@ export function buildWelcomeView(
     `🌊🚀 <b>AstroGate</b> · <code>Stellar Testnet</code>`,
     `${greet}`,
     ``,
-    `<blockquote>Fair-Flywheel v4.4 · 10M fixed supply · 40K Checkpoint Jackpots · 7Y LP lock</blockquote>`,
+    `<blockquote>Fair-Flywheel v4.5 · 10M fixed supply · 40K Escrowed Jackpots · 7Y LP lock</blockquote>`,
     ``,
     `⚡ <b>3-Stage Curve:</b> <code>0.30% → 0.50% → 0.25%</code> buy · +5K / +10K / +25K prizes`,
-    `🔥 <b>Real flywheel:</b> Auto DEX Buyback &amp; Burn + Burn-to-Chat`,
-    `🧬 <b>Sorobits NFTs:</b> 100% on-chain 32×32 genomic SVG art (SEP-50)`,
-    `🔐 <b>Self-custody:</b> Encrypted wallet synced with Telegram CloudStorage`,
+    `🔥 <b>Real Flywheel:</b> Anti-MEV Buyback (+2% Keeper Rebate) &amp; Burn-to-Chat`,
+    `🧬 <b>Sorobits NFTs:</b> Commit-Reveal 32×32 genomic SVG art (SEP-50)`,
+    `🔐 <b>Self-custody:</b> Biometric + PIN encrypted wallet synced with CloudStorage`,
     ``,
     `<i>Tap any button below, paste a <code>CA…</code> / <code>GA…</code> address, or ask me anything in plain English.</i>`,
     `<i>Built by NunaLabs</i>`,
@@ -322,7 +334,7 @@ export function buildSorobitsView(
     text: [
       `🧬 <b>Sorobits (SBIT) · 100% On-Chain NFTs</b>`,
       ``,
-      `<blockquote>32×32 Genomic Pixel Art rendered natively from Stellar Soroban SVG — zero IPFS &amp; zero Pinata.</blockquote>`,
+      `<blockquote>Commit-Reveal RNG &amp; 32×32 Genomic Pixel Art rendered natively from Stellar Soroban SVG — zero IPFS &amp; zero Pinata.</blockquote>`,
       ``,
       `• <b>Contract:</b> <code>${escapeHtml(contractId)}</code>`,
       supplyLine,
@@ -380,7 +392,7 @@ export function buildMarketView(
     rows.push(
       rpcFailed
         ? '⚠️ Soroban RPC timed out right now. Tap Refresh or open the Mini App.'
-        : '🚀 No active curves found yet. Launch the first v4.4 token!',
+        : '🚀 No active curves found yet. Launch the first v4.5 token!',
     )
   } else {
     for (const item of items.slice(0, 4)) {
@@ -471,8 +483,8 @@ export function buildLaunchView(
     `<blockquote>Fixed <b>10,000,000</b> supply · Verified SEP-41 · Renounced ownership</blockquote>`,
     ``,
     `💰 <b>Cost:</b> <code>7 XLM</code> protocol fee + <code>2+ XLM</code> initial seed buy`,
-    `📊 <b>v4.4 Split:</b> <code>66%</code> Curve · <code>33%</code> DEX · <code>0.3%</code> Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
-    `🔒 <b>Anti-Rug:</b> Creator seed locked until <code>1,000 XLM</code> graduation`,
+    `📊 <b>v4.5 Split:</b> <code>66%</code> Curve · <code>33%</code> DEX · <code>0.3%</code> Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
+    `🔒 <b>Anti-Rug:</b> Creator seed locked (7d stall / 30d closeout principal return)`,
     `🎓 <b>Graduation:</b> Auto Soroswap pool with <b>LP locked 7 years on-chain</b>`,
     directDeepLink
       ? `\n👇 <i>Tap below to open the token creator inside Telegram:</i>`
@@ -498,7 +510,7 @@ export function buildLaunchView(
           ),
         ],
         [
-          cbBtn('⚙️ v4.4 Rules', 'nav:v42:e'),
+          cbBtn('⚙️ v4.5 Rules', 'nav:v42:e'),
           cbBtn('⬅️ Home', 'nav:home:e'),
         ],
       ],
@@ -574,7 +586,7 @@ export function buildWalletView(
     `<blockquote>100% self-custody: private keys never leave your device unencrypted.</blockquote>`,
     ``,
     `🪪 <b>@username Identity:</b> Cryptographic Ed25519 link to your <code>Primary</code> wallet (up to 10 sub-wallets)`,
-    `🔐 <b>Client Encryption:</b> <code>PBKDF2-SHA256</code> + <code>AES-GCM-256</code> under your PIN`,
+    `🔐 <b>Client Encryption:</b> <code>PBKDF2-SHA256</code> + <code>AES-GCM-256</code> + Biometric / PRF unlock`,
     `☁️ <b>Telegram ↔ Web Sync:</b> <code>Telegram CloudStorage</code> + portable <code>AGVAULT1:</code> bundles &amp; exportable <code>S…</code> keys`,
     `🚰 <b>Free Testnet XLM:</b> 1-tap <code>10,000 XLM</code> Friendbot faucet inside the app`,
     ``,
@@ -614,20 +626,21 @@ export function buildV42RulesView(
   hasMainApp = false,
 ): BotRenderedView {
   const text = [
-    `⚙️ <b>Fair-Flywheel v4.4 · On-Chain Mechanics</b>`,
+    `⚙️ <b>Fair-Flywheel v4.5 · On-Chain Rules</b>`,
     ``,
-    `<b>1 · 3-Stage Bonding Curve &amp; 40K Checkpoints</b>`,
-    `• Virtual depth <code>1,000 vXLM → 1,000 XLM</code> goal (<code>4.00x</code> curve, <code>0.00%</code> cliff at grad)`,
-    `• Buys: <code>0.30%</code> (&lt;250 XLM → <code>+5K</code>) · <code>0.50%</code> (250–500 → <code>+10K</code>) · <code>0.25%</code> (500–1K → <code>+25K</code>)`,
+    `<b>1 · 3-Stage Curve &amp; Escrowed 40K Jackpots</b>`,
+    `• <code>1,000 vXLM → 1,000 XLM</code> goal (<code>4.00x</code>, <code>0.00%</code> cliff)`,
+    `• Buys: <code>0.30%</code> (&lt;250 → +5K) · <code>0.50%</code> (250–500 → +10K) · <code>0.25%</code> (500–1K → +25K)`,
+    `• Escrowed jackpots unlock on grad via <code>claim_jackpot()</code>`,
     `• Sells: <code>1.20%</code> / <code>1.80%</code> / <code>1.50%</code> → LP floor &amp; DEX buyback`,
     ``,
-    `<b>2 · Supply &amp; 7Y LP Lock</b>`,
-    `• <code>66%</code> Curve · <code>33%</code> DEX (7Y LP Lock) · <code>0.3%</code> 15d Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
-    `• <code>60%</code> of floor fee surplus powers permissionless Soroswap <b>Buyback &amp; Burn</b>`,
-    `• Pre-grad P2P transfer lock closes <code>PairAlreadySeeded</code> DEX frontrunning`,
+    `<b>2 · Supply, 7Y LP Lock &amp; Keeper Buybacks</b>`,
+    `• <code>66%</code> Curve · <code>33%</code> DEX (7Y lock) · <code>0.3%</code> 15d Vest · <code>0.4%</code> Jackpots · <code>0.3%</code> Dev`,
+    `• Buybacks: max <code>min(0.25% pool, 0.80 XLM)</code> / <code>300s</code> (+<b>2% XLM</b> rebate)`,
+    `• 48h upgrade timelock · Commit-Reveal Sorobits RNG`,
     ``,
     `<b>3 · Burn-to-Chat + King Shout</b>`,
-    `• Burn <code>50 / 500 / 5,000+</code> tokens on-chain; 👑 throne decays with 24h half-life`,
+    `• Burn <code>50 / 500 / 5,000+</code> tokens; 👑 decays (24h half-life)`,
     ``,
     `<i>Built by NunaLabs</i>`,
   ].join('\n')
@@ -639,7 +652,7 @@ export function buildV42RulesView(
       inline_keyboard: [
         [
           miniAppBtn(
-            '🚀 Launch on v4.4',
+            '🚀 Launch on v4.5',
             '/create',
             baseUrl,
             inGroup,
@@ -683,7 +696,7 @@ export function buildHelpView(
     `/rewards — Bounties, sprints &amp; <code>/claim GA…</code> check`,
     `/ask <code>question</code> — Instant protocol &amp; market Q&amp;A`,
     `/wallet · /wallet <code>@user</code> — Native multi-wallet &amp; handle lookup`,
-    `/launch · /v42 — Launch token &amp; Fair-Flywheel mechanics`,
+    `/launch · /v45 — Launch token &amp; Fair-Flywheel v4.5 rules`,
     ``,
     `💡 <b>Inline:</b> Type <code>@${botUsername} ASTRO</code> in any chat to share a live token card.`,
     `🛡 <b>Security:</b> Never paste your secret seed <code>S…</code> in any Telegram chat.`,
@@ -724,8 +737,9 @@ export function buildTokenInspectorView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  stellarNetwork: 'testnet' | 'mainnet' = 'testnet',
 ): BotRenderedView {
-  const explorerUrl = `https://stellar.expert/explorer/testnet/contract/${tokenId}`
+  const explorerUrl = `https://stellar.expert/explorer/${explorerNetworkSegment(stellarNetwork)}/contract/${encodeURIComponent(tokenId)}`
 
   if (!data) {
     return {
@@ -770,18 +784,20 @@ export function buildTokenInspectorView(
 
   if (data.curve) {
     if (data.curve.graduated) {
-      lines.push(`✅ <b>Graduated on Soroswap DEX</b> · 100% LP Burned`)
+      lines.push(`✅ <b>Graduated on Soroswap DEX</b> · 7Y LP Lock / Protected`)
       if (data.dexReserveXlm !== null && data.dexReserveXlm > 0n) {
         lines.push(`💧 DEX Liquidity: <b>${formatXlm(data.dexReserveXlm, 2)} XLM</b>`)
       }
       if (data.curve.buybackXlmReserve > 0n) {
         lines.push(
-          `🔥 Buyback Reserve: <b>${formatXlm(data.curve.buybackXlmReserve, 2)} XLM</b>`,
+          `🔥 Buyback Reserve: <b>${formatXlm(data.curve.buybackXlmReserve, 2)} XLM</b> (+2% keeper rebate)`,
         )
       }
-      lines.push(
-        `🏛 Burn Vault: Milestone <b>${data.curve.burnMilestoneStage}/2</b> (${formatTokensCompact(data.curve.burnVaultRemaining, data.decimals)} left)`,
-      )
+      if (data.curve.burnVaultRemaining > 0n) {
+        lines.push(
+          `🏛 Legacy Burn Vault: Milestone <b>${data.curve.burnMilestoneStage}/2</b> (${formatTokensCompact(data.curve.burnVaultRemaining, data.decimals)} left)`,
+        )
+      }
     } else {
       const pct = curvePercent(data.curve.curveXlmNet)
       const soldPct =
@@ -850,9 +866,10 @@ export function buildAccountInspectorView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  stellarNetwork: 'testnet' | 'mainnet' = 'testnet',
 ): BotRenderedView {
   const safeAccountId = escapeHtml(accountId)
-  const explorerUrl = `https://stellar.expert/explorer/testnet/account/${encodeURIComponent(accountId)}`
+  const explorerUrl = `https://stellar.expert/explorer/${explorerNetworkSegment(stellarNetwork)}/account/${encodeURIComponent(accountId)}`
 
   const text = !account
     ? `👛 <b>Account</b> <code>${safeAccountId}</code>\n\n⚠️ Could not reach Horizon Testnet right now.`
@@ -1128,7 +1145,7 @@ export function buildInlineMarketResults(
     const safeSym = escapeHtml(item.symbol)
     const pct = curvePercent(item.curveXlmNet)
     const statusLine = item.graduated
-      ? `🎓 Graduated on Soroswap DEX · ${item.reserveXlmStroops > 0n ? `${formatXlm(item.reserveXlmStroops, 1)} XLM TVL` : '100% LP Burned'}`
+      ? `🎓 Graduated on Soroswap DEX · ${item.reserveXlmStroops > 0n ? `${formatXlm(item.reserveXlmStroops, 1)} XLM TVL` : '7Y LP Lock'}`
       : `⚡ Bonding Curve ${pct.toFixed(1)}% (${formatXlm(item.curveXlmNet, 1)}/1,000 XLM)`
 
     return {
@@ -1136,7 +1153,7 @@ export function buildInlineMarketResults(
       id: item.id.slice(0, 64),
       title: `${item.graduated ? '🎓' : '⚡'} $${item.symbol} · ${item.name}`,
       description: item.graduated
-        ? 'Graduated on Soroswap DEX · 100% LP Burned'
+        ? 'Graduated on Soroswap DEX · 7Y LP Lock / Protected'
         : `${pct.toFixed(1)}% curve · ${formatXlm(item.curveXlmNet, 1)}/1,000 XLM`,
       input_message_content: {
         message_text: [
@@ -1174,9 +1191,10 @@ export function buildShoutsView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  stellarNetwork: 'testnet' | 'mainnet' = 'testnet',
 ): BotRenderedView {
   const safeTokenId = escapeHtml(tokenId)
-  const explorerUrl = `https://stellar.expert/explorer/testnet/contract/${encodeURIComponent(tokenId)}`
+  const explorerUrl = `https://stellar.expert/explorer/${explorerNetworkSegment(stellarNetwork)}/contract/${encodeURIComponent(tokenId)}`
 
   if (!data) {
     return {
@@ -1441,7 +1459,7 @@ export function buildGroupWelcomeView(
     text: [
       `👋 <b>Welcome to AstroGate Community, ${safeName}!</b>`,
       ``,
-      `• 🚀 Launch &amp; trade Fair-Flywheel v4.4 tokens on Stellar Soroban`,
+      `• 🚀 Launch &amp; trade Fair-Flywheel v4.5 tokens on Stellar Soroban`,
       `• 💬 Paste any <code>$TICKER</code>, <code>CA…</code>, or <code>GA…</code> — or tag <code>@${botUsername}</code> for help`,
       `• 📡 Automated live alerts stream cleanly in @AstroGateFeed`,
       `• 🛡️ Never share your <code>S…</code> secret seed in any chat`,
@@ -1460,7 +1478,7 @@ export function buildCommunityDigestView(
   const active = items.filter((i) => !i.graduated).slice(0, 3)
   const graduated = items.filter((i) => i.graduated).slice(0, 2)
   const lines: string[] = [
-    `🌊📡 <b>AstroGate Community Pulse · Stellar Testnet</b>`,
+    `🌊📡 <b>AstroGate Live Feed Digest · Stellar Testnet</b>`,
     ``,
   ]
 
@@ -1487,7 +1505,7 @@ export function buildCommunityDigestView(
   lines.push(
     `🧬 <b>Sorobits (SBIT) Minted On-Chain:</b> <code>${sorobitsTotal}</code>`,
     ``,
-    `<i>Use <code>/market</code>, <code>/king</code>, <code>/quests GA...</code>, or ask <code>@${botUsername}</code> anything!</i>`,
+    `<i>Chat &amp; run <code>/market</code>, <code>/king</code>, <code>/quests GA...</code>, or <code>/ask</code> in @AstroGateCommunity.</i>`,
     `<i>Built by NunaLabs</i>`,
   )
 
@@ -1503,7 +1521,7 @@ export function buildCommunityDigestView(
       },
     ],
     [
-      { text: '📡 Live Feed', url: 'https://t.me/AstroGateFeed' },
+      { text: '💬 Community Chat', url: 'https://t.me/AstroGateCommunity' },
       ...(folderUrl && folderUrl.startsWith('https://t.me/')
         ? [{ text: '📁 All 3 Chats', url: folderUrl }]
         : [

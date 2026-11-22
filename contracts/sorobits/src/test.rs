@@ -3,7 +3,7 @@ extern crate std;
 use soroban_sdk::{
     contract, contractimpl,
     testutils::{Address as _, Ledger},
-    token, Address, Bytes, Env, Map, String,
+    token, Address, Bytes, BytesN, Env, Map, String,
 };
 
 use crate::{
@@ -353,14 +353,14 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
     // Wallet[0] cannot claim AGQ02..8 before completing Launchpad actions
     assert!(client.try_claim_quest_badge(&wallets[0], &2).is_err());
 
-    // Simulate real Launchpad activity for wallets[0] (launched, traded, king-shouted, graduated)
+    // Simulate real Launchpad activity for wallets[0] (launched, traded, king-shouted, graduated, >=100 XLM)
     lp_client.set_pilot(
         &wallets[0],
         &LaunchpadPilotRecord {
             launches: 1,
             graduations: 1,
             trades: 4,
-            volume_xlm_stroops: 2_500_000_000,
+            volume_xlm_stroops: 2_500_000_000, // 250 XLM >= 100 XLM Whale minimum
             shouts: 2,
             king_shouts: 1,
             burns_triggered: 2,
@@ -385,13 +385,18 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
 
     // Anti-Sybil guard: free Soulbound AGQ01 Pioneer (#0) cannot enter Forge
     let entropy = Bytes::from_slice(&e, b"forge-ascend-50-wallet-test");
+    let commit_hash: BytesN<32> = e.crypto().sha256(&entropy).into();
     assert!(client
-        .try_forge_ascend(&wallets[0], &0, &id_launcher, &entropy)
+        .try_commit_forge(&wallets[0], &0, &id_launcher, &commit_hash)
         .is_err());
 
-    // Generative 7 XLM Mystery Capsule mint + anti-whale quota check
+    // Generative 7 XLM Mystery Capsule commit-reveal + anti-whale quota check
     xlm_admin.mint(&wallets[0], &200_000_000);
-    let capsule_id = client.mint_capsule(&wallets[0], &entropy);
+    client.commit_capsule(&wallets[0], &commit_hash);
+    assert!(client.get_pending_capsule_commit(&wallets[0]).is_some());
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    let capsule_id = client.reveal_capsule(&wallets[0], &entropy);
+    assert!(client.get_pending_capsule_commit(&wallets[0]).is_none());
     assert_eq!(client.total_supply(), 58);
     assert_eq!(xlm_client.balance(&treasury), 70_000_000);
     assert!(!client.get_sorobit(&capsule_id).soulbound);
@@ -403,27 +408,42 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
     let fresh_buyer = Address::generate(&e);
     xlm_admin.mint(&fresh_buyer, &210_000_000);
     assert_eq!(client.get_capsule_quota(&fresh_buyer), (0, 2));
-    client.mint_capsule(&fresh_buyer, &entropy);
-    client.mint_capsule(&fresh_buyer, &entropy);
-    assert!(client.try_mint_capsule(&fresh_buyer, &entropy).is_err());
+    client.commit_capsule(&fresh_buyer, &commit_hash);
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    client.reveal_capsule(&fresh_buyer, &entropy);
+    client.commit_capsule(&fresh_buyer, &commit_hash);
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    client.reveal_capsule(&fresh_buyer, &entropy);
+    assert!(client
+        .try_commit_capsule(&fresh_buyer, &commit_hash)
+        .is_err());
 
-    // Deflationary Forge: wallets[0] burns 2 tradeable Sorobits (#id_launcher + #id_shouter) -> Gen-1 Ascended
-    let forged_id = client.forge_ascend(&wallets[0], &id_launcher, &id_shouter, &entropy);
+    // Deflationary Forge (commit -> ledger+1 -> reveal): burns 2 tradeable Sorobits -> Gen-1 Ascended
+    client.commit_forge(&wallets[0], &id_launcher, &id_shouter, &commit_hash);
+    assert!(client.get_pending_forge_commit(&wallets[0]).is_some());
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    let forged_id = client.reveal_forge(&wallets[0], &entropy);
+    assert!(client.get_pending_forge_commit(&wallets[0]).is_none());
     assert_eq!(client.total_supply(), 59); // 58 + 2 (fresh) - 2 burned + 1 forged
     assert_eq!(client.owner_of(&forged_id), wallets[0]);
     assert_eq!(client.get_capsule_quota(&wallets[0]).0, 0); // forging freed 1 capsule slot
 
-    let forged_rec = client.get_sorobit(&forged_id);
-    assert_eq!(forged_rec.generation, 1);
+    // Anti-laundering check: freshly forged Gen-1 starts with intrinsic forged XP (500, Tier 2),
+    // then syncing under whale wallets[0] adds their real pilot aura (>= 3000, Tier 4)!
+    let forged_base = client.get_sorobit(&forged_id);
+    assert_eq!(forged_base.generation, 1);
+    assert_eq!(forged_base.xp_score, 500);
+    assert_eq!(forged_base.rank_tier, 2);
+    let forged_rec = client.sync_epigenetics(&forged_id);
     assert_eq!(forged_rec.rank_tier, 4);
     assert!(forged_rec.xp_score >= 3_000);
 
     // Owner cannot forge with same token twice or forge unowned token
     assert!(client
-        .try_forge_ascend(&wallets[0], &forged_id, &forged_id, &entropy)
+        .try_commit_forge(&wallets[0], &forged_id, &forged_id, &commit_hash)
         .is_err());
     assert!(client
-        .try_forge_ascend(&wallets[1], &forged_id, &1, &entropy)
+        .try_commit_forge(&wallets[1], &forged_id, &1, &commit_hash)
         .is_err());
 
     let owned_after = client.tokens_of_page(&wallets[0], &0, &20);
@@ -442,4 +462,178 @@ fn test_50_wallets_claim_quests_sync_epigenetics_and_forge_ascend() {
         xlm_client.balance(&treasury),
         svg.len()
     );
+}
+
+#[test]
+fn test_commit_reveal_rejects_same_ledger_wrong_entropy_and_direct_mint() {
+    let (e, admin, _treasury, user, client) = setup(10);
+    let xlm_sac = e.register_stellar_asset_contract_v2(admin);
+    let xlm_addr = xlm_sac.address();
+    token::StellarAssetClient::new(&e, &xlm_addr).mint(&user, &200_000_000);
+    client.set_xlm_sac(&xlm_addr);
+
+    let entropy = Bytes::from_slice(&e, b"secret-seed-32");
+    let wrong_entropy = Bytes::from_slice(&e, b"wrong-seed-32");
+    let commit_hash: BytesN<32> = e.crypto().sha256(&entropy).into();
+
+    // Direct single-tx mint_capsule / forge_ascend disabled (#323)
+    assert!(client.try_mint_capsule(&user, &entropy).is_err());
+
+    client.commit_capsule(&user, &commit_hash);
+    // Duplicate commit rejected (#319)
+    assert!(client.try_commit_capsule(&user, &commit_hash).is_err());
+    // Reveal on same ledger rejected (#321)
+    assert!(client.try_reveal_capsule(&user, &entropy).is_err());
+
+    // Advance 1 ledger -> wrong entropy rejected (#322) -> right entropy succeeds!
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    assert!(client.try_reveal_capsule(&user, &wrong_entropy).is_err());
+    let token_id = client.reveal_capsule(&user, &entropy);
+    assert_eq!(client.owner_of(&token_id), user);
+}
+
+#[test]
+fn test_epigenetics_no_tier4_xp_laundering_on_transfer_or_forge() {
+    let (e, admin, _treasury, whale, client) = setup(50);
+    let victim = Address::generate(&e);
+    let mock_lp = e.register(MockPilotLaunchpad, ());
+    let lp_client = MockPilotLaunchpadClient::new(&e, &mock_lp);
+    client.set_launchpad(&mock_lp);
+    lp_client.set_pilot(
+        &whale,
+        &LaunchpadPilotRecord {
+            launches: 4,
+            graduations: 4,
+            trades: 20,
+            volume_xlm_stroops: 5_000_000_000,
+            shouts: 5,
+            king_shouts: 2,
+            burns_triggered: 5,
+        },
+    );
+
+    let tok_a = client.mint_genesis(&admin, &whale, &2, &false);
+    let tok_b = client.mint_genesis(&admin, &whale, &3, &false);
+    let base_tier_a = client.get_sorobit(&tok_a).rank_tier;
+
+    // Whale syncs tok_a -> Tier 4 while whale holds it
+    let synced_whale = client.sync_epigenetics(&tok_a);
+    assert_eq!(synced_whale.rank_tier, 4);
+    assert!(synced_whale.xp_score >= 2_500);
+
+    // Transferring to fresh victim immediately clears whale pilot aura -> drops back to intrinsic tier!
+    client.transfer(&whale, &victim, &tok_a);
+    let after_xfer = client.get_sorobit(&tok_a);
+    assert_eq!(after_xfer.xp_score, 0);
+    assert_eq!(after_xfer.rank_tier, base_tier_a);
+    assert!(after_xfer.rank_tier < 4);
+    let synced_victim = client.sync_epigenetics(&tok_a);
+    assert_eq!(synced_victim.xp_score, 0);
+    assert_eq!(synced_victim.rank_tier, base_tier_a);
+
+    // Transfer back to whale, re-sync both tokens to Tier 4, and forge them:
+    // Resulting Gen-1 NFT carries ONLY intrinsic forged XP (500 -> Tier 2), NOT laundered whale XP!
+    client.transfer(&victim, &whale, &tok_a);
+    client.sync_epigenetics(&tok_a);
+    client.sync_epigenetics(&tok_b);
+    let entropy = Bytes::from_slice(&e, b"anti-launder-forge");
+    let commit_hash: BytesN<32> = e.crypto().sha256(&entropy).into();
+    client.commit_forge(&whale, &tok_a, &tok_b, &commit_hash);
+    e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+    let forged = client.reveal_forge(&whale, &entropy);
+    let forged_rec = client.get_sorobit(&forged);
+    assert_eq!(forged_rec.xp_score, 500);
+    assert_eq!(forged_rec.rank_tier, 2);
+}
+
+#[test]
+fn test_agq06_whale_requires_100_xlm_and_agq07_phoenix_requires_3_burns_or_king() {
+    let (e, _admin, _treasury, pilot_addr, client) = setup(50);
+    let mock_lp = e.register(MockPilotLaunchpad, ());
+    let lp_client = MockPilotLaunchpadClient::new(&e, &mock_lp);
+    client.set_launchpad(&mock_lp);
+
+    // 50 XLM trade & 2 non-king burns -> NOT enough for AGQ06 (100 XLM) or AGQ07 (3 burns / king)
+    lp_client.set_pilot(
+        &pilot_addr,
+        &LaunchpadPilotRecord {
+            launches: 0,
+            graduations: 0,
+            trades: 5,
+            volume_xlm_stroops: 50 * 10_000_000,
+            shouts: 2,
+            king_shouts: 0,
+            burns_triggered: 2,
+        },
+    );
+    assert!(client.try_claim_quest_badge(&pilot_addr, &6).is_err());
+    assert!(client.try_claim_quest_badge(&pilot_addr, &7).is_err());
+
+    // Reach 100 XLM volume & 3 burns -> both unlock!
+    lp_client.set_pilot(
+        &pilot_addr,
+        &LaunchpadPilotRecord {
+            launches: 0,
+            graduations: 0,
+            trades: 6,
+            volume_xlm_stroops: 100 * 10_000_000,
+            shouts: 3,
+            king_shouts: 0,
+            burns_triggered: 3,
+        },
+    );
+    client.claim_quest_badge(&pilot_addr, &6);
+    client.claim_quest_badge(&pilot_addr, &7);
+    assert!(client.has_claimed(&pilot_addr, &6));
+    assert!(client.has_claimed(&pilot_addr, &7));
+}
+
+#[test]
+fn test_season2_uses_dynamic_layer_and_palette_counts() {
+    let (e, admin, _treasury, alice, client) = setup(50);
+    let valid_pal = Bytes::from_slice(&e, &FACTION_PALETTES[4]);
+    let valid_layer = Bytes::from_slice(&e, RELIC_4_ORBITALHALO);
+
+    // Register 9th palette slot (faction_id = 8) & 10th Relic slot (layer_id = 9), beyond Season 1 bounds (7 & 8)
+    for f in 0..=8u32 {
+        client.register_palette(&admin, &2, &f, &valid_pal);
+    }
+    for r in 0..=9u32 {
+        client.register_layer(&admin, &2, &LayerCategory::Relic, &r, &valid_layer);
+    }
+    client.set_active_season(&2);
+
+    let mut saw_expanded_slot = false;
+    for i in 0..30u8 {
+        e.ledger().set_sequence_number(e.ledger().sequence() + 1);
+        let entropy = Bytes::from_slice(&e, &[b's', b'2', i, i.wrapping_add(77)]);
+        let id = client.mint_generative(&admin, &alice, &entropy, &false);
+        let dna = client.get_sorobit(&id).dna.to_array();
+        assert_eq!(dna[0], 2);
+        if dna[1] >= 7 || dna[5] >= 8 {
+            saw_expanded_slot = true;
+            assert!(client.render_svg(&id).len() > 500);
+            break;
+        }
+    }
+    assert!(
+        saw_expanded_slot,
+        "Season 2 must reach expanded custom palette/relic indices"
+    );
+}
+
+#[test]
+fn test_sorobits_upgrade_timelock_and_invalid_fee_error() {
+    let (e, _admin, _treasury, _user, client) = setup(10);
+    assert!(client.try_set_capsule_fee(&-1).is_err());
+
+    let new_hash = BytesN::from_array(&e, &[42u8; 32]);
+    assert!(client.try_set_upgrade_delay(&(48 * 3_600 - 1)).is_err());
+    client.set_upgrade_delay(&(72 * 3_600));
+    let pending = client.propose_upgrade(&new_hash);
+    assert_eq!(pending.wasm_hash, new_hash);
+    assert!(client.get_pending_upgrade().is_some());
+    assert!(client.try_execute_upgrade().is_err());
+    client.cancel_upgrade();
+    assert!(client.get_pending_upgrade().is_none());
 }

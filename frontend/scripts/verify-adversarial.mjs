@@ -3,7 +3,7 @@
  *
  * Provisions 5 distinct active accounts (`Creator`, `Trader1`, `Trader2`, `Attacker`
  * via Friendbot + `Ops` via `astrogate-deployer`) and tests:
- *  - Authentic v3 10M Fair Launch invariants (9.95M LP / 50K creator, >= 2 XLM floor)
+ *  - Authentic v4.5 10M Fair Launch invariants (66% Curve / 33% DEX / 0.3% Vesting / 0.4% Escrowed Jackpots / 0.3% Dev, >= 2 XLM floor)
  *  - Malicious & malformed Launchpad calls (auth spoof, sub-min XLM, <99.5% LP rug,
  *    oversized/empty metadata, cross-account salt squatting, extreme pagination)
  *  - Malicious SEP-41 calls (post-renounce mint, unauthorized transfer, transfer_from /
@@ -102,13 +102,13 @@ try {
   console.log(`  Attacker: ${attacker.publicKey}`)
   console.log(`  Ops     : ${opsKeypair.publicKey()}`)
 
-  console.log('\n2) Authentic 10M Fair-Flywheel v4 Launch by Creator...')
+  console.log('\n2) Authentic 10M Fair-Flywheel v4.5 Launch by Creator...')
   const tokenomics = await vite.ssrLoadModule('/src/lib/tokenomics.ts')
   const launch = await tokenLib.launchFairAtomic({
     name: `AdvAudit ${Date.now()}`,
     symbol: 'ADVT',
     xlmLpAmount: 10n * UNIT,
-    meta: metadataLib.encodeOnChainMeta({ description: 'Multi-account adversarial v4 audit' }),
+    meta: metadataLib.encodeOnChainMeta({ description: 'Multi-account adversarial v4.5 audit' }),
     signer: creatorSigner,
   })
   const token = launch.token
@@ -134,7 +134,7 @@ try {
     curveInit.burn_vault_remaining !== EXPECTED_BURN_VAULT ||
     curveInit.creator_vesting_total !== EXPECTED_CREATOR_VESTING
   ) {
-    throw new Error(`Unexpected v4 vault/vesting split: ${JSON.stringify(curveInit)}`)
+    throw new Error(`Unexpected v4.5 vault/vesting split: ${JSON.stringify(curveInit)}`)
   }
   if (
     creatorBalInit !== 0n ||
@@ -142,7 +142,7 @@ try {
     curveInit.tokens_sold !== expectedCreatorBuy
   ) {
     throw new Error(
-      `Unexpected v4.2 seed lock: bal=${creatorBalInit} locked=${curveInit.creator_seed_locked} expected=${expectedCreatorBuy}`,
+      `Unexpected v4.5 seed lock: bal=${creatorBalInit} locked=${curveInit.creator_seed_locked} expected=${expectedCreatorBuy}`,
     )
   }
   if (!auditInit.isAntiRugVerified || !auditInit.ownershipRenounced) {
@@ -151,7 +151,7 @@ try {
   if (ownerInit.result !== null) {
     throw new Error(`Ownership was not renounced: ${ownerInit.result}`)
   }
-  console.log('  invariants verified: 10M cap, 66/33/0.3/0.7 split + creator seed locked, owner=None, exact v4.3 quote parity')
+  console.log('  invariants verified: 10M cap, 66/33/0.3/0.7 split + creator seed locked, owner=None, exact v4.5 quote parity')
 
   console.log('\n3) Malicious & malformed Launchpad attack attempts...')
   const lpAttacker = tokenLib.launchpadClient(attackerSigner)
@@ -439,12 +439,12 @@ try {
   console.log('  ok 0 malicious shouts written on-chain & premature milestone/vesting blocked')
 
   console.log('\n6) Multi-account Bonding Curve wave, King Shout, Live 1,000 XLM Graduation & Post-Grad DEX...')
-  // Buyer 1 (Trader1): 200 XLM on Virtual Curve (v4.2 flat 0.80% buy fee -> zero whale penalty!)
+  // Buyer 1 (Trader1): 200 XLM on Virtual Curve (Stage 1: 0.30% = 30 bps buy fee)
   const c0 = await tokenLib.fetchCurveState(token)
   const whaleXlm = 200n * UNIT
   const localWhaleQuote = tokenomics.localCurveQuoteBuy(c0.curve_xlm_net, c0.tokens_sold, whaleXlm)
-  if (!localWhaleQuote || localWhaleQuote.total_fee_bps !== 80n) {
-    throw new Error(`Expected flat 80 bps buy fee in v4.2, got ${localWhaleQuote?.total_fee_bps}`)
+  if (!localWhaleQuote || localWhaleQuote.total_fee_bps !== 30n) {
+    throw new Error(`Expected Stage 1 30 bps buy fee in v4.5, got ${localWhaleQuote?.total_fee_bps}`)
   }
   const buy1 = await tokenLib.buyCurveToken({
     tokenId: token,
@@ -469,7 +469,7 @@ try {
     })
   })
 
-  // Buyer 2 (Trader2): 50 XLM on curve + partial curve sell (asymmetric 2.50% early sell fee -> buyback/LP floor!)
+  // Buyer 2 (Trader2): 50 XLM on curve + partial curve sell (Stage-based sell fee -> buyback/LP floor)
   const qBuy2 = await tokenLib.quoteCurveBuyRpc(token, 50n * UNIT)
   const buy2 = await tokenLib.buyCurveToken({
     tokenId: token,
@@ -477,10 +477,18 @@ try {
     minTokensOut: soroswap.withSlippage(qBuy2.tokens_out, 2),
     signer: trader2Signer,
   })
+  const c2 = await tokenLib.fetchCurveState(token)
   const sellAmtCurve = 5_000n * UNIT
+  const expectedLocalSell = tokenomics.localCurveQuoteSell(
+    c2.curve_xlm_net,
+    c2.tokens_sold,
+    sellAmtCurve,
+  )
   const qSell2 = await tokenLib.quoteCurveSellRpc(token, sellAmtCurve)
-  if (qSell2.total_fee_bps !== 250n) {
-    throw new Error(`Expected 250 bps early curve sell fee, got ${qSell2.total_fee_bps}`)
+  if (!expectedLocalSell || qSell2.total_fee_bps !== expectedLocalSell.total_fee_bps) {
+    throw new Error(
+      `Curve sell fee mismatch: rpc=${qSell2.total_fee_bps} vs local=${expectedLocalSell?.total_fee_bps}`,
+    )
   }
   const sellCurveRes = await tokenLib.sellCurveToken({
     tokenId: token,
@@ -599,7 +607,7 @@ try {
   // Permissionless DEX Buyback & Burn if buyback_xlm_reserve > 0
   let buybackBurned = 0n
   if (cGrad.buyback_xlm_reserve > 0n) {
-    const bb = await tokenLib.triggerBuybackBurn({ tokenId: token, signer: opsSigner })
+    const bb = await tokenLib.triggerBuybackBurnWithBounty({ tokenId: token, signer: opsSigner })
     buybackBurned = bb.burned
     console.log(`  ok Soroswap DEX Buyback & Burn executed: -${buybackBurned} base units burned!`)
   }

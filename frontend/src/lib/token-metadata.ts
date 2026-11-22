@@ -114,14 +114,18 @@ export function clearTokenMetadataCache(): void {
     removeStorageKey(`${METADATA_KEY_PREFIX}${tokenId}`)
   }
   memoryCache.clear()
-  const s = typeof window !== 'undefined' ? window.localStorage : null
-  if (s) {
-    const toRemove: string[] = []
-    for (let i = 0; i < s.length; i++) {
-      const key = s.key(i)
-      if (key?.startsWith(METADATA_KEY_PREFIX)) toRemove.push(key)
+  try {
+    const s = typeof window !== 'undefined' ? window.localStorage : null
+    if (s) {
+      const toRemove: string[] = []
+      for (let i = 0; i < s.length; i++) {
+        const key = s.key(i)
+        if (key?.startsWith(METADATA_KEY_PREFIX)) toRemove.push(key)
+      }
+      for (const key of toRemove) removeStorageKey(key)
     }
-    for (const key of toRemove) removeStorageKey(key)
+  } catch {
+    // Ignore restricted localStorage environments
   }
   notifyMetadataListeners()
 }

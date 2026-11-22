@@ -8,6 +8,7 @@ import {
 } from './telegram-sync'
 import {
   buildTelegramLinkMessage,
+  changeVaultPin,
   createHotWalletAccount,
   exportEncryptedVaultBundle,
   getHotWalletSigner,
@@ -15,12 +16,14 @@ import {
   importHotWalletAccount,
   isHotAccountUnlocked,
   lockHotVault,
+  MAX_HOT_WALLETS,
   readHotVaultSnapshot,
   removeHotAccount,
   revealHotAccountSecret,
   saveTelegramWalletLink,
   selectHotAccount,
   setPrimaryHotAccount,
+  setVaultCloudBackupPreference,
   signTelegramWalletLink,
   unlockHotVault,
   VAULT_BUNDLE_PREFIX,
@@ -132,7 +135,7 @@ describe('hot-wallet vault lifecycle', () => {
 
   it('aplica rate-limit tras 5 intentos fallidos de PIN', async () => {
     const adapter = createMemoryAdapter()
-    await createHotWalletAccount({ pin: '7391', adapter })
+    await createHotWalletAccount({ pin: '739182', adapter })
     lockHotVault()
 
     for (let i = 0; i < 5; i++) {
@@ -141,7 +144,7 @@ describe('hot-wallet vault lifecycle', () => {
       )
     }
 
-    await expect(unlockHotVault({ pin: '7391', adapter })).rejects.toThrow(
+    await expect(unlockHotVault({ pin: '739182', adapter })).rejects.toThrow(
       /Too many wrong PIN attempts/i,
     )
   })
@@ -189,7 +192,13 @@ describe('hot-wallet vault lifecycle', () => {
       adapter: phoneAdapter,
     })
 
-    // Sync local encrypted vault up to Telegram CloudStorage
+    // Default is local-only: without opt-in cloud backup, sync skips automatic cloud push
+    const skippedSync = await syncVaultWithTelegramCloud(phoneAdapter)
+    expect(skippedSync.synced).toBe(false)
+    expect(cloudMap.size).toBe(0)
+
+    // User opts in to encrypted Cloud Backup -> sync pushes ciphertext safely
+    setVaultCloudBackupPreference(true, phoneAdapter)
     const pushSync = await syncVaultWithTelegramCloud(phoneAdapter)
     expect(pushSync.synced).toBe(true)
     expect(pushSync.restoredFromCloud).toBe(false)
@@ -316,5 +325,87 @@ describe('hot-wallet vault lifecycle', () => {
     expect(restored.telegramLink?.username).toBe('astrotrader')
     expect(isHotAccountUnlocked(w1.activePublicKey)).toBe(true)
     expect(isHotAccountUnlocked(w2.activePublicKey)).toBe(true)
+  })
+
+  it('exige 6+ caracteres en nuevos vaults, mantiene desbloqueo legado 4 dígitos y permite upgrade de passphrase', async () => {
+    const adapter = createMemoryAdapter()
+    await expect(createHotWalletAccount({ pin: '1234', adapter })).rejects.toThrow(
+      /at least 6 characters/i,
+    )
+
+    // Simulate legacy pre-v4.5 4-digit vault on device
+    const kp = Keypair.random()
+    const legacyCrypto = await encryptSecretWithPin(
+      kp.secret(),
+      '4321',
+      210_000,
+      kp.publicKey(),
+    )
+    adapter.save({
+      v: 1,
+      activeId: 'legacy01',
+      primaryId: 'legacy01',
+      telegramLink: null,
+      wallets: [
+        {
+          meta: {
+            id: 'legacy01',
+            label: 'Legacy',
+            publicKey: kp.publicKey(),
+            createdAt: 1_760_000_000_000,
+            backedUp: true,
+          },
+          crypto: legacyCrypto,
+        },
+      ],
+      failedAttempts: 0,
+      lockUntil: 0,
+    })
+
+    await unlockHotVault({ pin: '4321', adapter })
+    expect(isHotAccountUnlocked(kp.publicKey())).toBe(true)
+
+    await changeVaultPin({ currentPin: '4321', newPin: 'astro-pass-99', adapter })
+    lockHotVault()
+    await expect(unlockHotVault({ pin: '4321', adapter })).rejects.toThrow(
+      /Incorrect wallet PIN/i,
+    )
+    await unlockHotVault({ pin: 'astro-pass-99', adapter })
+    expect(isHotAccountUnlocked(kp.publicKey())).toBe(true)
+  })
+
+  it('rechaza bundles que excedan MAX_HOT_WALLETS antes de PBKDF2 y resuelve colisiones de ID', async () => {
+    const adapter = createMemoryAdapter()
+    const tooManyBundle = `${VAULT_BUNDLE_PREFIX}${Buffer.from(
+      JSON.stringify({
+        v: 1,
+        activeId: 'w0',
+        wallets: Array.from({ length: MAX_HOT_WALLETS + 2 }, (_, i) => ({
+          meta: { id: `w_${i}`, publicKey: Keypair.random().publicKey() },
+          crypto: { v: 1, kdf: 'PBKDF2-SHA256', iterations: 210_000, salt: 'a', iv: 'b', ciphertext: 'c' },
+        })),
+      }),
+      'utf8',
+    ).toString('base64')}`
+
+    await expect(
+      importEncryptedVaultBundle({ bundle: tooManyBundle, pin: '123456', adapter }),
+    ).rejects.toThrow(/exceeds maximum/i)
+
+    // Two distinct accounts sharing colliding `meta.id` inside imported bundle
+    const a1 = await createHotWalletAccount({ pin: '112233', label: 'A1', adapter })
+    const bAdapter = createMemoryAdapter()
+    const b1 = await createHotWalletAccount({ pin: '112233', label: 'B1', adapter: bAdapter })
+    const storedB = bAdapter.load()!
+    storedB.wallets[0]!.meta.id = a1.activeId // force identical meta.id for distinct pubkeys
+    storedB.activeId = a1.activeId
+    bAdapter.save(storedB)
+    const bundleB = await exportEncryptedVaultBundle({ pin: '112233', adapter: bAdapter })
+
+    await importEncryptedVaultBundle({ bundle: bundleB, pin: '112233', adapter })
+    const merged = adapter.load()!
+    expect(merged.wallets).toHaveLength(2)
+    expect(merged.wallets[0]!.meta.id).not.toBe(merged.wallets[1]!.meta.id)
+    expect(merged.wallets.some((w) => w.meta.publicKey === b1.activePublicKey)).toBe(true)
   })
 })

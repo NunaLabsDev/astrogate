@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  buildTelegramDeepLinkForPath,
+  getTelegramInitDataRaw,
   getTelegramWebApp,
   initTelegramMiniApp,
   isTelegramCloudAvailable,
@@ -8,10 +10,14 @@ import {
   telegramCloudGetItems,
   telegramCloudSetItem,
   triggerTelegramHaptic,
+  verifyTelegramSession,
 } from './telegram'
+
+const originalFetch = globalThis.fetch
 
 afterEach(() => {
   delete (globalThis as { window?: { Telegram?: unknown } }).window
+  globalThis.fetch = originalFetch
 })
 
 describe('telegram mini app bridge', () => {
@@ -134,5 +140,84 @@ describe('telegram mini app bridge', () => {
     )
     expect(await telegramCloudSetItem('k1', 'v1')).toBe(true)
     expect(await telegramCloudGetItems(['k1'])).toEqual({ k1: 'v1' })
+  })
+
+  it('extrae initData firmado estrictamente, genera deep links seguros y verifica sesión contra Worker', async () => {
+    expect(getTelegramInitDataRaw()).toBe('')
+
+    ;(globalThis as { window?: unknown }).window = {
+      Telegram: { WebApp: { platform: 'ios', initData: 'user=1' } },
+      location: { hash: '' },
+    }
+    expect(getTelegramInitDataRaw()).toBe('')
+
+    const signed = 'auth_date=1700000000&user=%7B%22id%22%3A42%7D&hash=abc123'
+    ;(globalThis as { window?: unknown }).window = {
+      Telegram: { WebApp: { platform: 'ios', initData: signed } },
+    }
+    expect(getTelegramInitDataRaw()).toBe(signed)
+
+    ;(globalThis as { window?: unknown }).window = {
+      location: {
+        hash: `#tgWebAppData=${encodeURIComponent(signed)}&tgWebAppVersion=7.0`,
+      },
+    }
+    expect(getTelegramInitDataRaw()).toBe(signed)
+
+    expect(buildTelegramDeepLinkForPath('/')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=home',
+    )
+    expect(buildTelegramDeepLinkForPath('/market')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=market',
+    )
+    expect(buildTelegramDeepLinkForPath('/dex')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=dex',
+    )
+    expect(buildTelegramDeepLinkForPath('/create')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=create',
+    )
+    expect(buildTelegramDeepLinkForPath('/sorobits')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=sorobits',
+    )
+    expect(buildTelegramDeepLinkForPath('/portfolio')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=portfolio',
+    )
+    expect(buildTelegramDeepLinkForPath('/docs')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=docs',
+    )
+    expect(
+      buildTelegramDeepLinkForPath(
+        '/token/CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+      ),
+    ).toBe(
+      'https://t.me/AstroGateSorobanBot?start=CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+    )
+    expect(buildTelegramDeepLinkForPath('/../../etc/passwd')).toBe(
+      'https://t.me/AstroGateSorobanBot?start=home',
+    )
+
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        ok: true,
+        user: { id: 42, firstName: 'Omar', username: 'omar' },
+      }),
+    ) as unknown as typeof fetch
+    const okRes = await verifyTelegramSession(signed)
+    expect(okRes).toEqual({
+      status: 'verified',
+      user: { id: 42, firstName: 'Omar', username: 'omar' },
+    })
+
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ ok: false }, { status: 401 }),
+    ) as unknown as typeof fetch
+    const rejRes = await verifyTelegramSession(signed)
+    expect(rejRes.status).toBe('rejected')
+
+    globalThis.fetch = vi.fn(async () => {
+      throw new Error('network down')
+    }) as unknown as typeof fetch
+    const errRes = await verifyTelegramSession(signed)
+    expect(errRes.status).toBe('network_error')
   })
 })

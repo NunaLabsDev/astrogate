@@ -42,10 +42,19 @@ export function base64ToBytes(encoded: string): Uint8Array {
   return out
 }
 
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const copy = new Uint8Array(bytes.byteLength)
-  copy.set(bytes)
-  return copy.buffer
+function copyToBufferView(bytes: Uint8Array): {
+  view: Uint8Array<ArrayBuffer>
+  buffer: ArrayBuffer
+  wipe: () => void
+} {
+  const buffer = new ArrayBuffer(bytes.byteLength)
+  const view = new Uint8Array(buffer)
+  view.set(bytes)
+  return {
+    view,
+    buffer,
+    wipe: () => view.fill(0),
+  }
 }
 
 async function deriveAesKey(
@@ -56,10 +65,12 @@ async function deriveAesKey(
 ): Promise<CryptoKey> {
   const subtle = requireSubtle()
   const pinBytes = new TextEncoder().encode(pin)
+  const pinCopy = copyToBufferView(pinBytes)
+  const saltCopy = copyToBufferView(salt)
   try {
     const baseKey = await subtle.importKey(
       'raw',
-      toArrayBuffer(pinBytes),
+      pinCopy.buffer,
       'PBKDF2',
       false,
       ['deriveKey'],
@@ -67,7 +78,7 @@ async function deriveAesKey(
     return await subtle.deriveKey(
       {
         name: 'PBKDF2',
-        salt: toArrayBuffer(salt),
+        salt: saltCopy.buffer,
         iterations,
         hash: 'SHA-256',
       },
@@ -78,6 +89,8 @@ async function deriveAesKey(
     )
   } finally {
     pinBytes.fill(0)
+    pinCopy.wipe()
+    saltCopy.wipe()
   }
 }
 
@@ -93,14 +106,16 @@ export async function encryptSecretWithPin(
   const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES))
   const aesKey = await deriveAesKey(pin, salt, iterations, ['encrypt'])
   const plaintext = new TextEncoder().encode(secret)
-  const additionalData = aad ? toArrayBuffer(new TextEncoder().encode(aad)) : undefined
+  const plaintextCopy = copyToBufferView(plaintext)
+  const ivCopy = copyToBufferView(iv)
+  const aadCopy = aad ? copyToBufferView(new TextEncoder().encode(aad)) : undefined
   try {
     const encrypted = await subtle.encrypt(
-      additionalData
-        ? { name: 'AES-GCM', iv: toArrayBuffer(iv), additionalData }
-        : { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      aadCopy
+        ? { name: 'AES-GCM', iv: ivCopy.buffer, additionalData: aadCopy.buffer }
+        : { name: 'AES-GCM', iv: ivCopy.buffer },
       aesKey,
-      toArrayBuffer(plaintext),
+      plaintextCopy.buffer,
     )
     return {
       v: 1,
@@ -112,6 +127,11 @@ export async function encryptSecretWithPin(
     }
   } finally {
     plaintext.fill(0)
+    plaintextCopy.wipe()
+    ivCopy.wipe()
+    aadCopy?.wipe()
+    salt.fill(0)
+    iv.fill(0)
   }
 }
 
@@ -129,14 +149,16 @@ export async function decryptSecretWithPin(
   const iv = base64ToBytes(payload.iv)
   const ciphertext = base64ToBytes(payload.ciphertext)
   const aesKey = await deriveAesKey(pin, salt, payload.iterations, ['decrypt'])
-  const ivBuf = toArrayBuffer(iv)
-  const ctBuf = toArrayBuffer(ciphertext)
-  const aadBuf = aad ? toArrayBuffer(new TextEncoder().encode(aad)) : undefined
+  const ivCopy = copyToBufferView(iv)
+  const ctCopy = copyToBufferView(ciphertext)
+  const aadCopy = aad ? copyToBufferView(new TextEncoder().encode(aad)) : undefined
   try {
     const decrypted = await subtle.decrypt(
-      aadBuf ? { name: 'AES-GCM', iv: ivBuf, additionalData: aadBuf } : { name: 'AES-GCM', iv: ivBuf },
+      aadCopy
+        ? { name: 'AES-GCM', iv: ivCopy.buffer, additionalData: aadCopy.buffer }
+        : { name: 'AES-GCM', iv: ivCopy.buffer },
       aesKey,
-      ctBuf,
+      ctCopy.buffer,
     )
     const view = new Uint8Array(decrypted)
     try {
@@ -145,13 +167,13 @@ export async function decryptSecretWithPin(
       view.fill(0)
     }
   } catch {
-    if (aadBuf) {
+    if (aadCopy) {
       // Backwards compatibility for pre-AAD v1 encrypted payloads on device/CloudStorage.
       try {
         const legacyDecrypted = await subtle.decrypt(
-          { name: 'AES-GCM', iv: ivBuf },
+          { name: 'AES-GCM', iv: ivCopy.buffer },
           aesKey,
-          ctBuf,
+          ctCopy.buffer,
         )
         const view = new Uint8Array(legacyDecrypted)
         try {
@@ -164,5 +186,123 @@ export async function decryptSecretWithPin(
       }
     }
     throw new Error('Incorrect wallet PIN.')
+  } finally {
+    salt.fill(0)
+    iv.fill(0)
+    ciphertext.fill(0)
+    ivCopy.wipe()
+    ctCopy.wipe()
+    aadCopy?.wipe()
+  }
+}
+
+/** Generates a 256-bit random key encoded as base64 for hardware-backed biometric storage. */
+export function generateRandomKeyBase64(): string {
+  const raw = globalThis.crypto.getRandomValues(new Uint8Array(32))
+  try {
+    return bytesToBase64(raw)
+  } finally {
+    raw.fill(0)
+  }
+}
+
+async function importRawAesKey(
+  rawKeyBytes: Uint8Array,
+  usage: KeyUsage[],
+  hkdfInfo?: string,
+): Promise<CryptoKey> {
+  const subtle = requireSubtle()
+  const keyCopy = copyToBufferView(rawKeyBytes)
+  const infoCopy = hkdfInfo
+    ? copyToBufferView(new TextEncoder().encode(hkdfInfo))
+    : undefined
+  const zeroSalt = hkdfInfo ? new ArrayBuffer(32) : undefined
+  try {
+    if (infoCopy && zeroSalt) {
+      const base = await subtle.importKey('raw', keyCopy.buffer, 'HKDF', false, ['deriveKey'])
+      return await subtle.deriveKey(
+        { name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info: infoCopy.buffer },
+        base,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        usage,
+      )
+    }
+    return await subtle.importKey('raw', keyCopy.buffer, { name: 'AES-GCM' }, false, usage)
+  } finally {
+    keyCopy.wipe()
+    infoCopy?.wipe()
+  }
+}
+
+/** Encrypts a UTF-8 secret (e.g. vault PIN) with a 256-bit hardware-held key. */
+export async function encryptStringWithRawKey(
+  plaintextValue: string,
+  rawKeyBytes: Uint8Array,
+  aad?: string,
+  hkdfInfo?: string,
+): Promise<{ iv: string; ciphertext: string }> {
+  const subtle = requireSubtle()
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES))
+  const ivCopy = copyToBufferView(iv)
+  const plaintext = new TextEncoder().encode(plaintextValue)
+  const plaintextCopy = copyToBufferView(plaintext)
+  const aadCopy = aad ? copyToBufferView(new TextEncoder().encode(aad)) : undefined
+  try {
+    const aesKey = await importRawAesKey(rawKeyBytes, ['encrypt'], hkdfInfo)
+    const encrypted = await subtle.encrypt(
+      aadCopy
+        ? { name: 'AES-GCM', iv: ivCopy.buffer, additionalData: aadCopy.buffer }
+        : { name: 'AES-GCM', iv: ivCopy.buffer },
+      aesKey,
+      plaintextCopy.buffer,
+    )
+    return {
+      iv: bytesToBase64(iv),
+      ciphertext: bytesToBase64(new Uint8Array(encrypted)),
+    }
+  } finally {
+    iv.fill(0)
+    ivCopy.wipe()
+    plaintext.fill(0)
+    plaintextCopy.wipe()
+    aadCopy?.wipe()
+  }
+}
+
+/** Decrypts a UTF-8 secret wrapped with `encryptStringWithRawKey`. */
+export async function decryptStringWithRawKey(
+  payload: { iv: string; ciphertext: string },
+  rawKeyBytes: Uint8Array,
+  aad?: string,
+  hkdfInfo?: string,
+): Promise<string> {
+  const subtle = requireSubtle()
+  const iv = base64ToBytes(payload.iv)
+  const ct = base64ToBytes(payload.ciphertext)
+  const ivCopy = copyToBufferView(iv)
+  const ctCopy = copyToBufferView(ct)
+  const aadCopy = aad ? copyToBufferView(new TextEncoder().encode(aad)) : undefined
+  try {
+    const aesKey = await importRawAesKey(rawKeyBytes, ['decrypt'], hkdfInfo)
+    const decrypted = await subtle.decrypt(
+      aadCopy
+        ? { name: 'AES-GCM', iv: ivCopy.buffer, additionalData: aadCopy.buffer }
+        : { name: 'AES-GCM', iv: ivCopy.buffer },
+      aesKey,
+      ctCopy.buffer,
+    )
+    const view = new Uint8Array(decrypted)
+    try {
+      return new TextDecoder().decode(view)
+    } finally {
+      view.fill(0)
+    }
+  } finally {
+    iv.fill(0)
+    ct.fill(0)
+    ivCopy.wipe()
+    ctCopy.wipe()
+    aadCopy?.wipe()
   }
 }

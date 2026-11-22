@@ -22,5 +22,5 @@ ls -la ~/.cargo/bin/stellar 2>&1
 ## Termux
 - Sin libudev: instalar con `--no-default-features`.
 - Servicios opcionales: Postgres/Redis solo si el flujo lo requiere.
-EOF
-echo "created process-management"
+
+> **Note**: Archival Termux/background-process note. Active repo rules live in [`../AGENTS.md`](../AGENTS.md) and [`../docs/INDEX.md`](../docs/INDEX.md).

@@ -29,17 +29,18 @@ function resolveInitialSplashPhase(): SplashPhase {
  * Curated Mini App startup splash showing Sorobits NFTs once per browser session.
  */
 export function SplashScreen() {
-  const [phase, setPhase] = useState<SplashPhase>(resolveInitialSplashPhase)
+  const [initialPhase] = useState<SplashPhase>(resolveInitialSplashPhase)
+  const [phase, setPhase] = useState<SplashPhase>(initialPhase)
 
   useEffect(() => {
-    if (phase === 'done') return
+    if (initialPhase === 'done') return
     const fadeTimer = window.setTimeout(() => setPhase('fade'), FADE_DELAY_MS)
     const doneTimer = window.setTimeout(() => setPhase('done'), UNMOUNT_DELAY_MS)
     return () => {
       window.clearTimeout(fadeTimer)
       window.clearTimeout(doneTimer)
     }
-  }, [phase])
+  }, [initialPhase])
 
   if (phase === 'done') return null
 
@@ -83,7 +84,7 @@ export function SplashScreen() {
           AstroGate
         </h2>
         <p className="mt-1 text-xs text-slate-400">
-          Fair launches, burned LP &amp; 100% on-chain 32×32 NFTs · Built by NunaLabs
+          Fair-Flywheel v4.5, 7Y LP lock &amp; 100% on-chain 32×32 NFTs · Built by NunaLabs
         </p>
 
         <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">

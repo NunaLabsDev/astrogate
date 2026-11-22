@@ -4,7 +4,7 @@
  */
 import { NETWORK_NAME, HORIZON_URL } from './network'
 
-const EXPLORER_NETWORK_PATH = NETWORK_NAME === 'mainnet' ? 'mainnet' : 'testnet'
+const EXPLORER_NETWORK_PATH = NETWORK_NAME === 'mainnet' ? 'public' : 'testnet'
 
 const EXPLORER_BASE = `https://stellar.expert/explorer/${EXPLORER_NETWORK_PATH}`
 
@@ -12,15 +12,15 @@ const EXPLORER_BASE = `https://stellar.expert/explorer/${EXPLORER_NETWORK_PATH}`
 export const SOROSWAP_APP_URL = 'https://app.soroswap.finance'
 
 export function explorerContractUrl(contractId: string): string {
-  return `${EXPLORER_BASE}/contract/${contractId}`
+  return `${EXPLORER_BASE}/contract/${encodeURIComponent(contractId)}`
 }
 
 export function explorerTxUrl(txHash: string): string {
-  return `${EXPLORER_BASE}/tx/${txHash}`
+  return `${EXPLORER_BASE}/tx/${encodeURIComponent(txHash)}`
 }
 
 export function explorerAccountUrl(account: string): string {
-  return `${EXPLORER_BASE}/account/${account}`
+  return `${EXPLORER_BASE}/account/${encodeURIComponent(account)}`
 }
 
 /**
@@ -29,5 +29,5 @@ export function explorerAccountUrl(account: string): string {
  * no son cuentas; sólo usar con claves públicas `G...`.
  */
 export function horizonAccountUrl(account: string): string {
-  return `${HORIZON_URL}/accounts/${account}`
+  return `${HORIZON_URL}/accounts/${encodeURIComponent(account)}`
 }

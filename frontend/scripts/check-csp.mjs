@@ -28,12 +28,12 @@ const REQUIRED_ORIGINS = [
   'https://api.binance.com',
   'https://api.coingecko.com',
   'https://friendbot.stellar.org',
-  'https://telegram.org',
+  'https://telegram.org/js/telegram-web-app.js',
   'https://web.telegram.org',
 ]
 
-/** Orígenes eliminados del código (lib/xlm.ts ya no consulta CryptoCompare; Pinata sustituido por logos SHA-256 en Worker). */
-const RETIRED_ORIGINS = ['cryptocompare', 'pinata']
+/** Orígenes eliminados del código (lib/xlm.ts ya no consulta CryptoCompare; Pinata sustituido por logos SHA-256 en Worker; API/MCP via Pages Functions same-origin). */
+const RETIRED_ORIGINS = ['cryptocompare', 'pinata', 'api.telegram.org', 'workers.dev']
 
 /** Cabeceras de seguridad compartidas que deben coincidir en todos los entornos. */
 const SHARED_SECURITY_HEADERS = [

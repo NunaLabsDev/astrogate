@@ -208,7 +208,27 @@ export const LaunchpadError = {
   /**
    * Unauthorized caller or missing pending admin transfer.
    */
-  10 : { message: "Unauthorized" }
+  10 : { message: "Unauthorized" },
+  /**
+   * Pending governance upgrade timelock delay has not yet elapsed.
+   */
+  11 : { message: "UpgradeNotReady" },
+  /**
+   * No pending governance upgrade proposal is active.
+   */
+  12 : { message: "NoPendingUpgrade" },
+  /**
+   * No escrowed checkpoint jackpot balance available to claim.
+   */
+  13 : { message: "NothingToClaim" }
+}
+
+/**
+ * Struct: PendingUpgrade
+ */
+export interface PendingUpgrade {
+  execute_after: bigint;
+  wasm_hash: Uint8Array;
 }
 
 /**
@@ -305,6 +325,32 @@ export interface TokenLaunchedEventEvent {
 }
 
 /**
+ * Event: JackpotAwardedEvent
+ */
+export interface JackpotAwardedEventEvent {
+  name: "JackpotAwardedEvent";
+  data: {
+    token: string;
+    winner: string;
+    checkpoint_stage?: number;
+    amount?: bigint;
+    escrowed?: boolean;
+  };
+}
+
+/**
+ * Event: JackpotClaimedEvent
+ */
+export interface JackpotClaimedEventEvent {
+  name: "JackpotClaimedEvent";
+  data: {
+    token: string;
+    winner: string;
+    amount?: bigint;
+  };
+}
+
+/**
  * Event: TokenGraduatedEvent
  */
 export interface TokenGraduatedEventEvent {
@@ -318,7 +364,48 @@ export interface TokenGraduatedEventEvent {
     vault_burned?: bigint;
   };
 }
-    export type ContractEvent = ShoutEventEvent | ReclaimLpEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | TokenLaunchedEventEvent | TokenGraduatedEventEvent;
+
+/**
+ * Event: TreasuryUpdatedEvent
+ */
+export interface TreasuryUpdatedEventEvent {
+  name: "TreasuryUpdatedEvent";
+  data: {
+    new_treasury?: string;
+  };
+}
+
+/**
+ * Event: UpgradeExecutedEvent
+ */
+export interface UpgradeExecutedEventEvent {
+  name: "UpgradeExecutedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+
+/**
+ * Event: UpgradeProposedEvent
+ */
+export interface UpgradeProposedEventEvent {
+  name: "UpgradeProposedEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+    execute_after?: bigint;
+  };
+}
+
+/**
+ * Event: UpgradeCancelledEvent
+ */
+export interface UpgradeCancelledEventEvent {
+  name: "UpgradeCancelledEvent";
+  data: {
+    wasm_hash?: Uint8Array;
+  };
+}
+    export type ContractEvent = ShoutEventEvent | ReclaimLpEventEvent | CurveTradeEventEvent | BuybackBurnEventEvent | MilestoneBurnEventEvent | TokenLaunchedEventEvent | JackpotAwardedEventEvent | JackpotClaimedEventEvent | TokenGraduatedEventEvent | TreasuryUpdatedEventEvent | UpgradeExecutedEventEvent | UpgradeProposedEventEvent | UpgradeCancelledEventEvent;
 
 // Alias de tipo para los enums de error (usados como tipo en las firmas).
 export type LaunchpadError = { message: string }

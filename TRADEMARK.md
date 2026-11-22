@@ -12,7 +12,7 @@ The following names, visual marks, and official channels are trademarks and prop
 
 - **Names & Marks**: `AstroGate`, `NunaLabs`, `NunaLabsDev`, `Sorobits` (`SBIT`), `Fair-Flywheel` (in association with AstroGate official deployments), and `@AstroGateSorobanBot`.
 - **Visual & Brand Assets**:
-  - Logos and app icons (`frontend/public/astrogate-logo.jpg`, `frontend/public/favicon.svg`, `frontend/public/icon-192.png`, `frontend/public/icon-512.png`, `frontend/public/icons.svg`).
+  - Logos and app icons (`frontend/public/favicon.svg`, `frontend/public/icon-192.png`, `frontend/public/icon-512.png`, `frontend/public/telegram/*`).
   - Season-1 Genesis Pixel-Art Badge artwork (`frontend/public/badges/*`).
 - **Official Domains & Channels**:
   - Web dApp / API: `https://astrogate.pages.dev`

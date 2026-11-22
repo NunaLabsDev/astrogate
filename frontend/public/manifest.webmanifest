@@ -1,7 +1,7 @@
 {
   "name": "AstroGate — Stellar Fair Launchpad & AMM",
   "short_name": "AstroGate",
-  "description": "AstroGate — Fair meme launchpad & instant AMM trading on Stellar testnet.",
+  "description": "AstroGate — Fair-Flywheel v4.5 Launchpad, 7Y LP Lock AMM & Sorobits NFTs on Stellar Testnet.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

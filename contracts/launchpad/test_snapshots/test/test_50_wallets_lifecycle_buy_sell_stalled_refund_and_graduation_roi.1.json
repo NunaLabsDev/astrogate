@@ -5807,6 +5807,33 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "CurveClosed"
+                  },
+                  {
+                    "address": "CC22G2NIYOON6IPD3V5AXKDKBZJV5X5RKWCXYB5EPI4SUVW4SV3VD65Y"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bool": true
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "KingShout"
                   },
                   {
@@ -6136,6 +6163,93 @@
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PendingJackpot"
+                  },
+                  {
+                    "address": "CCOVEGBOFTZGCVK6VPKMMUHTVO22HLTLNPRTP65LZ3OQC3YWB4N4T7KY"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "50000000000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PendingJackpot"
+                  },
+                  {
+                    "address": "CCOVEGBOFTZGCVK6VPKMMUHTVO22HLTLNPRTP65LZ3OQC3YWB4N4T7KY"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACILRY"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "100000000000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PendingJackpotTotal"
+                  },
+                  {
+                    "address": "CCOVEGBOFTZGCVK6VPKMMUHTVO22HLTLNPRTP65LZ3OQC3YWB4N4T7KY"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "150000000000"
               }
             }
           },
@@ -12078,7 +12192,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "166377025"
+                      "i128": "166975674"
                     }
                   },
                   {
@@ -12182,7 +12296,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "180298650"
+                      "i128": "179700001"
                     }
                   },
                   {
@@ -15037,7 +15151,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "300000000000"
+                "i128": "450000000000"
               }
             }
           },
@@ -15334,7 +15448,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "2133385185053"
+                "i128": "2083385185053"
               }
             }
           },
@@ -15739,7 +15853,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "1309234023500"
+                "i128": "1209234023500"
               }
             }
           },

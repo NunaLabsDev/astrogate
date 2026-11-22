@@ -40,33 +40,42 @@ describe('tokenPriceInXlm', () => {
     expect(tokenPriceInXlm(pool({ reserveXlm: 0n }), 7)).toBe(0n)
   })
 
-  it('calcula el precio flotante con tokenPriceInXlmNumber para fair launches de baja ratio', () => {
-    // Fair launch: 10 XLM y 995M tokens
+  it('respeta la precisión nativa Stellar de 7 decimales (stroops)', () => {
+    // Precio inicial de curva Fair-Flywheel 10M: 1,000 vXLM / 13,200,000 vTok ≈ 0.0000758 XLM
+    const curveStartPool = pool({
+      reserveToken: 13_200_000n * 10_000_000n,
+      reserveXlm: 1_000n * 10_000_000n,
+    })
+    expect(tokenPriceInXlm(curveStartPool, 7)).toBe(757n)
+    expect(formatTokenPrice(0.0000757)).toBe('0.0000757')
+    expect(formatTokenPrice(0.000303)).toBe('0.000303')
+    expect(formatTokenPrice(0.0003035)).toBe('0.0003035')
+
+    // Fair launch legacy sub-stroop (< 1 stroop = 0.0000001 XLM)
     const fairPool = pool({
       reserveToken: 995_000_000n * 10_000_000n,
       reserveXlm: 10n * 10_000_000n,
     })
-    // Integer stroops trunca a 0n
     expect(tokenPriceInXlm(fairPool, 7)).toBe(0n)
-    // Float representation mantiene la precisión
     const priceFloat = tokenPriceInXlmNumber(fairPool, 7)
     expect(priceFloat).toBeCloseTo(10 / 995_000_000, 12)
-    expect(formatTokenPrice(priceFloat)).toBe('0.0000000101')
+    expect(formatTokenPrice(priceFloat)).toBe('<0.0000001')
   })
 })
 
-describe('formato de precios sub-stroop', () => {
-  it('mantiene ~3 cifras significativas sin notación científica', () => {
-    expect(formatTokenPrice(5 / 995_000_000)).toBe('0.00000000503')
-    expect(formatTokenPrice(1e-11)).toBe('0.00000000001')
+describe('formato de precios con 7 dígitos Stellar', () => {
+  it('mantiene hasta 7 decimales exactos desde 1 stroop sin dígitos ficticios', () => {
+    expect(formatTokenPrice(0.0000001)).toBe('0.0000001')
+    expect(formatTokenPrice(5 / 995_000_000)).toBe('<0.0000001')
+    expect(formatTokenPrice(1e-11)).toBe('<0.0000001')
     expect(formatTokenPrice(0.5)).toBe('0.500000')
     expect(formatTokenPrice(0)).toBe('0')
     expect(formatTokenPrice(Number.NaN)).toBe('0')
   })
 
-  it('formatea USD sin colapsar a 0.000000 los precios de fair launch', () => {
-    // 1.005e-8 XLM * 0.1555 USD ≈ 1.56e-9 USD
-    expect(formatUsdPrice((10 / 995_000_000) * 0.1555)).toBe('0.00000000156')
+  it('formatea USD dentro del rango de 7 decimales nativos', () => {
+    expect(formatUsdPrice((10 / 995_000_000) * 0.1555)).toBe('<0.0000001')
+    expect(formatUsdPrice(0.0000123)).toBe('0.0000123')
     expect(formatUsdPrice(0.5)).toBe('0.5000')
     expect(formatUsdPrice(-1)).toBe('0')
   })

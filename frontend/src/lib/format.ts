@@ -1,27 +1,43 @@
 import { NETWORK_NAME } from './network'
 import { MIN_SEED_XLM } from './tokenomics'
 
-/** Formats an on-chain amount (base units) to readable decimal. Handles negative amounts cleanly. */
-export function formatAmount(amount: bigint, decimals: number): string {
-  if (decimals <= 0) return amount.toString()
+/** Native Stellar / Soroban decimal precision (1 XLM = 10^7 stroops; minimum unit = 0.0000001). */
+export const STELLAR_DECIMALS = 7
+export const MIN_STELLAR_STROOP = 1n
+export const MIN_STELLAR_READABLE = '0.0000001'
+export const MAX_SEP41_DECIMALS = 18
+
+/** Clamps token decimals to a safe integer range (defaults to Stellar's 7 decimals). */
+export function clampDecimals(
+  decimals: number,
+  maxDecimals: number = MAX_SEP41_DECIMALS,
+): number {
+  if (!Number.isFinite(decimals)) return STELLAR_DECIMALS
+  return Math.min(maxDecimals, Math.max(0, Math.trunc(decimals)))
+}
+
+/** Formats an on-chain amount (base units) to readable decimal (7 digits for XLM/AstroGate tokens). Handles negative amounts cleanly. */
+export function formatAmount(amount: bigint, decimals: number = STELLAR_DECIMALS): string {
+  const safeDecimals = clampDecimals(decimals)
+  if (safeDecimals <= 0) return amount.toString()
   const isNegative = amount < 0n
   const abs = isNegative ? -amount : amount
-  const base = 10n ** BigInt(decimals)
+  const base = 10n ** BigInt(safeDecimals)
   const whole = abs / base
   const fraction = (abs % base)
     .toString()
-    .padStart(decimals, '0')
+    .padStart(safeDecimals, '0')
     .replace(/0+$/, '')
   const formatted = fraction ? `${whole}.${fraction}` : `${whole}`
   return isNegative ? `-${formatted}` : formatted
 }
 
 /** Converts a readable decimal string to base units (i128). Tolerates dots, commas, and thousands separators. */
-export function parseAmount(value: string, decimals: number): bigint {
+export function parseAmount(value: string, decimals: number = STELLAR_DECIMALS): bigint {
   const trimmed = normalizeDecimalString(value)
   if (!trimmed || !/^\d*(\.\d*)?$/.test(trimmed)) return 0n
 
-  const safeDecimals = Math.max(0, Math.trunc(decimals))
+  const safeDecimals = clampDecimals(decimals)
   const [whole = '0', fraction = ''] = trimmed.split('.')
   const padded = fraction.padEnd(safeDecimals, '0').slice(0, safeDecimals)
   try {

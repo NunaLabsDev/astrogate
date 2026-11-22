@@ -64,31 +64,31 @@ for path in / /sw.js /manifest.webmanifest /health /api/v1/health /openapi.json 
 done
 ```
 
-- [ ] `/`, `/sw.js`, `/manifest.webmanifest`, `/health`, `/api/v1/health`, `/openapi.json` y rutas SPA devuelven 200.
+- [ ] Visitar `/` en navegador externo muestra únicamente `TelegramLandingGate` con enlaces internos a `@AstroGateSorobanBot` (sin cargar `MiniAppShell` ni UI de trading), mientras `/sw.js`, `/manifest.webmanifest`, `/health`, `/api/v1/health`, `/.well-known/stellar.toml`, `/telegram/*.png` y `/openapi.json` devuelven `200`.
+- [ ] `POST https://astrogate.pages.dev/api/telegram/session` sin `initData` válido devuelve `401`; `POST /api/telegram/pulse` sin `X-Telegram-Init-Data` devuelve `401` (y `403` ante origen no permitido).
 - [ ] `POST https://astrogate.pages.dev/telegram/webhook` sin secreto devuelve `401` (y `getWebhookInfo` apunta a `https://astrogate.pages.dev/telegram/webhook` sin errores).
-- [ ] `index.html` referencia el hash de assets del build actual.
+- [ ] `index.html` referencia el hash de assets del build actual (`dist/index.html` sin `modulepreload` de `vendor-stellar-*`).
 - [ ] `/sw.js` responde `Cache-Control: no-cache`, tiene `Service-Worker-Allowed: /` y hace bypass en `/api/*`, `/mcp`, `/openapi.json`, `/health` y `/telegram/webhook`.
-- [ ] Headers: CSP, `X-Content-Type-Options`, `Referrer-Policy`, HSTS y `Permissions-Policy`.
+- [ ] Headers: CSP (`frame-ancestors https://web.telegram.org https://*.telegram.org;` sin `'self'`), `X-Content-Type-Options`, `Referrer-Policy`, HSTS y `Permissions-Policy`.
 - [ ] El manifest tiene nombre, `start_url`, iconos 192/512 y `display`.
 - [ ] El service worker no incluye RPC/Horizon/relays/API en el precache.
 
-Flujo manual en navegador (idealmente dos cuentas):
+Flujo manual dentro de Telegram Mini App (`@AstroGateSorobanBot`, idealmente dos cuentas):
 
-- [ ] Conectar wallet real de testnet y leer balance.
+- [ ] Abrir `@AstroGateSorobanBot` en móvil/desktop y verificar inicio de sesión HMAC vía `/api/telegram/session`.
 - [ ] Activar modo prueba; crear 3 cuentas; cambiar de usuario.
 - [ ] Crear token (`launch_fair`): comprobar 10,000,000 supply fijo (`cap`),
-      split Fair-Flywheel v4.4 (`66%` curva virtual `1,000 vXLM → 1,000 XLM`, `33%` Soroswap DEX con LP bloqueado 7 años en contrato,
-      `0.3%` Creator 15d post-grad vesting, `0.4%` Jackpots `+5K / +10K / +25K`, `0.3%` Dev Ecosystem) y ownership renunciado.
-      Al graduar a 1,000 XLM: LP bloqueados 7 años en el Launchpad (`reclaim_expired_lp` después).
+      split Fair-Flywheel v4.5 (`66%` curva virtual `1,000 vXLM → 1,000 XLM`, `33%` Soroswap DEX con LP bloqueado 7 años en contrato,
+      `0.3%` Creator 15d post-grad vesting, `0.4%` Jackpots `+5K / +10K` en escrow hasta graduación + `+25K`, `0.3%` Dev Ecosystem) y ownership renunciado.
+      Al graduar a 1,000 XLM: LP bloqueados 7 años en el Launchpad (`reclaim_expired_lp` después) y cobro de jackpots con `claim_jackpot`.
 - [ ] Vender token → XLM; comprobar mínimo, slippage, share del pool e impacto.
 - [ ] Comprar token con XLM; comprobar actualización de balance XLM y token.
 - [ ] Burn-to-Chat (`burn_shout`), transferir o quemar token; comprobar descenso
       de `total_supply`.
 - [ ] Añadir y retirar liquidez manual (con LP propio); comprobar LP quemados y
       ambos activos devueltos.
-- [ ] Recargar en `/token/:id`, `/portfolio`, `/create` y `/market` (deep links).
-- [ ] Instalar PWA / probar offline: el shell carga, pero no se pueden firmar
-      transacciones sin red.
+- [ ] Abrir deep links en `@AstroGateSorobanBot?start=<tokenId|market|sorobits|create>` y verificar envío de alertas únicamente a `@AstroGateFeed` (nunca `@AstroGateCommunity`).
+- [ ] Desbloquear Hot Wallet con Biometría/PIN y sincronización en `Telegram.WebApp.CloudStorage`.
 
 ## 4. Rollback
 

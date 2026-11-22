@@ -97,6 +97,7 @@ export function SwapCard({
   const [direction, setDirection] = useState<Direction>('buy')
   const [amount, setAmount] = useState('10')
   const [slippage, setSlippage] = useState<number>(SLIPPAGE_PERCENT)
+  const [slippageInput, setSlippageInput] = useState(String(SLIPPAGE_PERCENT))
   const [showSlippage, setShowSlippage] = useState(false)
   const [confirmHighRisk, setConfirmHighRisk] = useState(false)
   const [cappedNotice, setCappedNotice] = useState(false)
@@ -246,11 +247,12 @@ export function SwapCard({
 
   function handleSlippageInput(raw: string) {
     const cleaned = raw.replace(/[^0-9.]/g, '')
+    setSlippageInput(cleaned)
+    setConfirmHighRisk(false)
     if (!cleaned) return
     const num = Number(cleaned)
-    if (Number.isFinite(num)) {
+    if (Number.isFinite(num) && num > 0) {
       setSlippage(Math.max(0.1, Math.min(50, num)))
-      setConfirmHighRisk(false)
     }
   }
 
@@ -290,12 +292,9 @@ export function SwapCard({
       return
     }
     const effectiveSpentXlm = isBuy ? effectiveAmountIn : 0n
-    if (isBuy && xlmBalance.data !== undefined) {
-      const balStroops = BigInt(Math.round(xlmBalance.data * 1e7))
-      if (effectiveSpentXlm > balStroops) {
-        setError('Insufficient XLM balance for this purchase.')
-        return
-      }
+    if (isBuy && xlmBase !== undefined && effectiveSpentXlm > xlmBase) {
+      setError('Insufficient XLM balance for this purchase.')
+      return
     }
     if (!isBuy && inputBalanceBase !== undefined && amountIn > inputBalanceBase) {
       setError(`Insufficient ${tokenSymbol} balance for this sale.`)
@@ -321,9 +320,8 @@ export function SwapCard({
       return
     }
 
-    // Never require double confirmation on buys (upward price movement is expected);
-    // keep a single safety tap only when selling with extreme manual slippage (>= 15%).
-    const needsSecondTap = !isBuy && slippage >= 15
+    const needsSecondTap =
+      slippage >= 10 || (impact !== null && impact >= 15)
     if (needsSecondTap && !confirmHighRisk) {
       setConfirmHighRisk(true)
       triggerTelegramHaptic('medium')
@@ -420,15 +418,15 @@ export function SwapCard({
             : wonSpark && wonCrown
               ? '⚡👑 Double Checkpoint Breakout!'
               : wonCrown
-                ? '👑 500 XLM King Crown Claimed!'
-                : '⚡ 250 XLM Spark Checkpoint Broken!'
+                ? '👑 500 XLM King Crown Escrowed!'
+                : '⚡ 250 XLM Spark Checkpoint Escrowed!'
           const reasonDetail = didGraduate
             ? `Your ${inFormatted} XLM buy completed the 1,000 XLM bonding curve goal, unlocked Soroswap AMM trading + 7-Year LP Lock, and won +${rewardTokens.toLocaleString('en-US')} $${tokenSymbol} on-chain!`
             : wonSpark && wonCrown
-              ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} across BOTH 250 XLM (+5K) and 500 XLM (+10K) checkpoints, crowning it King of the Hill!`
+              ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} across BOTH 250 XLM (+5K) and 500 XLM (+10K) checkpoints, crowning it King of the Hill (escrowed on-chain until graduation)!`
               : wonCrown
-                ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 500 XLM (50% curve), crowning it King of the Hill with +${CROWN_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} bonus!`
-                : `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 250 XLM (25% curve), earning the +${SPARK_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} Spark Bonus!`
+                ? `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 500 XLM (50% curve), crowning it King of the Hill with +${CROWN_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} escrowed until graduation!`
+                : `Your ${inFormatted} XLM buy pushed $${tokenSymbol} past 250 XLM (25% curve), locking +${SPARK_JACKPOT_TOKENS.toLocaleString('en-US')} $${tokenSymbol} Spark Bonus in escrow until graduation!`
           celebration = {
             graduated: didGraduate,
             rewardTokens,
@@ -462,11 +460,13 @@ export function SwapCard({
         celebration
           ? celebration.graduated
             ? `🎓 Graduated to Soroswap & Won +${celebration.rewardTokens.toLocaleString('en-US')} $${tokenSymbol}!`
-            : `🎁 Won +${celebration.rewardTokens.toLocaleString('en-US')} $${tokenSymbol} Bonus!`
+            : `🎁 Escrowed +${celebration.rewardTokens.toLocaleString('en-US')} $${tokenSymbol} Bonus!`
           : 'Swap completed',
         {
           message: celebration
-            ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} + ${celebration.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} reward`
+            ? celebration.graduated
+              ? `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} + ${celebration.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} reward`
+              : `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol} + ${celebration.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} escrowed until graduation`
             : `${inFormatted} ${inputSymbol} → ${outFormatted} ${outputSymbol}`,
           hash,
         },
@@ -718,7 +718,7 @@ export function SwapCard({
                       )
                     }}
                     className="inline-flex min-h-[34px] items-center rounded-lg border border-sky-400/50 bg-sky-500/15 px-2.5 py-1 text-xs font-bold text-sky-200 hover:bg-sky-500/25 transition-colors"
-                    title={`Break ${nextCheckpoint.targetXlm} XLM checkpoint & win +${nextCheckpoint.rewardTokens.toLocaleString('en-US')} ${tokenSymbol}`}
+                    title={`Break ${nextCheckpoint.targetXlm} XLM checkpoint & escrow +${nextCheckpoint.rewardTokens.toLocaleString('en-US')} ${tokenSymbol} until graduation`}
                   >
                     {nextCheckpoint.targetXlm === 250 ? '⚡' : '👑'} Win +
                     {(nextCheckpoint.rewardTokens / 1000).toFixed(0)}K at{' '}
@@ -797,7 +797,11 @@ export function SwapCard({
                     type="button"
                     aria-pressed={slippage === option}
                     disabled={busy}
-                    onClick={() => setSlippage(option)}
+                    onClick={() => {
+                      setSlippage(option)
+                      setSlippageInput(String(option))
+                      setConfirmHighRisk(false)
+                    }}
                     className={`min-h-[32px] rounded-md border px-2.5 py-1 font-mono text-xs transition-colors ${
                       slippage === option
                         ? 'border-emerald-500 bg-emerald-500/15 font-medium text-emerald-300'
@@ -813,9 +817,10 @@ export function SwapCard({
                     type="text"
                     inputMode="decimal"
                     aria-label="Custom slippage percent"
-                    value={slippage}
+                    value={slippageInput}
                     disabled={busy}
                     onChange={(e) => handleSlippageInput(e.target.value)}
+                    onBlur={() => setSlippageInput(String(slippage))}
                     className="w-12 bg-transparent text-right font-mono text-base sm:text-xs text-slate-200 outline-none"
                   />
                   <span className="ml-0.5 font-mono text-xs text-slate-500">%</span>
@@ -932,7 +937,10 @@ export function SwapCard({
         <div>
           {confirmHighRisk ? (
             <p className="mb-2 rounded-lg border border-amber-500/40 bg-amber-950/30 px-3 py-2 text-xs font-medium text-amber-200">
-              Wide sell slippage ({slippage}%). Tap once more to confirm.
+              {slippage >= 10
+                ? `Wide slippage tolerance (${slippage}%).`
+                : `High price impact (~${(impact ?? 0).toFixed(1)}%).`}{' '}
+              Tap once more to confirm this {isBuy ? 'buy' : 'sell'}.
             </p>
           ) : null}
           {!publicKey ? (

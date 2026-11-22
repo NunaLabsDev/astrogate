@@ -218,6 +218,8 @@ export function CreateTokenForm({
         `Content-addressed 128×128 WebP ready (SHA-256 ${compressed.sha256.slice(0, 10)}… · stored on-chain).`,
       )
     } catch (err) {
+      setLogoUrl('')
+      setLocalLogoDataUrl(null)
       setLogoUploadHint(errorMessage(err))
     } finally {
       setLogoUploading(false)
@@ -459,7 +461,7 @@ export function CreateTokenForm({
           <div className="min-w-0">
             <h2 className="text-lg sm:text-xl font-bold text-white whitespace-nowrap">Create &amp; Launch</h2>
             <p className="text-xs text-slate-400 truncate">
-              10M fixed supply · Fair-Flywheel v4.3 ({LP_LOCK_YEARS}Y LP Lock)
+              10M fixed supply · Fair-Flywheel v4.5 ({LP_LOCK_YEARS}Y LP Lock)
             </p>
           </div>
         </div>

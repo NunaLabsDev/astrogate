@@ -7,14 +7,18 @@ import {
 } from '@creit.tech/stellar-wallets-kit/modules/wallet-connect'
 import type { Signer } from '@stellar/stellar-sdk/contract'
 import { BRAND } from '../lib/brand'
-import { NETWORK_NAME } from '../lib/network'
+import { NETWORK_NAME, networkStorageKey } from '../lib/network'
 import { walletSigner } from '../lib/signer'
 import { readStorageString, removeStorageKey, writeStorageString } from '../lib/storage'
 import {
+  changeVaultPin,
   clearVaultFromTelegramCloud,
   createHotWalletAccount,
   defaultVaultStorage,
+  disableBiometricUnlock,
+  enableBiometricUnlock,
   exportEncryptedVaultBundle,
+  getBiometricCapability,
   getHotWalletSigner,
   importEncryptedVaultBundle,
   importHotWalletAccount,
@@ -27,9 +31,14 @@ import {
   revealHotAccountSecret,
   selectHotAccount as selectVaultAccount,
   setPrimaryHotAccount as setPrimaryVaultAccount,
+  setVaultCloudBackupPreference,
   syncVaultWithTelegramCloud,
   unlockHotVault,
+  unlockWithBiometrics,
+  validateCloudBackupPin,
+  verifyCurrentVaultPin,
   wipeHotVault,
+  type BiometricCapability,
   type HotAccountMeta,
   type TelegramWalletLinkMeta,
 } from '../lib/hot-wallet'
@@ -109,9 +118,17 @@ function walletKit(): typeof StellarWalletsKit {
 export type WalletMode = 'wallet' | 'hot' | 'demo'
 export type WalletModalView = 'connect' | 'unlock' | 'manage'
 
-const HOT_MODE_KEY = 'astrogate.hot.mode.v1'
+const HOT_MODE_KEY = networkStorageKey('astrogate.hot.mode.v1')
 const HOT_IDLE_AUTO_LOCK_MS = 15 * 60 * 1000
 let hotIdleTimer: ReturnType<typeof setTimeout> | null = null
+
+function syncCloudIfOptedIn(onSynced: (synced: boolean) => void): void {
+  const store = defaultVaultStorage.load()
+  if (!store?.cloudBackupEnabled) return
+  void pushVaultToTelegramCloud(store).then((ok) => {
+    if (ok) onSynced(true)
+  })
+}
 
 function clearHotIdleTimer(): void {
   if (hotIdleTimer !== null) {
@@ -150,6 +167,8 @@ type WalletState = {
   telegramLink: TelegramWalletLinkMeta | null
   hotUnlocked: boolean
   telegramCloudSynced: boolean
+  cloudBackupEnabled: boolean
+  biometricCapability: BiometricCapability
   walletModalOpen: boolean
   walletModalView: WalletModalView
   /** Cuentas desechables de testnet (modo prueba, sin wallet). */
@@ -161,6 +180,7 @@ type WalletState = {
   openWalletModal: (view?: WalletModalView) => void
   closeWalletModal: () => void
   hydrateFromTelegramCloud: () => Promise<void>
+  refreshBiometricCapability: () => Promise<BiometricCapability>
   connect: () => Promise<void>
   disconnect: () => Promise<void>
   createHotWallet: (params: {
@@ -173,6 +193,15 @@ type WalletState = {
     label?: string
   }) => Promise<void>
   unlockHotWallet: (pin: string) => Promise<void>
+  unlockHotWalletWithBiometrics: () => Promise<void>
+  enableHotWalletBiometrics: (pin: string) => Promise<{
+    enabled: boolean
+    needsSettings?: boolean
+    message?: string
+  }>
+  disableHotWalletBiometrics: () => Promise<void>
+  changeHotWalletPin: (currentPin: string, newPin: string) => Promise<void>
+  setCloudBackupEnabled: (enabled: boolean, pin?: string) => Promise<boolean>
   lockHotWallet: () => void
   selectHotAccount: (id: string) => void
   setPrimaryHotAccount: (id: string) => Promise<void>
@@ -224,6 +253,16 @@ export const useWallet = create<WalletState>((set, get) => ({
   telegramLink: initialHot.telegramLink,
   hotUnlocked: initialHot.unlocked,
   telegramCloudSynced: false,
+  cloudBackupEnabled: initialHot.cloudBackupEnabled,
+  biometricCapability: {
+    provider: 'none',
+    available: false,
+    biometricType: 'unknown',
+    enrolled: false,
+    accessGranted: false,
+    needsSettings: false,
+    label: 'Device Biometrics',
+  },
   walletModalOpen: false,
   walletModalView: 'connect',
   demoAccounts: storedDemo,
@@ -247,21 +286,31 @@ export const useWallet = create<WalletState>((set, get) => ({
 
   closeWalletModal: () => set({ walletModalOpen: false, error: null }),
 
+  refreshBiometricCapability: async () => {
+    const cap = await getBiometricCapability()
+    set({ biometricCapability: cap })
+    return cap
+  },
+
   hydrateFromTelegramCloud: async () => {
+    void get().refreshBiometricCapability()
     const syncRes = await syncVaultWithTelegramCloud()
-    void fetchRemoteTelegramWalletVault()
-      .then((remote) => {
-        if (!remote?.link) return
-        const latest = readHotVaultSnapshot()
-        if (latest.telegramLink) {
-          set({
-            hotPrimaryId: latest.primaryId,
-            hotPrimaryPublicKey: latest.primaryPublicKey,
-            telegramLink: latest.telegramLink,
-          })
-        }
-      })
-      .catch(() => undefined)
+    const currentSnap = readHotVaultSnapshot()
+    if (currentSnap.cloudBackupEnabled) {
+      void fetchRemoteTelegramWalletVault()
+        .then((remote) => {
+          if (!remote?.link) return
+          const latest = readHotVaultSnapshot()
+          if (latest.telegramLink) {
+            set({
+              hotPrimaryId: latest.primaryId,
+              hotPrimaryPublicKey: latest.primaryPublicKey,
+              telegramLink: latest.telegramLink,
+            })
+          }
+        })
+        .catch(() => undefined)
+    }
     if (!syncRes.synced) return
     const snap = readHotVaultSnapshot()
     const current = get()
@@ -285,7 +334,8 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: snap.primaryPublicKey,
         telegramLink: snap.telegramLink,
         hotUnlocked: snap.unlocked,
-        telegramCloudSynced: true,
+        cloudBackupEnabled: snap.cloudBackupEnabled,
+        telegramCloudSynced: snap.cloudBackupEnabled,
       })
       return
     }
@@ -295,7 +345,8 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotPrimaryId: snap.primaryId,
       hotPrimaryPublicKey: snap.primaryPublicKey,
       telegramLink: snap.telegramLink,
-      telegramCloudSynced: true,
+      cloudBackupEnabled: snap.cloudBackupEnabled,
+      telegramCloudSynced: snap.cloudBackupEnabled,
     })
   },
 
@@ -366,20 +417,14 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: snap.primaryPublicKey,
         telegramLink: snap.telegramLink,
         hotUnlocked: true,
+        cloudBackupEnabled: snap.cloudBackupEnabled,
       })
       scheduleHotIdleLock(() => get().lockHotWallet())
-      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
-        if (ok) set({ telegramCloudSynced: true })
-      })
+      syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
       const tgUser = readTelegramUser()
       if (!snap.telegramLink && tgUser.username) {
-        void exportEncryptedVaultBundle({ pin })
-          .then((encryptedVaultBundle) =>
-            publishWalletTelegramLink({
-              username: tgUser.username!,
-              encryptedVaultBundle,
-            }),
-          )
+        // Publish ONLY public key identity mapping by default; ciphertext leaves device only if user opts into Cloud Backup.
+        void publishWalletTelegramLink({ username: tgUser.username })
           .then((linked) => {
             const latest = readHotVaultSnapshot()
             set({
@@ -387,7 +432,7 @@ export const useWallet = create<WalletState>((set, get) => ({
               hotPrimaryPublicKey: latest.primaryPublicKey,
               telegramLink: linked,
             })
-            void pushVaultToTelegramCloud(defaultVaultStorage.load())
+            syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
           })
           .catch(() => undefined)
       }
@@ -420,20 +465,13 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: snap.primaryPublicKey,
         telegramLink: snap.telegramLink,
         hotUnlocked: true,
+        cloudBackupEnabled: snap.cloudBackupEnabled,
       })
       scheduleHotIdleLock(() => get().lockHotWallet())
-      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
-        if (ok) set({ telegramCloudSynced: true })
-      })
+      syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
       const tgUser = readTelegramUser()
       if (!snap.telegramLink && tgUser.username) {
-        void exportEncryptedVaultBundle({ pin })
-          .then((encryptedVaultBundle) =>
-            publishWalletTelegramLink({
-              username: tgUser.username!,
-              encryptedVaultBundle,
-            }),
-          )
+        void publishWalletTelegramLink({ username: tgUser.username })
           .then((linked) => {
             const latest = readHotVaultSnapshot()
             set({
@@ -441,7 +479,7 @@ export const useWallet = create<WalletState>((set, get) => ({
               hotPrimaryPublicKey: latest.primaryPublicKey,
               telegramLink: linked,
             })
-            void pushVaultToTelegramCloud(defaultVaultStorage.load())
+            syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
           })
           .catch(() => undefined)
       }
@@ -470,11 +508,10 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: snap.primaryPublicKey,
         telegramLink: snap.telegramLink,
         hotUnlocked: true,
+        cloudBackupEnabled: snap.cloudBackupEnabled,
       })
       scheduleHotIdleLock(() => get().lockHotWallet())
-      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
-        if (ok) set({ telegramCloudSynced: true })
-      })
+      syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
     } catch (error) {
       const message = messageOf(error)
       set({ error: message })
@@ -482,6 +519,74 @@ export const useWallet = create<WalletState>((set, get) => ({
     } finally {
       set({ pending: false })
     }
+  },
+
+  unlockHotWalletWithBiometrics: async () => {
+    set({ pending: true, error: null })
+    try {
+      const recoveredPin = await unlockWithBiometrics()
+      await get().unlockHotWallet(recoveredPin)
+    } catch (error) {
+      const message = messageOf(error)
+      set({ error: message })
+      void get().refreshBiometricCapability()
+      throw error
+    } finally {
+      set({ pending: false })
+    }
+  },
+
+  enableHotWalletBiometrics: async (pin) => {
+    await verifyCurrentVaultPin({ pin })
+    const res = await enableBiometricUnlock(pin)
+    await get().refreshBiometricCapability()
+    return res
+  },
+
+  disableHotWalletBiometrics: async () => {
+    await disableBiometricUnlock()
+    await get().refreshBiometricCapability()
+  },
+
+  changeHotWalletPin: async (currentPin, newPin) => {
+    await changeVaultPin({ currentPin, newPin })
+    const cap = await getBiometricCapability()
+    if (cap.enrolled) {
+      const bioRes = await enableBiometricUnlock(newPin)
+      if (!bioRes.enabled) {
+        await disableBiometricUnlock()
+      }
+      await get().refreshBiometricCapability()
+    }
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
+  },
+
+  setCloudBackupEnabled: async (enabled, pin) => {
+    if (!enabled) {
+      setVaultCloudBackupPreference(false)
+      await clearVaultFromTelegramCloud()
+      set({ cloudBackupEnabled: false, telegramCloudSynced: false })
+      return false
+    }
+    if (!pin) {
+      throw new Error('Enter your passphrase (8+ characters) to enable Encrypted Cloud Backup.')
+    }
+    validateCloudBackupPin(pin)
+    await verifyCurrentVaultPin({ pin })
+    setVaultCloudBackupPreference(true)
+    const store = defaultVaultStorage.load()
+    const tgOk = await pushVaultToTelegramCloud(store)
+    const tgUser = readTelegramUser()
+    if (tgUser.username) {
+      const encryptedVaultBundle = await exportEncryptedVaultBundle({ pin })
+      const linked = await publishWalletTelegramLink({
+        username: store?.telegramLink?.username ?? tgUser.username,
+        encryptedVaultBundle,
+      }).catch(() => null)
+      if (linked) set({ telegramLink: linked })
+    }
+    set({ cloudBackupEnabled: true, telegramCloudSynced: tgOk })
+    return true
   },
 
   lockHotWallet: () => {
@@ -505,7 +610,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotAccounts: snap.accounts,
       hotUnlocked: snap.unlocked,
     })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
   },
 
   setPrimaryHotAccount: async (id) => {
@@ -516,14 +621,14 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotPrimaryPublicKey: res.primaryPublicKey,
       telegramLink: snap.telegramLink,
     })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
     if (snap.telegramLink?.username && getHotWalletSigner(res.primaryPublicKey)) {
       const updated = await publishWalletTelegramLink({
         username: snap.telegramLink.username,
         tgUserId: snap.telegramLink.tgUserId,
       })
       set({ telegramLink: updated })
-      void pushVaultToTelegramCloud(defaultVaultStorage.load())
+      syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
     }
   },
 
@@ -539,7 +644,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotPrimaryPublicKey: snap.primaryPublicKey,
       telegramLink: linked,
     })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
     return linked
   },
 
@@ -551,6 +656,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     set({ pending: true, error: null })
     try {
       const res = await importEncryptedVaultBundle({ bundle, pin })
+      const snap = readHotVaultSnapshot()
       saveDemoMode(false)
       saveHotMode(true)
       set({
@@ -562,11 +668,10 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: res.primaryPublicKey,
         telegramLink: res.telegramLink,
         hotUnlocked: true,
+        cloudBackupEnabled: snap.cloudBackupEnabled,
       })
       scheduleHotIdleLock(() => get().lockHotWallet())
-      void pushVaultToTelegramCloud(defaultVaultStorage.load()).then((ok) => {
-        if (ok) set({ telegramCloudSynced: true })
-      })
+      syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
       return res.importedCount
     } catch (error) {
       const message = messageOf(error)
@@ -580,20 +685,20 @@ export const useWallet = create<WalletState>((set, get) => ({
   renameHotAccount: (id, label) => {
     const accounts = renameVaultAccount(id, label)
     set({ hotAccounts: accounts })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
   },
 
   confirmHotBackup: (id) => {
     const accounts = markHotAccountBackedUp(id)
     set({ hotAccounts: accounts })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
   },
 
   revealHotSecret: async (id, pin) => {
     const secret = await revealHotAccountSecret({ id, pin })
     const snap = readHotVaultSnapshot()
     set({ hotAccounts: snap.accounts })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
     return secret
   },
 
@@ -601,6 +706,7 @@ export const useWallet = create<WalletState>((set, get) => ({
     const accounts = await removeVaultAccount({ id, pin })
     if (accounts.length === 0) {
       saveHotMode(false)
+      void disableBiometricUnlock()
       void clearVaultFromTelegramCloud()
       set({
         mode: 'wallet',
@@ -611,8 +717,11 @@ export const useWallet = create<WalletState>((set, get) => ({
         hotPrimaryPublicKey: null,
         telegramLink: null,
         hotUnlocked: false,
+        cloudBackupEnabled: false,
+        telegramCloudSynced: false,
         walletModalOpen: false,
       })
+      void get().refreshBiometricCapability()
       return
     }
     const snap = readHotVaultSnapshot()
@@ -625,12 +734,13 @@ export const useWallet = create<WalletState>((set, get) => ({
       publicKey: snap.activePublicKey,
       hotUnlocked: snap.unlocked,
     })
-    void pushVaultToTelegramCloud(defaultVaultStorage.load())
+    syncCloudIfOptedIn((ok) => set({ telegramCloudSynced: ok }))
   },
 
   wipeHotWallet: () => {
     wipeHotVault()
     saveHotMode(false)
+    void disableBiometricUnlock().then(() => get().refreshBiometricCapability())
     void clearVaultFromTelegramCloud()
     set({
       mode: get().mode === 'hot' ? 'wallet' : get().mode,
@@ -641,6 +751,7 @@ export const useWallet = create<WalletState>((set, get) => ({
       hotPrimaryPublicKey: null,
       telegramLink: null,
       hotUnlocked: false,
+      cloudBackupEnabled: false,
       telegramCloudSynced: false,
       walletModalOpen: false,
     })

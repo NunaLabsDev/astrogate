@@ -1,109 +1,35 @@
-# AGENTS.md — AstroGate (launchpad Stellar; token de ejemplo: ASTRO)
+# AGENTS.md — AstroGate
 
-## Contexto del proyecto
-Launchpad + AMM sobre Stellar/Soroban. Minimalista, descentralizado, desplegado en testnet online.
-Identidad = wallet. Datos = red (Soroban RPC / Horizon). Sin backend de usuarios obligatorio.
-- Marca: **AstroGate** 🌊🚀 — única fuente `frontend/src/lib/brand.ts`; el token
-  de ejemplo ASTRO no cambia con la marca.
+Launchpad + AMM + Sorobits SEP-50 collectibles on **Stellar / Soroban Testnet**.
+- **Brand**: **AstroGate** — single source `frontend/src/lib/brand.ts` (example token `$ASTRO` stays unchanged).
+- **Stack**: Rust + Soroban SDK `28.0.0` + OpenZeppelin Stellar `0.8.0` · Soroswap AMM · Vite + React 19 + TypeScript · Cloudflare Pages (`https://astrogate.pages.dev`) + Worker `astrogate-stellar` (`ASTROW` Service Binding).
+- **Wallet**: Native self-custodial Hot Wallet (`PBKDF2-SHA256` + `AES-GCM-256`, `CloudStorage` / `AGVAULT1:` sync, `@username` Ed25519 link); `@creit.tech/stellar-wallets-kit` remains in dependencies/fallback signer.
+- **GitHub Origin**: `https://github.com/NunaLabsDev/astrogate.git` (`NunaLabsDev` org / `KawsayRuraq`). Public exports must run via `./scripts/prepare-opensource-export.sh` (never push to legacy `ruwaq/astro-launchpad`).
 
-## Stack
-- Contratos: Rust + Soroban SDK + OpenZeppelin Stellar (fungible SEP-41).
-- AMM: Soroswap (factory/router ya desplegados en testnet).
-- Frontend: Vite + React 19 + TypeScript (Scaffold Stellar), Tailwind + shadcn/ui.
-- Wallet: @creit.tech/stellar-wallets-kit.
-- Deploy frontend: Cloudflare Pages (`https://astrogate.pages.dev`). Datos: RPC público testnet.
-- Repositorio GitHub oficial: `https://github.com/NunaLabsDev/astrogate.git` (organización `NunaLabsDev`, cuenta `KawsayRuraq`). Todo push público a GitHub debe ir a `NunaLabsDev/astrogate` mediante `./scripts/prepare-opensource-export.sh` (nunca al repo legado `ruwaq/astro-launchpad`).
+## Non-Negotiable Invariants
+1. **Use Soroswap AMM**: Never reimplement an AMM; use Soroswap factory/router (see `.agents/rules/soroswap-traps.md`).
+2. **Wallet = Identity**: Ed25519 wallet signatures only; no JWTs, sessions, or user auth backend.
+3. **Network-First Data**: Read balances, reserves, and events directly from Soroban RPC / Horizon; user flows must never depend on local Postgres/Redis (optional dev-only).
+4. **Testnet-Only Safety**: Default to Stellar Testnet. Demo accounts use disposable Friendbot keys in `localStorage`. Never commit `.secrets/`, `.env*`, or `S...` seeds; never treat testnet code as mainnet-audited.
+5. **Telegram 100% EN + Internal Links**: `@AstroGateSorobanBot`, `@AstroGateCommunity`, and `@AstroGateFeed` must stay strictly English and use internal `https://t.me/AstroGateSorobanBot?start=...` links (never `https://astrogate.pages.dev/...` in chats/buttons, so `Telegram.WebApp.CloudStorage` stays intact). Automated alerts broadcast ONLY to `@AstroGateFeed` (`community: false`).
+6. **Contract / Frontend Parity**: Keep `contracts/launchpad/src/contract.rs` 1:1 with `frontend/src/lib/tokenomics.ts` and `curve-math.ts`.
+7. **No Sleep Loops**: Never use `sleep` polling for builds or background jobs; run background + single-shot verification (`pgrep`, `ls`, `curl`).
 
-## Reglas
-1. No reinventar AMM: usar Soroswap factory/router.
-2. Login = wallet. No JWT/backend auth tradicional.
-3. Obtener datos directamente de la red cuando sea posible (Soroban RPC getEvents, contratos).
-4. Todo para producción testnet online: nada dependiente de servicios locales en el flujo de usuario.
-5. Servicios locales (Postgres/Redis) son opcionales para dev, no requeridos para el MVP.
-6. Usar Stellar CLI + Scaffold Stellar para contratos y bindings TS.
-7. No usar `sleep` para esperar procesos; usar background + verificación puntual.
-8. Modo prueba (solo testnet): 3 cuentas desechables fondeadas con Friendbot,
-   semillas en `localStorage` del navegador. Nunca fondos reales ni mainnet.
-9. Telegram 100% en inglés: todo mensaje, comando, botón, descripción y respuesta de `@AstroGateSorobanBot`, `@AstroGateCommunity` y `@AstroGateFeed` (grupos, canal y DMs) debe mantenerse estrictamente en inglés.
-10. Links en Telegram siempre internos: nunca enviar URLs web externas (`https://astrogate.pages.dev/...`) dentro de chats o botones de Telegram; usar siempre enlaces internos (`https://t.me/AstroGateSorobanBot?start=...`) para abrir la Mini App vía `web_app` y conservar intacta la wallet en `Telegram.WebApp.CloudStorage`.
+## Verified Commands
+- **Toolchain**: Require `stellar` CLI `>=28.1` (tested `30.0.1`; do not use legacy `soroban` `23.x`). Verify `stellar --version` (on macOS Homebrew/Cargo, ensure `/opt/homebrew/bin` or `~/.cargo/bin` is in `PATH`).
+- **Smart Contracts (root)**:
+  - `stellar contract build --package astro-token` *(required WASM fixture before launchpad tests)*
+  - `cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace`
+  - `stellar contract build` *(target `wasm32v1-none`)*
+- **Frontend & Worker (`cd frontend`)**:
+  - `npm run dev` *(:5173)* · `npx tsc --noEmit -p tsconfig.worker.json`
+  - `npm run check` *(build + `oxlint` + `vitest` + `smoke:render` + `verify:pwa` + `check:csp`)*
+  - `npm run bindings` · `npm run mcp` *(local read-only stdio MCP)*
+- **Live Testnet Checks (`cd frontend`)**:
+  - No secret needed: `npm run verify:discovery` · `npm run verify:token-events` · `npm run verify:demo`
+  - Requires `STELLAR_SECRET`: `npm run verify:launchpad` · `npm run verify:soroswap` · `npm run verify:frontend` · `npm run verify:adversarial`
 
-## Red (testnet)
-- RPC: https://soroban-testnet.stellar.org
-- Horizon: https://horizon-testnet.stellar.org
-- Soroswap Factory: CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY
-- Soroswap Router: CCJUD55AG6W5HAI5LRVNKAE5WDP5XGZBUDS5WNTIVDU7O264UZZE7BRD
-- XLM SAC: CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC
-- Token del launchpad: CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE
-- wasm hash del token (ya subido v4.2): bc3ababa6a10d8385101ac29ecdac84e9375d628df190c0f4f88defe4544f0e6
-- Launchpad contract (v4.4): CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK
-- wasm hash del launchpad (v4.4): fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1
-- Sorobits NFT contract (SEP-50, Testnet): CBVETCPLVAMNUUQRUJGH54XHVQT5ZOVB4FGGP2IGOGAZLUIYBBV7G3I3
-- wasm hash de Sorobits: c668ebba24880a46202e6746009a95a62d1893207f678db3422d8194154f17fd
-- Par ASTRO/XLM: CA32TMZ2AODXI7K7B6T2YPZR52HJKFCY5GT2DNHMOL326DLSNPX55BUP
-- Developer Treasury (testnet): GDQT2KMQ5I2EFDK3WG42YBHRIC4B7OXL7K2G3IC2Z6LPTJEEOMXD7NQE (`astrogate-treasury`)
-- Deployer / Ops Account (testnet): GB6CISIU2PAG7MVCR4HKA27VY5OBBJ4P2L5IDEOH7UL34TU66OOFCNZA (`astrogate-deployer`; secretos locales en `~/.secrets/astrogate/developer-accounts.env`, fuera de git)
-
-## Comandos
-- PATH: `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"`
-- Stellar CLI: `stellar` (wrapper en `~/.local/bin/stellar`; binario oficial
-  28.1.0 en `~/.local/opt/stellar` + libs glibc en `~/.local/opt/glibc-libs/lib`).
-  Verificar: `stellar --version`.
-- Frontend (`cd frontend`): `npm run dev` (:5173) · `npm run check`
-  (build + lint + tests + smoke + `verify:pwa`) · `npm run bindings`.
-- On-chain (`STELLAR_SECRET` obligatorio): `npm run verify:launchpad` ·
-  `npm run verify:soroswap` · `npm run verify:frontend` · `npm run verify:adversarial`.
-- Solo lectura (sin secret): `npm run verify:discovery` (parser de eventos +
-  descubrimiento real de pares en la factory) · `npm run verify:token-events`
-  (transfer/mint/burn reales del token).
-- Modo prueba: `npm run verify:demo` (3 cuentas nuevas fondeadas con Friendbot
-  + flujo A→B, sin secret).
-- Contrato: `cargo test -p astro-token` · build wasm:
-  `cd contracts/token && stellar contract build` (target `wasm32v1-none`).
-- Servicios opcionales: `dev-up` / `dev-down`.
-
-## Trampas de Soroswap (verificadas on-chain)
-- Cotizar con `router_get_amount_out(amount_in, reserve_in, reserve_out)`;
-  `router_get_amounts_out` devuelve el input sin cotizar.
-- No hace falta allowance: el router usa `transfer`, no `transfer_from`.
-- Compra XLM→token: path `[XLM_SAC, token]`; `router_get_amount_out` con
-  `reserve_in = reserveXlm`. Verificada en testnet con `verify:demo`.
-- `deadline` = unix timestamp + 300 (vale bajo cualquier interpretación).
-- El contrato del par es la fuente de verdad del orden y las reservas:
-  `token_0()`, `token_1()` y `get_reserves()` en el propio par. No asumir el
-  orden que devuelve `sort_tokens` del router.
-- Todo contrato de Soroswap devuelve `Result<T, E>`: desenvolver con
-  `isErr()`/`unwrap()`, nunca leer `.result` dos veces.
-- La factory emite `["SoroswapFactory", "new_pair"]` con
-  `{ pair, token_0, token_1 }`; sirve para descubrir tokens sin backend
-  (`getEvents`, ventana limitada por la retención del RPC).
-- Retirar liquidez con `router.remove_liquidity` (atómico: mueve y quema los
-  LP y devuelve ambos lados en una tx); amounts en el orden interno del par.
-  El camino manual `transfer` al par + `withdraw(to)` también funciona, pero
-  puede dejar LP atrapados si falla el segundo paso.
-- Esta versión del par **no emite eventos `swap`** (0 en 10k ledgers): el
-  histórico de precios no se puede reconstruir con `getEvents`; haría falta un
-  indexer.
-
-
-## Procesos largos
-- Lanzar en background con `nohup ... &`, guardar PID/log.
-- Verificar con `pgrep` / `ls` binario, sin polling con sleep.
-- Preferir binarios precompilados o features opcionales en Termux (sin libudev).
-
-## AI Agent Operating Rules (2026)
-- Tratar al agente como junior: propone, no decide. Draft PRs only.
-- Human-in-the-loop obligatorio; CI ruthlessly (tests, lint, security, format).
-- Scope binding antes de ejecutar; no tocar fuera del scope.
-- Provenance: etiquetar AI-generated, guardar run record (tarea, ref, permisos, modelo).
-- Ground-truth receipts (git/disco), no self-report.
-- Código aburrido > clever; funciones pequeñas; sin over-abstraction.
-- Separar exploración read-only de acciones state-changing.
-- Cambios de dependencias = aprobación distinta.
-- Track rework-to-delivery; detener si revalida en vez de ship.
-
-## Verificación (sin sleep)
-- Frontend: `cd frontend && npm run check` (build + lint + tests + smoke)
-- On-chain: `cd frontend && STELLAR_SECRET=... npm run verify:frontend`
-- Contrato: `cargo test -p astro-token`
-- CLI: `stellar --version`
-- Servicios: `pgrep -x postgres; pgrep -x redis-server; redis-cli ping`
+## Documentation & Progressive Rules
+- Index of all docs (with freshness & line counts): @docs/INDEX.md
+- Testnet contract IDs, WASM hashes, accounts & v4.4/v4.5 notes: @docs/CONTRACTS_AND_NETWORK.md
+- Task-specific rules live in `.agents/rules/` (`soroswap-traps.md`, `telegram-bot-policy.md`); local Soroban MCP is configured in `.agents/mcp_config.json`.

@@ -84,10 +84,13 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
 
-  // Never intercept or cache Worker API, MCP, OpenAPI, health, or webhook routes
+  // Never intercept or cache Worker API, MCP, OpenAPI, health, webhook, SEP-1, or LLM specs
   if (
     url.pathname === '/api' ||
     url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/.well-known/') ||
+    url.pathname === '/llms.txt' ||
+    url.pathname === '/llms-full.txt' ||
     url.pathname === '/telegram/webhook' ||
     url.pathname === '/mcp' ||
     url.pathname === '/openapi.json' ||
@@ -100,8 +103,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const response = await fetch(request)
-          if (response.ok) {
+          const response = await fetch(request, { cache: 'no-cache' })
+          const contentType = response.headers.get('content-type') ?? ''
+          if (response.ok && contentType.includes('text/html')) {
             const cache = await caches.open(CACHE)
             await cache.put('/', response.clone())
           }

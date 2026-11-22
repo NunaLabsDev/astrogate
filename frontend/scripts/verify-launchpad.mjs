@@ -45,7 +45,7 @@ if (!specLiteral) {
   console.error('No se encontró el spec embebido en src/contracts/client.ts')
   process.exit(1)
 }
-const embeddedSpec = new Spec(new Function(`return ${specLiteral[1]}`)())
+const embeddedSpec = new Spec(JSON.parse(specLiteral[1]))
 const embeddedFns = JSON.stringify(embeddedSpec.funcs().map((f) => f.name.toString()))
 console.log('spec on-chain  :', onChainSpec === embeddedFns ? 'OK (igual al embebido)' : 'DIFIERE')
 if (onChainSpec !== embeddedFns) {
@@ -120,7 +120,7 @@ if (!lpSpecLiteral) {
   console.error('No se encontró el spec embebido en src/contracts/launchpad/client.ts')
   process.exit(1)
 }
-const lpEmbeddedSpec = new Spec(new Function(`return ${lpSpecLiteral[1]}`)())
+const lpEmbeddedSpec = new Spec(JSON.parse(lpSpecLiteral[1]))
 const lpEmbeddedFns = JSON.stringify(lpEmbeddedSpec.funcs().map((f) => f.name.toString()))
 const lpSpecMatch = lpOnChainSpec === lpEmbeddedFns
 console.log('launchpad spec  :', lpSpecMatch ? 'OK (igual al embebido)' : 'DIFIERE')

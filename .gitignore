@@ -12,6 +12,17 @@ logs/*.log
 # Entornos
 .env
 .env.*
+!.env.example
+.dev.vars
+**/.dev.vars
+.wrangler/
+**/.wrangler/
+coverage/
+frontend/coverage/
+frontend/sorobits_output/
+sorobits_output/
+*.pem
+*.key
 
 # Secretos locales (nunca en repo; ~/.secrets vive fuera del repo)
 .secrets/

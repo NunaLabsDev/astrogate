@@ -387,6 +387,8 @@
     [],
     [],
     [],
+    [],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
@@ -486,6 +488,7 @@
         }
       ]
     ],
+    [],
     [],
     [],
     [],
@@ -1019,6 +1022,63 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "PendingJackpot"
+                  },
+                  {
+                    "address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "50000000000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PendingJackpotTotal"
+                  },
+                  {
+                    "address": "CBAA5LWT7QFWIRCKYYJ37QXRDATMCOJL56XFCCFDEVUI6TIN7N6RAGEN"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "50000000000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "Pilot"
                   },
                   {
@@ -1477,7 +1537,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "1194852393571756375"
+                  "nonce": "3126073502131104533"
                 }
               },
               "durability": "temporary",
@@ -1547,7 +1607,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "68894268021910"
+                "i128": "68944268021910"
               }
             }
           },
@@ -1601,7 +1661,7 @@
               },
               "durability": "persistent",
               "val": {
-                "i128": "29807838932044"
+                "i128": "29757838932044"
               }
             }
           },

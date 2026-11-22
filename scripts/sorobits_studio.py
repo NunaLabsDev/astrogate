@@ -931,7 +931,7 @@ def main() -> int:
         sd.rectangle([36, 36, 1164, 594], fill=(12, 14, 34), outline=(99, 102, 241), width=2)
         sd.text((70, 64), "STELLAR SOROBAN · SEP-50 · ZERO IPFS / ZERO PINATA", fill=(165, 180, 252), font=font(20))
         sd.text((70, 98), "SOROBITS (SBIT)", fill=(248, 250, 252), font=font(54))
-        sd.text((70, 164), "32x32 Genomic Pixel Art · Season 1 Sealed On-Chain", fill=(103, 232, 249), font=font(24))
+        sd.text((70, 164), "32x32 Genomic Pixel Art · Commit-Reveal RNG On-Chain", fill=(103, 232, 249), font=font(24))
         for idx, sp in enumerate(GENESIS_8):
             col, row = idx % 4, idx // 4
             tx = 72 + col * 270
@@ -952,9 +952,9 @@ def main() -> int:
         draw_starfield(m)
         md = ImageDraw.Draw(m)
         md.rectangle([36, 36, 1164, 594], fill=(11, 16, 36), outline=(56, 189, 248), width=2)
-        md.text((70, 64), "FAIR-FLYWHEEL v4.3  ·  SOROSWAP DEX  ·  LIVE FEED", fill=(125, 211, 252), font=font(20))
+        md.text((70, 64), "FAIR-FLYWHEEL v4.5  ·  SOROSWAP DEX  ·  LIVE FEED", fill=(125, 211, 252), font=font(20))
         md.text((70, 98), "CURVE & KING ARENA", fill=(248, 250, 252), font=font(50))
-        md.text((70, 162), "0.80% Flat Buys · 100% LP Burned · Burn-to-Chat Shouts", fill=(250, 204, 21), font=font(22))
+        md.text((70, 162), "3-Stage Buys · Escrowed Jackpots · 7Y LP Lock · +2% Rebate", fill=(250, 204, 21), font=font(22))
         market_picks = [GENESIS_8[1], GENESIS_8[2], GENESIS_8[5], GENESIS_8[6]]
         for idx, sp in enumerate(market_picks):
             tx = 72 + idx * 270
@@ -974,9 +974,9 @@ def main() -> int:
         draw_starfield(w)
         wd = ImageDraw.Draw(w)
         wd.rectangle([36, 36, 1164, 594], fill=(14, 14, 34), outline=(16, 185, 129), width=2)
-        wd.text((70, 64), "SELF-CUSTODY VAULT  ·  CLOUDSTORAGE  ·  SEASON 1", fill=(110, 231, 183), font=font(20))
+        wd.text((70, 64), "SELF-CUSTODY VAULT  ·  BIOMETRICS  ·  SEASON 1", fill=(110, 231, 183), font=font(20))
         wd.text((70, 98), "PILOT VAULT & QUESTS", fill=(248, 250, 252), font=font(50))
-        wd.text((70, 162), "Encrypted PIN Vault + Earn On-Chain Sorobits Chat Ranks", fill=(196, 181, 253), font=font(22))
+        wd.text((70, 162), "Biometric & PIN Vault + Earn On-Chain Sorobits Chat Ranks", fill=(196, 181, 253), font=font(22))
         vault_picks = [GENESIS_8[0], GENESIS_8[3], GENESIS_8[4], GENESIS_8[7]]
         for idx, sp in enumerate(vault_picks):
             tx = 72 + idx * 270
@@ -1000,9 +1000,9 @@ def main() -> int:
         cmd.text((70, 98), "ASTROGATΞ COMMUNITY", fill=(248, 250, 252), font=font(50))
         cmd.text((70, 162), "Human Chat · Live $TICKER Lookups · Zero Trade Spam", fill=(250, 204, 21), font=font(22))
         comm_cards = [
-            (GENESIS_8[0], "1-TAP MINI APP", "CloudStorage Vault", (56, 189, 248)),
-            (GENESIS_8[1], "FAIR LAUNCHPAD", "7 XLM · 100% LP Burn", (167, 139, 250)),
-            (GENESIS_8[3], "SOROBITS NFTs", "100% On-Chain SVG", (52, 211, 153)),
+            (GENESIS_8[0], "1-TAP MINI APP", "Biometrics + Vault", (56, 189, 248)),
+            (GENESIS_8[1], "FAIR LAUNCHPAD", "7 XLM · 7Y LP Lock", (167, 139, 250)),
+            (GENESIS_8[3], "SOROBITS NFTs", "Commit-Reveal SVG", (52, 211, 153)),
             (GENESIS_8[7], "SMART BOT", "/market · /king · /ask", (250, 204, 21)),
         ]
         for idx, (sp, label, sub, border_rgb) in enumerate(comm_cards):
@@ -1027,9 +1027,9 @@ def main() -> int:
         fdd.text((70, 98), "ASTROGATΞ LIVE FEED", fill=(248, 250, 252), font=font(50))
         fdd.text((70, 162), "Launches · >=2 XLM Trades · 80%+ Push · Graduations · Burns", fill=(52, 211, 153), font=font(22))
         feed_cards = [
-            (GENESIS_8[1], "FAIR LAUNCHES", "New v4.3 Tokens", (56, 189, 248)),
+            (GENESIS_8[1], "FAIR LAUNCHES", "New v4.5 Tokens", (56, 189, 248)),
             (GENESIS_8[5], "WHALE & PUSH", ">=2 XLM & >=80%", (16, 185, 129)),
-            (GENESIS_8[3], "DEX GRADUATE", "100% LP Burned", (250, 204, 21)),
+            (GENESIS_8[3], "DEX GRADUATE", "7Y LP Lock + Rebate", (250, 204, 21)),
             (GENESIS_8[2], "KING & SHOUTS", "Burn-to-Chat + SBIT", (251, 113, 133)),
         ]
         for idx, (sp, label, sub, border_rgb) in enumerate(feed_cards):

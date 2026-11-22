@@ -382,8 +382,10 @@ export function renderLaunchpadEventTelegramView(
       text: [
         `🎓 <b>GRADUATED TO SOROSWAP DEX · $${safeSym}</b>`,
         ``,
-        `💧 <b>DEX Liquidity:</b> <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · <b>100% LP Burned</b>`,
-        `🔥 <b>Vault Burned:</b> <code>${formatTokensCompact(ev.vaultBurned, meta.decimals)} $${safeSym}</code>`,
+        `💧 <b>DEX Liquidity:</b> <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · <b>7Y LP Contract Lock</b>`,
+        ev.vaultBurned > 0n
+          ? `🔥 <b>Vault Burned:</b> <code>${formatTokensCompact(ev.vaultBurned, meta.decimals)} $${safeSym}</code>`
+          : `🏆 <b>Escrow Unlocked:</b> Spark (+5K) &amp; Crown (+10K) jackpots ready via Claim`,
         `<code>${ev.tokenId}</code>`,
         `<i>Built by NunaLabs</i>`,
       ].join('\n'),
@@ -401,7 +403,7 @@ export function renderLaunchpadEventTelegramView(
   if (ev.kind === 'burn') {
     const title =
       ev.burnKind === 'buyback'
-        ? `🔥 <b>DEX Buyback &amp; Burn · $${safeSym}</b>`
+        ? `🔥 <b>Anti-MEV DEX Buyback &amp; Burn · $${safeSym}</b>`
         : `🏛 <b>Milestone Burn #${ev.xlmSpentOrStage.toString()} · $${safeSym}</b>`
     return {
       text: [
@@ -409,7 +411,7 @@ export function renderLaunchpadEventTelegramView(
         ``,
         `🔥 <b>Supply Permanently Burned:</b> <code>${formatTokensCompact(ev.tokensBurned, meta.decimals)} $${safeSym}</code>`,
         ev.burnKind === 'buyback'
-          ? `💎 <b>XLM Spent:</b> <code>${formatXlm(ev.xlmSpentOrStage, 2)} XLM</code>`
+          ? `💎 <b>XLM Chunk:</b> <code>${formatXlm(ev.xlmSpentOrStage, 2)} XLM</code> · <b>+2% Keeper Rebate</b>`
           : '',
         `<i>Built by NunaLabs</i>`,
       ]

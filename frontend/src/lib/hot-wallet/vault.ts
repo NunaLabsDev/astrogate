@@ -28,12 +28,15 @@ import type {
   TelegramWalletLinkMeta,
 } from './types'
 
-export const MIN_VAULT_PIN_LENGTH = 4
+export const MIN_LEGACY_PIN_LENGTH = 4
+export const MIN_VAULT_PIN_LENGTH = 6
+export const MIN_CLOUD_BACKUP_PIN_LENGTH = 8
 export const MAX_HOT_WALLETS = 10
 export const VAULT_BUNDLE_PREFIX = 'AGVAULT1:'
 const LOCK_THRESHOLD_ATTEMPTS = 5
 const MIN_SAFE_ITERATIONS = 100_000
 const MAX_SAFE_ITERATIONS = 2_000_000
+const WALLET_ID_RE = /^[\w-]{4,64}$/
 
 /** Volatile RAM-only unlocked keypairs keyed by Stellar public key (`G...`). */
 const sessionKeys = new Map<string, Keypair>()
@@ -45,9 +48,29 @@ function generateAccountId(): string {
 
 export function validateVaultPin(pin: string): string {
   const normalized = pin.trim()
+  if (normalized.length < MIN_LEGACY_PIN_LENGTH) {
+    throw new Error(
+      `PIN must be at least ${MIN_LEGACY_PIN_LENGTH} characters or digits.`,
+    )
+  }
+  return normalized
+}
+
+export function validateNewVaultPin(pin: string): string {
+  const normalized = pin.trim()
   if (normalized.length < MIN_VAULT_PIN_LENGTH) {
     throw new Error(
-      `PIN must be at least ${MIN_VAULT_PIN_LENGTH} characters or digits.`,
+      `New Vault PIN / passphrase must be at least ${MIN_VAULT_PIN_LENGTH} characters.`,
+    )
+  }
+  return normalized
+}
+
+export function validateCloudBackupPin(pin: string): string {
+  const normalized = pin.trim()
+  if (normalized.length < MIN_CLOUD_BACKUP_PIN_LENGTH) {
+    throw new Error(
+      `Encrypted cloud backup requires a passphrase of at least ${MIN_CLOUD_BACKUP_PIN_LENGTH} characters.`,
     )
   }
   return normalized
@@ -88,6 +111,7 @@ export function readHotVaultSnapshot(
   primaryPublicKey: string | null
   telegramLink: TelegramWalletLinkMeta | null
   unlocked: boolean
+  cloudBackupEnabled: boolean
 } {
   const store = adapter.load()
   if (!store || store.wallets.length === 0) {
@@ -100,6 +124,7 @@ export function readHotVaultSnapshot(
       primaryPublicKey: null,
       telegramLink: null,
       unlocked: false,
+      cloudBackupEnabled: false,
     }
   }
   const active =
@@ -114,6 +139,7 @@ export function readHotVaultSnapshot(
     primaryPublicKey: primary.meta.publicKey,
     telegramLink: store.telegramLink ?? null,
     unlocked: sessionKeys.has(active.meta.publicKey),
+    cloudBackupEnabled: Boolean(store.cloudBackupEnabled),
   }
 }
 
@@ -143,8 +169,11 @@ export async function createHotWalletAccount(params: {
   revealedSecret: string
 }> {
   const adapter = params.adapter ?? defaultVaultStorage
-  const pin = validateVaultPin(params.pin)
   const existing = adapter.load()
+  const pin =
+    existing && existing.wallets.length > 0
+      ? validateVaultPin(params.pin)
+      : validateNewVaultPin(params.pin)
 
   if (existing && existing.wallets.length > 0) {
     assertNotRateLimited(existing)
@@ -175,6 +204,7 @@ export async function createHotWalletAccount(params: {
     wallets: [...(existing?.wallets ?? []), record],
     failedAttempts: 0,
     lockUntil: 0,
+    cloudBackupEnabled: existing?.cloudBackupEnabled ?? false,
   }
   adapter.save(nextStore)
   sessionKeys.set(publicKey, keypair)
@@ -199,7 +229,11 @@ export async function importHotWalletAccount(params: {
   activePublicKey: string
 }> {
   const adapter = params.adapter ?? defaultVaultStorage
-  const pin = validateVaultPin(params.pin)
+  const existing = adapter.load()
+  const pin =
+    existing && existing.wallets.length > 0
+      ? validateVaultPin(params.pin)
+      : validateNewVaultPin(params.pin)
   const cleanSecret = params.secret.trim()
 
   if (!StrKey.isValidEd25519SecretSeed(cleanSecret)) {
@@ -208,7 +242,6 @@ export async function importHotWalletAccount(params: {
   const keypair = Keypair.fromSecret(cleanSecret)
   const publicKey = keypair.publicKey()
 
-  const existing = adapter.load()
   if (existing && existing.wallets.length > 0) {
     assertNotRateLimited(existing)
     if (existing.wallets.some((w) => w.meta.publicKey === publicKey)) {
@@ -241,6 +274,7 @@ export async function importHotWalletAccount(params: {
     wallets: [...(existing?.wallets ?? []), { meta, crypto }],
     failedAttempts: 0,
     lockUntil: 0,
+    cloudBackupEnabled: existing?.cloudBackupEnabled ?? false,
   }
   adapter.save(nextStore)
   sessionKeys.set(publicKey, keypair)
@@ -494,11 +528,70 @@ export function saveTelegramWalletLink(
   })
 }
 
-function isValidEncryptedRecord(raw: unknown): raw is EncryptedWalletRecord {
+export async function changeVaultPin(params: {
+  currentPin: string
+  newPin: string
+  adapter?: HotVaultStorageAdapter
+}): Promise<void> {
+  const adapter = params.adapter ?? defaultVaultStorage
+  const store = adapter.load()
+  if (!store || store.wallets.length === 0) {
+    throw new Error('Hot wallet vault not found.')
+  }
+  assertNotRateLimited(store)
+  const cleanCurrent = validateVaultPin(params.currentPin)
+  const cleanNext = store.cloudBackupEnabled
+    ? validateCloudBackupPin(params.newPin)
+    : validateNewVaultPin(params.newPin)
+  await verifyPinAgainstStore(store, cleanCurrent, adapter)
+
+  const reencrypted: EncryptedWalletRecord[] = []
+  for (const w of store.wallets) {
+    const secret = await decryptSecretWithPin(w.crypto, cleanCurrent, w.meta.publicKey)
+    const nextCrypto = await encryptSecretWithPin(
+      secret,
+      cleanNext,
+      VAULT_PBKDF2_ITERATIONS,
+      w.meta.publicKey,
+    )
+    reencrypted.push({ meta: w.meta, crypto: nextCrypto })
+  }
+  adapter.save({
+    ...store,
+    wallets: reencrypted,
+    failedAttempts: 0,
+    lockUntil: 0,
+  })
+}
+
+export async function verifyCurrentVaultPin(params: {
+  pin: string
+  adapter?: HotVaultStorageAdapter
+}): Promise<boolean> {
+  const adapter = params.adapter ?? defaultVaultStorage
+  const store = adapter.load()
+  if (!store || store.wallets.length === 0) {
+    throw new Error('Hot wallet vault not found.')
+  }
+  await verifyPinAgainstStore(store, params.pin.trim(), adapter)
+  return true
+}
+
+export function setVaultCloudBackupPreference(
+  enabled: boolean,
+  adapter: HotVaultStorageAdapter = defaultVaultStorage,
+): void {
+  const store = adapter.load()
+  if (!store) return
+  adapter.save({ ...store, cloudBackupEnabled: enabled })
+}
+
+export function isEncryptedVaultRecord(raw: unknown): raw is EncryptedWalletRecord {
   if (typeof raw !== 'object' || raw === null) return false
   const w = raw as Partial<EncryptedWalletRecord>
   return (
     typeof w.meta?.id === 'string' &&
+    WALLET_ID_RE.test(w.meta.id) &&
     typeof w.meta?.label === 'string' &&
     typeof w.meta?.publicKey === 'string' &&
     StrKey.isValidEd25519PublicKey(w.meta.publicKey) &&
@@ -581,10 +674,16 @@ export async function importEncryptedVaultBundle(params: {
   if (parsed.v !== 1 || !Array.isArray(parsed.wallets) || parsed.wallets.length === 0) {
     throw new Error('Encrypted vault bundle contains no valid wallets.')
   }
+  if (parsed.wallets.length > MAX_HOT_WALLETS) {
+    throw new Error(`Vault bundle exceeds maximum ${MAX_HOT_WALLETS} wallets.`)
+  }
 
-  const incomingWallets = parsed.wallets.filter(isValidEncryptedRecord)
+  const incomingWallets = parsed.wallets.filter(isEncryptedVaultRecord)
   if (incomingWallets.length === 0) {
     throw new Error('Encrypted vault bundle contains no valid Stellar accounts.')
+  }
+  if (incomingWallets.length > MAX_HOT_WALLETS) {
+    throw new Error(`Maximum ${MAX_HOT_WALLETS} hot wallets allowed per bundle.`)
   }
 
   const existing = adapter.load()
@@ -593,8 +692,14 @@ export async function importEncryptedVaultBundle(params: {
     await verifyPinAgainstStore(existing, pin, adapter)
   }
 
+  const existingIds = new Map<string, string>()
+  for (const ew of existing?.wallets ?? []) {
+    existingIds.set(ew.meta.id, ew.meta.publicKey)
+  }
+
   const unlockedPairs: Array<[string, Keypair]> = []
   const verifiedIncoming: EncryptedWalletRecord[] = []
+  const batchUsedIds = new Set<string>()
   for (const record of incomingWallets) {
     let secret: string
     try {
@@ -606,11 +711,18 @@ export async function importEncryptedVaultBundle(params: {
     if (kp.publicKey() !== record.meta.publicKey) {
       throw new Error('Vault bundle key integrity check failed.')
     }
+    const collidesWithOtherPk =
+      (existingIds.has(record.meta.id) && existingIds.get(record.meta.id) !== record.meta.publicKey) ||
+      batchUsedIds.has(record.meta.id)
+    const safeId = collidesWithOtherPk ? generateAccountId() : record.meta.id
+    batchUsedIds.add(safeId)
+
     unlockedPairs.push([record.meta.publicKey, kp])
     verifiedIncoming.push({
       ...record,
       meta: {
         ...record.meta,
+        id: safeId,
         label: cleanLabel(record.meta.label, verifiedIncoming.length),
       },
     })
@@ -669,6 +781,7 @@ export async function importEncryptedVaultBundle(params: {
     wallets: mergedWallets,
     failedAttempts: 0,
     lockUntil: 0,
+    cloudBackupEnabled: existing?.cloudBackupEnabled ?? false,
   }
   adapter.save(nextStore)
   for (const [pk, kp] of unlockedPairs) {

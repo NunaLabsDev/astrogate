@@ -11,7 +11,13 @@ import {
   triggerTelegramHaptic,
 } from '../lib/telegram'
 import { toast } from '../lib/toast'
-import { MAX_HOT_WALLETS, MIN_VAULT_PIN_LENGTH } from '../lib/hot-wallet'
+import {
+  MAX_HOT_WALLETS,
+  MIN_CLOUD_BACKUP_PIN_LENGTH,
+  MIN_LEGACY_PIN_LENGTH,
+  MIN_VAULT_PIN_LENGTH,
+  openBiometricSettings,
+} from '../lib/hot-wallet'
 
 type ConnectTab = 'create' | 'import'
 
@@ -36,14 +42,21 @@ function HotWalletDialog() {
     telegramLink,
     hotUnlocked,
     telegramCloudSynced,
+    cloudBackupEnabled,
+    biometricCapability,
     walletModalView,
     demoPending,
     closeWalletModal,
     openWalletModal,
+    refreshBiometricCapability,
     startDemo,
     createHotWallet,
     importHotWallet,
     unlockHotWallet,
+    unlockHotWalletWithBiometrics,
+    enableHotWalletBiometrics,
+    disableHotWalletBiometrics,
+    setCloudBackupEnabled,
     lockHotWallet,
     selectHotAccount,
     setPrimaryHotAccount,
@@ -88,6 +101,8 @@ function HotWalletDialog() {
   const [confirmWipe, setConfirmWipe] = useState(false)
   const [confirmResetUnlock, setConfirmResetUnlock] = useState(false)
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null)
+  const [bioPin, setBioPin] = useState('')
+  const [bioBusy, setBioBusy] = useState(false)
   const [busy, setBusy] = useState(false)
   const [funding, setFunding] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -97,6 +112,10 @@ function HotWalletDialog() {
   const hasExistingVault = hotAccounts.length > 0
   const isBundleImport = secretInput.trim().startsWith('AGVAULT1:')
 
+  useEffect(() => {
+    void refreshBiometricCapability()
+  }, [refreshBiometricCapability])
+
   const handleClose = useCallback(() => {
     setJustCreated(null)
     setShowCreatedSecret(false)
@@ -104,6 +123,7 @@ function HotWalletDialog() {
     setExportedBundle(null)
     setExportPin('')
     setUnlockPin('')
+    setBioPin('')
     setPin('')
     setSecretInput('')
     setEditingLink(false)
@@ -263,6 +283,78 @@ function HotWalletDialog() {
     }
   }
 
+  async function onBiometricUnlockClick() {
+    setLocalError(null)
+    setBioBusy(true)
+    try {
+      await unlockHotWalletWithBiometrics()
+      triggerTelegramHaptic('success')
+      toast.success(`Unlocked with ${biometricCapability.label}`)
+      closeWalletModal()
+    } catch (err) {
+      triggerTelegramHaptic('error')
+      setLocalError(errorMessage(err))
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
+  async function onEnableBiometrics(pinValue: string) {
+    setLocalError(null)
+    setBioBusy(true)
+    try {
+      const res = await enableHotWalletBiometrics(pinValue)
+      if (res.enabled) {
+        triggerTelegramHaptic('success')
+        toast.success(`${biometricCapability.label} unlock enabled`)
+        setBioPin('')
+      } else {
+        triggerTelegramHaptic('error')
+        setLocalError(res.message ?? 'Could not enable biometric unlock.')
+      }
+    } catch (err) {
+      triggerTelegramHaptic('error')
+      setLocalError(errorMessage(err))
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
+  async function onDisableBiometrics() {
+    setLocalError(null)
+    setBioBusy(true)
+    try {
+      await disableHotWalletBiometrics()
+      triggerTelegramHaptic('light')
+      toast.success('Biometric unlock disabled')
+    } catch (err) {
+      setLocalError(errorMessage(err))
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
+  async function onToggleCloudBackup() {
+    setLocalError(null)
+    setBioBusy(true)
+    try {
+      if (cloudBackupEnabled) {
+        await setCloudBackupEnabled(false)
+        toast.success('Encrypted cloud backup disabled (vault is local-only)')
+      } else {
+        await setCloudBackupEnabled(true, bioPin)
+        setBioPin('')
+        triggerTelegramHaptic('success')
+        toast.success('Encrypted cloud backup enabled')
+      }
+    } catch (err) {
+      triggerTelegramHaptic('error')
+      setLocalError(errorMessage(err))
+    } finally {
+      setBioBusy(false)
+    }
+  }
+
   async function onRevealSecret(e: React.FormEvent) {
     e.preventDefault()
     if (!activeAccount) return
@@ -384,9 +476,11 @@ function HotWalletDialog() {
                     : '⚡ AstroGate Native Wallet'}
             </h2>
             <p className="text-[11px] text-slate-400">
-              Non-custodial AES-GCM vault · keys never leave your device.
+              {cloudBackupEnabled
+                ? 'Non-custodial AES-GCM vault · encrypted backup opted in.'
+                : 'Non-custodial AES-GCM vault · keys stored locally on device.'}
             </p>
-            {tgCloudReady ? (
+            {tgCloudReady && cloudBackupEnabled ? (
               <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-300">
                 ☁️{' '}
                 {telegramCloudSynced ? 'Synced' : 'Syncing'} encrypted to{' '}
@@ -518,20 +612,35 @@ function HotWalletDialog() {
               ) : null}
             </div>
 
+            {biometricCapability.enrolled ? (
+              <button
+                type="button"
+                disabled={busy || bioBusy}
+                onClick={() => void onBiometricUnlockClick()}
+                className="w-full min-h-[48px] rounded-2xl border border-emerald-400/50 bg-gradient-to-r from-emerald-500/25 to-sky-500/25 px-4 py-2.5 text-sm font-black text-emerald-100 hover:from-emerald-500/35 hover:to-sky-500/35 disabled:opacity-50 transition flex items-center justify-center gap-2"
+              >
+                <span>{biometricCapability.biometricType === 'face' ? '🔐' : '👆'}</span>
+                <span>
+                  {bioBusy
+                    ? 'Verifying Biometrics…'
+                    : `Unlock with ${biometricCapability.label}`}
+                </span>
+              </button>
+            ) : null}
+
             <label className="block space-y-1 text-xs">
               <span className="font-medium text-slate-300">
-                Enter your Wallet PIN to sign
+                Enter your Vault Passphrase / PIN to sign
               </span>
               <input
                 type="password"
-                inputMode="numeric"
                 autoComplete="current-password"
                 autoFocus
                 required
-                minLength={MIN_VAULT_PIN_LENGTH}
+                minLength={MIN_LEGACY_PIN_LENGTH}
                 value={unlockPin}
                 onChange={(e) => setUnlockPin(e.target.value)}
-                placeholder="4+ digit PIN"
+                placeholder="Vault passphrase or PIN"
                 className="w-full min-h-[46px] rounded-xl border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-base font-mono text-white outline-none focus:border-sky-400"
               />
             </label>
@@ -847,6 +956,96 @@ function HotWalletDialog() {
               </div>
             </div>
 
+            {/* Biometric Unlock & Opt-In Encrypted Cloud Backup */}
+            {biometricCapability.available || tgCloudReady ? (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-3 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="font-bold text-slate-200">
+                      🛡 Biometrics &amp; Backup Security
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {biometricCapability.enrolled
+                        ? `${biometricCapability.label} unlock active on this device.`
+                        : biometricCapability.available
+                          ? `Unlock faster with ${biometricCapability.label} via hardware keystore.`
+                          : 'Vault stays local-only unless Encrypted Cloud Backup is opted in.'}
+                    </p>
+                  </div>
+                  {biometricCapability.enrolled ? (
+                    <button
+                      type="button"
+                      disabled={bioBusy}
+                      onClick={() => void onDisableBiometrics()}
+                      className="shrink-0 rounded-lg border border-rose-500/40 bg-rose-500/10 px-2.5 py-1 text-[11px] font-bold text-rose-200 hover:bg-rose-500/20"
+                    >
+                      Disable Bio
+                    </button>
+                  ) : null}
+                </div>
+
+                {biometricCapability.needsSettings ? (
+                  <button
+                    type="button"
+                    onClick={() => openBiometricSettings()}
+                    className="w-full min-h-[38px] rounded-xl border border-amber-500/40 bg-amber-500/15 px-3 text-xs font-bold text-amber-200 hover:bg-amber-500/25"
+                  >
+                    ⚙ Open Telegram Biometric Settings
+                  </button>
+                ) : null}
+
+                {(!biometricCapability.enrolled && biometricCapability.available) ||
+                tgCloudReady ? (
+                  <div className="flex flex-wrap gap-2">
+                    {!biometricCapability.enrolled || !cloudBackupEnabled ? (
+                      <input
+                        type="password"
+                        autoComplete="current-password"
+                        value={bioPin}
+                        onChange={(e) => setBioPin(e.target.value)}
+                        placeholder={
+                          !cloudBackupEnabled
+                            ? `Vault passphrase (${MIN_CLOUD_BACKUP_PIN_LENGTH}+ chars for Cloud)`
+                            : 'Enter Vault PIN'
+                        }
+                        className="flex-1 min-w-[140px] min-h-[38px] rounded-xl border border-slate-700 bg-slate-950 px-3 text-xs font-mono text-white outline-none focus:border-emerald-400"
+                      />
+                    ) : null}
+                    {biometricCapability.available &&
+                    !biometricCapability.enrolled &&
+                    !biometricCapability.needsSettings ? (
+                      <button
+                        type="button"
+                        disabled={bioBusy || bioPin.trim().length < MIN_LEGACY_PIN_LENGTH}
+                        onClick={() => void onEnableBiometrics(bioPin)}
+                        className="min-h-[38px] rounded-xl bg-emerald-500/20 border border-emerald-500/40 px-3 text-xs font-bold text-emerald-200 hover:bg-emerald-500/30 disabled:opacity-50"
+                      >
+                        👆 Enable {biometricCapability.label}
+                      </button>
+                    ) : null}
+                    {tgCloudReady ? (
+                      <button
+                        type="button"
+                        disabled={
+                          bioBusy ||
+                          (!cloudBackupEnabled &&
+                            bioPin.trim().length < MIN_CLOUD_BACKUP_PIN_LENGTH)
+                        }
+                        onClick={() => void onToggleCloudBackup()}
+                        className={`min-h-[38px] rounded-xl border px-3 text-xs font-bold disabled:opacity-50 ${
+                          cloudBackupEnabled
+                            ? 'border-sky-500/40 bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
+                            : 'border-slate-700 bg-slate-900 text-slate-300 hover:border-sky-400'
+                        }`}
+                      >
+                        {cloudBackupEnabled ? '☁️ Disable Cloud Backup' : '☁️ Opt-In Cloud Backup'}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {/* Export Private Key (External Sovereignty) or Encrypted Web Sync Bundle */}
             <form
               onSubmit={onRevealSecret}
@@ -858,13 +1057,12 @@ function HotWalletDialog() {
               <div className="flex flex-wrap gap-2">
                 <input
                   type="password"
-                  inputMode="numeric"
                   autoComplete="current-password"
                   required
-                  minLength={MIN_VAULT_PIN_LENGTH}
+                  minLength={MIN_LEGACY_PIN_LENGTH}
                   value={exportPin}
                   onChange={(e) => setExportPin(e.target.value)}
-                  placeholder="Enter Vault PIN"
+                  placeholder="Enter Vault PIN / Passphrase"
                   className="flex-1 min-w-[120px] min-h-[40px] rounded-xl border border-slate-700 bg-slate-950 px-3 text-xs font-mono text-white outline-none focus:border-amber-400"
                 />
                 <button
@@ -1047,18 +1245,17 @@ function HotWalletDialog() {
                 <label className="block space-y-1 text-xs">
                   <span className="font-medium text-slate-300">
                     {hasExistingVault
-                      ? 'Enter Existing Vault PIN'
-                      : 'Choose Encryption PIN (4+ digits, 6+ recommended)'}
+                      ? 'Enter Existing Vault Passphrase / PIN'
+                      : `Choose Encryption Passphrase (${MIN_VAULT_PIN_LENGTH}+ chars, 8+ recommended)`}
                   </span>
                   <input
                     type="password"
-                    inputMode="numeric"
                     autoComplete={hasExistingVault ? 'current-password' : 'new-password'}
                     required
-                    minLength={MIN_VAULT_PIN_LENGTH}
+                    minLength={hasExistingVault ? MIN_LEGACY_PIN_LENGTH : MIN_VAULT_PIN_LENGTH}
                     value={pin}
                     onChange={(e) => setPin(e.target.value)}
-                    placeholder="e.g. 482910"
+                    placeholder="Min 6 characters or digits"
                     className="w-full min-h-[44px] rounded-xl border border-slate-800 bg-slate-950 px-3.5 text-base font-mono text-white outline-none focus:border-sky-400"
                   />
                 </label>
@@ -1079,7 +1276,9 @@ function HotWalletDialog() {
                   <button
                     type="button"
                     disabled={demoPending}
-                    onClick={() => void startDemo()}
+                    onClick={() =>
+                      void startDemo().catch((err) => setLocalError(errorMessage(err)))
+                    }
                     className="w-full min-h-[40px] rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 text-xs font-semibold text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
                   >
                     {demoPending
@@ -1128,20 +1327,19 @@ function HotWalletDialog() {
                   <label className="block space-y-1 text-xs">
                     <span className="font-medium text-slate-300">
                       {isBundleImport
-                        ? 'Bundle Vault PIN'
+                        ? 'Bundle Vault Passphrase / PIN'
                         : hasExistingVault
-                          ? 'Vault PIN'
-                          : 'New PIN (6+ rec.)'}
+                          ? 'Vault Passphrase / PIN'
+                          : `New Passphrase (${MIN_VAULT_PIN_LENGTH}+ chars)`}
                     </span>
                     <input
                       type="password"
-                      inputMode="numeric"
                       autoComplete={hasExistingVault ? 'current-password' : 'new-password'}
                       required
-                      minLength={MIN_VAULT_PIN_LENGTH}
+                      minLength={hasExistingVault ? MIN_LEGACY_PIN_LENGTH : MIN_VAULT_PIN_LENGTH}
                       value={pin}
                       onChange={(e) => setPin(e.target.value)}
-                      placeholder="4+ digits"
+                      placeholder={hasExistingVault ? 'Vault PIN / passphrase' : '6+ characters'}
                       className="w-full min-h-[44px] rounded-xl border border-slate-800 bg-slate-950 px-3 text-base font-mono text-white outline-none focus:border-sky-400"
                     />
                   </label>

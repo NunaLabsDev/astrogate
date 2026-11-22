@@ -46,5 +46,5 @@ category: arch
 ## Long-running processes
 - Background + log; sin sleep/polling; verificar con comando puntual.
 - Deshabilitar features nativas opcionales en entornos limitados (Termux).
-EOF
-echo "created ai-agent-best-practices"
+
+> **Note**: Archived guideline note. Active repo rules live in [`../AGENTS.md`](../AGENTS.md) and [`../docs/INDEX.md`](../docs/INDEX.md).

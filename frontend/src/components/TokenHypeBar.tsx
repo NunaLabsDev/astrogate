@@ -5,7 +5,13 @@ import { useKingShout } from '../hooks/useKingShout'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { validateXlmReserve } from '../lib/xlm'
-import { errorMessage, formatAmount, parseAmount, shortAddress } from '../lib/format'
+import {
+  clampDecimals,
+  errorMessage,
+  formatAmount,
+  parseAmount,
+  shortAddress,
+} from '../lib/format'
 import { burnAndShout } from '../lib/token'
 import { HYPE_SHOUT_BURN, KING_SHOUT_BURN, MIN_SHOUT_BURN } from '../lib/tokenomics'
 import { toast } from '../lib/toast'
@@ -13,6 +19,7 @@ import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
 import { UNSUPPORTED_SIGNER_MESSAGE } from '../lib/constants'
 import {
+  getTelegramWebApp,
   notifyTelegramPulse,
   TELEGRAM_COMMUNITY_URL,
   triggerTelegramHaptic,
@@ -58,12 +65,13 @@ export function TokenHypeBar({
   const [error, setError] = useState<string | null>(null)
   const [confirmHighBurnKey, setConfirmHighBurnKey] = useState<string | null>(null)
 
-  const burnAmountBase = parseAmount(burnAmountInput, decimals)
-  const burnWholeTokens = Number(burnAmountBase) / 10 ** Math.max(0, Math.trunc(decimals))
+  const safeDecimals = clampDecimals(decimals)
+  const burnAmountBase = parseAmount(burnAmountInput, safeDecimals)
+  const burnWholeTokens = Number(burnAmountBase) / 10 ** safeDecimals
   const isHighBurn = burnWholeTokens >= 500
   const currentConfirmKey = `${burnAmountInput}:${message.trim()}`
   const confirmingHighBurn = isHighBurn && confirmHighBurnKey === currentConfirmKey
-  const minShoutBase = BigInt(MIN_SHOUT_BURN) * 10n ** BigInt(Math.max(0, Math.trunc(decimals)))
+  const minShoutBase = BigInt(MIN_SHOUT_BURN) * 10n ** BigInt(safeDecimals)
   const utf8Bytes = new TextEncoder().encode(message.trim()).length
 
   async function onSubmit(e: React.FormEvent) {
@@ -175,6 +183,13 @@ export function TokenHypeBar({
             href={TELEGRAM_COMMUNITY_URL}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={(e) => {
+              const tg = getTelegramWebApp()
+              if (tg?.openTelegramLink) {
+                e.preventDefault()
+                tg.openTelegramLink(TELEGRAM_COMMUNITY_URL)
+              }
+            }}
             className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-xs font-medium text-sky-300 hover:bg-sky-500/20 transition"
           >
             💬 Telegram Chat

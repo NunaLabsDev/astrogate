@@ -12,10 +12,13 @@ type Props = {
 function isValidImageUrl(url: string): boolean {
   const trimmed = url.trim()
   if (!trimmed) return false
-  if (/^(https?:\/\/|\/|ipfs:\/\/)/i.test(trimmed)) {
+  if (/^https:\/\//i.test(trimmed)) {
     return true
   }
-  if (/^data:image\/(png|jpeg|jpg|webp|gif|svg\+xml);base64,/i.test(trimmed)) {
+  if (/^\/[^/]/.test(trimmed)) {
+    return true
+  }
+  if (/^data:image\/(png|jpeg|jpg|webp|gif);base64,[A-Za-z0-9+/=]+$/i.test(trimmed)) {
     return true
   }
   return false
@@ -51,6 +54,7 @@ export function TokenArt({ id, symbol, logoUrl, className }: Props) {
       <img
         src={safeLogoUrl}
         alt={symbol ?? id}
+        referrerPolicy="no-referrer"
         onError={() => setFailedLogoKey(currentLogoKey)}
         className={`overflow-hidden object-cover ${className ?? ''}`}
       />

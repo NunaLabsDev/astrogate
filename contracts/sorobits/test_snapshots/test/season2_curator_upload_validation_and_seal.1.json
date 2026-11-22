@@ -807,6 +807,36 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "SeasonLayerCount"
+                  },
+                  {
+                    "u32": 2
+                  },
+                  {
+                    "u32": 3
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4344967
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "SeasonPalette"
                   },
                   {
@@ -820,6 +850,33 @@
               "durability": "persistent",
               "val": {
                 "bytes": "24307e4476d884ece8160e30f45cd4f0feff0e0a206c68a2e8f2ff407a90a2f8f640f4c6eefffa0c0a22201848"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4344967
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SeasonPaletteCount"
+                  },
+                  {
+                    "u32": 2
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
               }
             }
           },
@@ -914,7 +971,7 @@
                       "symbol": "dna"
                     },
                     "val": {
-                      "bytes": "020002020105024e404d17f20b4526c975f8ed8bfe1bc331504da4bcd29f90ab"
+                      "bytes": "02000302000002c1eb77d16c37b1028c69e5cdbd7971983ebac8c6f1d6f40d20"
                     }
                   },
                   {
@@ -958,6 +1015,33 @@
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 4344967
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "TokenBaseXp"
+                  },
+                  {
+                    "u32": 0
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 0
               }
             }
           },

@@ -228,6 +228,12 @@ export async function linkWalletIdentity(
   env: Env,
 ): Promise<StoredWalletLink> {
   const { network } = resolveWorkerNetwork(env)
+  if (input.tgUserId > 0 && !input.verifiedTelegram) {
+    throw new WalletLinkError(
+      'Telegram user ID requires verified Telegram initData.',
+      401,
+    )
+  }
   const cleanUsername = normalizeTelegramUsername(input.username)
   if (!/^[a-z0-9_]{3,32}$/.test(cleanUsername)) {
     throw new WalletLinkError(
@@ -318,17 +324,19 @@ export async function linkWalletIdentity(
     if (existingRaw) {
       try {
         const existing = JSON.parse(existingRaw) as StoredWalletLink
-        const sameOwner =
-          existing.primaryPublicKey === input.primaryPublicKey ||
-          existing.wallets.includes(input.primaryPublicKey)
-        if (existing.verifiedTelegram && !sameOwner) {
+        const sameOwner = existing.primaryPublicKey === input.primaryPublicKey
+        if (!sameOwner) {
           throw new WalletLinkError(
-            'This @username is already cryptographically verified by another Telegram wallet.',
+            'This @username is already claimed by another wallet.',
             403,
           )
         }
       } catch (err) {
         if (err instanceof WalletLinkError) throw err
+        throw new WalletLinkError(
+          'This @username is already claimed by another wallet.',
+          403,
+        )
       }
     }
   }
@@ -381,9 +389,7 @@ export async function linkWalletIdentity(
     updatedAt: record.updatedAt,
   }
   const pkSerialized = JSON.stringify(pkPointer)
-  for (const pk of dedupedWallets) {
-    writes.push(kvPut(`wlink:${network}:pk:${pk}`, pkSerialized, env))
-  }
+  writes.push(kvPut(`wlink:${network}:pk:${input.primaryPublicKey}`, pkSerialized, env))
   await Promise.all(writes)
 
   return record

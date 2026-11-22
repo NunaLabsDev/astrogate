@@ -20,6 +20,7 @@ import {
 import {
   fetchLiveMarketSnapshot,
   fetchLiveTokenInspectorData,
+  fetchPairLpProtectionWorker,
   fetchPairReservesWorker,
   fetchSorobitsStatusWorker,
   fetchTokenOwnerWorker,
@@ -49,7 +50,7 @@ export function buildProtocolOverview(env: Env) {
   const cfg = resolveWorkerNetwork(env)
   return {
     protocol: 'AstroGate',
-    version: 'v4.4-fair-flywheel',
+    version: 'v4.5-fair-flywheel',
     network: cfg.network,
     networkPassphrase: cfg.passphrase,
     rpcUrls: cfg.rpcUrls,
@@ -98,7 +99,9 @@ export function buildProtocolOverview(env: Env) {
         soroswapSwapBps: 30,
       },
       antiMev: {
-        buybackMaxChunkBpsOfReserve: 50,
+        buybackMaxChunkBpsOfReserve: 25,
+        buybackMaxChunkXlm: '0.8000000',
+        buybackKeeperBountyBps: 200,
         buybackCooldownSeconds: 300,
       },
     },
@@ -201,7 +204,21 @@ export async function auditTokenApi(tokenId: string, env: Env) {
   const isVerifiedLaunchpad = Boolean(inspector.curve)
   const isGraduated = Boolean(inspector.curve?.graduated)
   const lpBurnAddress = STELLAR_BURN_ADDRESS
-  const pairId = inspector.curve?.pair ?? null
+  const cfg = resolveWorkerNetwork(env)
+  const pairId =
+    inspector.curve?.pair ??
+    (cfg.astroTokenId === tokenId && cfg.astroPairId ? cfg.astroPairId : null)
+
+  const lpInfo = pairId ? await fetchPairLpProtectionWorker(pairId, env) : null
+  const lpProtection: 'locked_7y' | 'burned' | 'unlocked' | 'bonding_curve' =
+    isVerifiedLaunchpad && !isGraduated
+      ? 'bonding_curve'
+      : lpInfo?.lpProtection ?? 'unlocked'
+  const lpLockedPercent =
+    isVerifiedLaunchpad && !isGraduated ? 100 : (lpInfo?.lpLockedPercent ?? 0)
+  const lpCheckPassed = isVerifiedLaunchpad
+    ? !isGraduated || (lpInfo !== null && lpInfo.lpProtection !== 'unlocked' && lpInfo.lpLockedPercent >= 99)
+    : lpInfo !== null && lpInfo.lpProtection !== 'unlocked' && lpInfo.lpLockedPercent >= 99
 
   const checks = [
     {
@@ -216,7 +233,7 @@ export async function auditTokenApi(tokenId: string, env: Env) {
     },
     {
       id: 'launchpad_verified',
-      label: 'Registered in Fair-Flywheel v4.4 Launchpad',
+      label: 'Registered in Fair-Flywheel v4.5 Launchpad',
       passed: isVerifiedLaunchpad,
       detail: isVerifiedLaunchpad
         ? `Creator ${inspector.curve?.creator}`
@@ -224,13 +241,21 @@ export async function auditTokenApi(tokenId: string, env: Env) {
     },
     {
       id: 'curve_or_lp_lock',
-      label: isGraduated
-        ? '100% initial Soroswap LP locked 7 years on-chain (or legacy blackhole burn)'
-        : 'P2P curve transfer lock active until 1,000 XLM graduation',
-      passed: isVerifiedLaunchpad,
-      detail: isGraduated
-        ? `Pair ${pairId ?? 'N/A'} · LP locked 7Y in Launchpad (or legacy ${lpBurnAddress})`
-        : `Bonding curve ${curvePercent(inspector.curve?.curveXlmNet ?? 0n).toFixed(2)}% funded`,
+      label:
+        lpProtection === 'locked_7y'
+          ? '100% initial Soroswap LP locked 7 years in Launchpad contract'
+          : lpProtection === 'burned'
+            ? '100% initial Soroswap LP permanently burned'
+            : lpProtection === 'bonding_curve'
+              ? 'P2P curve transfer lock active until 1,000 XLM graduation'
+              : 'Soroswap LP protection verification',
+      passed: lpCheckPassed,
+      detail:
+        lpProtection === 'bonding_curve'
+          ? `Bonding curve ${curvePercent(inspector.curve?.curveXlmNet ?? 0n).toFixed(2)}% funded`
+          : lpInfo
+            ? `Pair ${pairId ?? 'N/A'} · ${lpInfo.lpLockedPercent.toFixed(2)}% LP protected (${lpInfo.lpProtection === 'locked_7y' ? `7Y locked in ${cfg.launchpadContractId}` : lpInfo.lpProtection === 'burned' ? `burned in ${lpBurnAddress}` : 'unlocked'})`
+            : `Pair ${pairId ?? 'N/A'} · Could not verify on-chain LP balance`,
     },
     {
       id: 'proof_of_burn_vault',
@@ -257,7 +282,9 @@ export async function auditTokenApi(tokenId: string, env: Env) {
     symbol: inspector.symbol,
     name: inspector.name,
     status,
-    isAntiRugVerified: isVerifiedLaunchpad && ownershipRenounced,
+    isAntiRugVerified: isVerifiedLaunchpad && ownershipRenounced && lpCheckPassed,
+    lpProtection,
+    lpLockedPercent,
     totalSupplyBase: inspector.totalSupply.toString(),
     pairId,
     dexReserveXlmStroops: inspector.dexReserveXlm !== null ? inspector.dexReserveXlm.toString() : null,

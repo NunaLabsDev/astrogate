@@ -1,3 +1,4 @@
+import { clampDecimals } from './format'
 import { GRADUATION_TARGET_XLM, STROOPS_PER_UNIT } from './tokenomics'
 import type { TokenListing } from './discovery'
 
@@ -131,8 +132,8 @@ export function filterAndSortTokens(
         if (!aValid && !bValid) return b.ledger - a.ledger
 
         // Cross-multiplication prevents integer stroop underflow for micro-cap fair launch tokens
-        const aDec = 10n ** BigInt(Math.max(0, Math.trunc(a.decimals)))
-        const bDec = 10n ** BigInt(Math.max(0, Math.trunc(b.decimals)))
+        const aDec = 10n ** BigInt(clampDecimals(a.decimals))
+        const bDec = 10n ** BigInt(clampDecimals(b.decimals))
         const aVal = a.pool.reserveXlm * aDec * b.pool.reserveToken
         const bVal = b.pool.reserveXlm * bDec * a.pool.reserveToken
         return compareBigInt(aVal, bVal)

@@ -6,8 +6,8 @@
  * @reown/appkit → zod, etc.) y no tiene fix sin downgrade del kit. Cuando el
  * kit suelte una versión limpia, BAJAR `baseline` en ci.yml y aquí.
  *
- * Uso: node scripts/npm-audit-ratchet.mjs [baseline=44]
- * (el CI pasa el baseline también por env `AUDIT_BASELINE`).
+ * Uso: node scripts/npm-audit-ratchet.mjs [baseline=29]
+ * (el CI pasa el baseline también por env `AUDIT_BASELINE` y techo high `AUDIT_MAX_HIGH`).
  */
 import { spawnSync } from 'node:child_process'
 import process from 'node:process'
@@ -18,7 +18,13 @@ const baseline = Number.isFinite(argBaseline) && argBaseline > 0
   ? argBaseline
   : Number.isFinite(envBaseline) && envBaseline > 0
     ? envBaseline
-    : 44
+    : 29
+const rawMaxHigh = (process.env.AUDIT_MAX_HIGH ?? '').trim()
+const parsedMaxHigh = Number(rawMaxHigh)
+const MAX_HIGH =
+  rawMaxHigh !== '' && Number.isFinite(parsedMaxHigh) && parsedMaxHigh >= 0
+    ? parsedMaxHigh
+    : 11
 
 const result = spawnSync('npm', ['audit', '--json'], {
   encoding: 'utf8',
@@ -35,23 +41,39 @@ try {
   process.exit(1)
 }
 
-const metadata = audit.metadata?.vulnerabilities ?? {}
+if (!audit || typeof audit !== 'object' || audit.error || !audit.metadata?.vulnerabilities) {
+  console.error('✗ npm audit --json falló o no incluyó metadata.vulnerabilities (fail-closed)')
+  process.exit(1)
+}
+
+const metadata = audit.metadata.vulnerabilities
 const counts = [
   'critical',
   'high',
   'moderate',
   'low',
 ].map((level) => Number(metadata[level] ?? 0))
+if (counts.some((n) => !Number.isFinite(n))) {
+  console.error('✗ npm audit devolvió contadores inválidos')
+  process.exit(1)
+}
 const total = counts.reduce((sum, n) => sum + n, 0)
-const [criticalCount] = counts
+const [criticalCount, highCount] = counts
 
 console.log(
-  `Vulnerabilidades npm audit: ${total} (crit ${counts[0]} · high ${counts[1]} · mod ${counts[2]} · low ${counts[3]}) — baseline ${baseline}`,
+  `Vulnerabilidades npm audit: ${total} (crit ${counts[0]} · high ${highCount} [max ${MAX_HIGH}] · mod ${counts[2]} · low ${counts[3]}) — baseline ${baseline}`,
 )
 
 if (criticalCount > 0) {
   console.error(
     `✗ Fallo crítico de seguridad: se detectaron ${criticalCount} vulnerabilidades críticas en npm audit.`,
+  )
+  process.exit(1)
+}
+
+if (highCount > MAX_HIGH) {
+  console.error(
+    `✗ Se superó el techo de vulnerabilidades HIGH (${highCount} > ${MAX_HIGH}).`,
   )
   process.exit(1)
 }

@@ -1,5 +1,5 @@
 /**
- * Fair-Flywheel v4.4 Tokenomics (AstroGate 66 / 33 / 0.30 / 0.40 Checkpoints / 0.30 on Stellar).
+ * Fair-Flywheel v4.5 Tokenomics (AstroGate 66 / 33 / 0.30 / 0.40 Escrowed Checkpoints / 0.30 on Stellar).
  *
  * Fair & Sustainable Flywheel Rules:
  * 1. Standard Supply: 10,000,000 tokens (7 decimals, aligned with 1 XLM = 10^7 stroops).
@@ -10,12 +10,13 @@
  *    with 0.00% graduation cliff and 100% LP time-locked in-contract for 7 years (`reclaim_expired_lp`).
  * 4. 0.30% (30,000 tokens): 15-day post-graduation creator vesting (5 tranches of 6,000 every 3 days),
  *    plus creator's initial paid curve seed locked until graduation.
- * 5. 0.40% (40,000 tokens): 3-Checkpoint Jackpot Ladder (+5K at 250 XLM, +10K Crown at 500 XLM,
- *    +25K Graduation Jackpot at 1,000 XLM) paid automatically on-chain to checkpoint breakers.
+ * 5. 0.40% (40,000 tokens): Escrowed 3-Checkpoint Jackpot Ladder (+5K Spark at 250 XLM, +10K Crown at 500 XLM
+ *    escrowed on-chain until graduation via `claim_jackpot`, plus +25K Graduation Jackpot at 1,000 XLM).
  * 6. 0.30% (30,000 tokens): Developer / Protocol Ecosystem allocation transferred to treasury on graduation.
- * 7. Organic Deflation Only: Zero idle burn vault; 60% of surplus curve floor fees fund permissionless
- *    Soroswap Buyback & Burn plus 3-tier Burn-to-Chat shouts. P2P transfers lock until graduation.
+ * 7. Anti-MEV Organic Deflation: Zero idle burn vault; chunked DEX Buyback & Burn bounded by
+ *    min(0.25% pool XLM, 0.8000000 XLM) with a 2% keeper gas rebate (capped at 0.0500000 XLM) + Burn-to-Chat.
  */
+import { clampDecimals } from './format'
 import type { PoolState } from './soroswap'
 import { DEFAULT_XLM_USD_PRICE } from './xlm'
 import {
@@ -28,6 +29,11 @@ import {
   BUY_TREASURY_EARLY_BPS,
   BUY_TREASURY_MID_BPS,
   BUY_TREASURY_SPRINT_BPS,
+  BUYBACK_KEEPER_BOUNTY_BPS,
+  BUYBACK_MAX_BOUNTY_STROOPS,
+  BUYBACK_MAX_CHUNK_BPS,
+  BUYBACK_MAX_CHUNK_STROOPS,
+  BUYBACK_MIN_DUST_STROOPS,
   CREATOR_ALLOCATION_BPS,
   CREATOR_VESTING_ALLOC_BASE,
   CROWN_JACKPOT_BPS,
@@ -104,6 +110,11 @@ export {
   BUY_TREASURY_EARLY_BPS,
   BUY_TREASURY_MID_BPS,
   BUY_TREASURY_SPRINT_BPS,
+  BUYBACK_KEEPER_BOUNTY_BPS,
+  BUYBACK_MAX_BOUNTY_STROOPS,
+  BUYBACK_MAX_CHUNK_BPS,
+  BUYBACK_MAX_CHUNK_STROOPS,
+  BUYBACK_MIN_DUST_STROOPS,
   CREATOR_ALLOCATION_BPS,
   CREATOR_VESTING_ALLOC_BASE,
   CROWN_JACKPOT_BPS,
@@ -170,10 +181,10 @@ export {
 }
 
 /**
- * Protocol Monetization Model (100% AstroGate Developers Treasury, Fair-Flywheel v4.3):
+ * Protocol Monetization Model (100% AstroGate Developers Treasury, Fair-Flywheel v4.5):
  * 1. Fair launch deployment: 7 XLM fixed creation fee (`LAUNCH_CREATION_FEE_XLM`) straight to Treasury.
- * 2. Curve buys: flat 0.80% (0.50% Treasury + 0.30% LP/buyback floor), zero whale penalty.
- * 3. Curve sells: asymmetric 2.50% (<50% curve) or 1.50% (>=50% curve) feeding LP & post-grad Buyback-and-Burn.
+ * 2. Curve buys: 3-stage softened fee (`0.30%` <250 XLM, `0.50%` 250-500 XLM, `0.25%` 500-1,000 XLM).
+ * 3. Curve sells: asymmetric `1.20% / 1.80% / 1.50%` feeding LP & anti-MEV post-grad Buyback-and-Burn.
  * 4. Graduated Soroswap swaps: standard 0.30% LP fee stays in 7-year time-locked LP.
  */
 export const PROTOCOL_DEPLOY_FEE_XLM = 7
@@ -219,7 +230,7 @@ export const WHALE_TRADE_SHARE_BPS = 100n
 export function whaleThresholdBase(
   decimals: number = FAIR_LAUNCH_DECIMALS,
 ): bigint {
-  const safeDecimals = Math.max(0, Math.trunc(decimals))
+  const safeDecimals = clampDecimals(decimals)
   return (
     allocationOfBps(FAIR_LAUNCH_TOTAL_BASIS, WHALE_TRADE_SHARE_BPS) *
     10n ** BigInt(safeDecimals)

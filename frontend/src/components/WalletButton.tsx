@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useWallet } from '../store/wallet'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { fundTestnetAddress, MAX_DEMO_ACCOUNTS } from '../lib/demo'
+import { buildAstroWalletConnectUrl } from '../lib/ecosystem'
 import { errorMessage, shortAddress } from '../lib/format'
 import { NETWORK_NAME } from '../lib/network'
 import { toast } from '../lib/toast'
@@ -216,6 +217,7 @@ export function WalletButton() {
 
   const hasSavedVault = (hotAccounts?.length ?? 0) > 0
   const hasSavedDemo = (demoAccounts?.length ?? 0) > 0
+  const astroWalletSsoUrl = buildAstroWalletConnectUrl()
 
   return (
     <div className="flex flex-nowrap items-center gap-1.5">
@@ -233,6 +235,17 @@ export function WalletButton() {
         >
           {demoPending ? 'Funding…' : hasSavedDemo ? 'Resume Demo' : 'Demo'}
         </button>
+      ) : null}
+      {astroWalletSsoUrl ? (
+        <a
+          href={astroWalletSsoUrl}
+          target="_blank"
+          rel="noreferrer"
+          title="Connect or sign via AstroWallet AstroID SSO"
+          className="hidden sm:inline-flex min-h-[36px] sm:min-h-[40px] items-center whitespace-nowrap rounded-xl border border-violet-400/45 bg-violet-500/15 px-3 py-1.5 text-xs sm:text-sm font-semibold text-violet-200 hover:bg-violet-500/25"
+        >
+          AstroWallet SSO
+        </a>
       ) : null}
       <button
         type="button"

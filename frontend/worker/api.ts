@@ -20,14 +20,71 @@ import {
 
 const MAX_LOGO_BYTES = 32_768
 const MAX_MEMORY_LOGOS = 64
+const LOGO_RATE_LIMIT_PER_MIN = 10
+const WALLET_LINK_RATE_LIMIT_PER_MIN = 15
+const RATE_LIMIT_WINDOW_MS = 60_000
+const MAX_RATE_LIMIT_KEYS = 2_048
 const logoMemoryStore = new Map<string, { bytes: Uint8Array; contentType: string }>()
+const rateLimitBuckets = new Map<string, number[]>()
+
+const SECURITY_RESPONSE_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+}
 
 const PUBLIC_API_HEADERS: Record<string, string> = {
+  ...SECURITY_RESPONSE_HEADERS,
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Logo-Sha256, X-Telegram-Init-Data',
-  'X-Content-Type-Options': 'nosniff',
   'Cache-Control': 'public, max-age=10',
+}
+
+function walletCorsHeaders(request: Request, env: Env): Record<string, string> {
+  const url = new URL(request.url)
+  const origin = request.headers.get('Origin')
+  const allowedOrigins = new Set<string>(['https://astrogate.pages.dev', url.origin])
+  if (env.APP_BASE_URL && env.APP_BASE_URL.startsWith('https://')) {
+    allowedOrigins.add(env.APP_BASE_URL.replace(/\/+$/, ''))
+  }
+  const defaultAllowed =
+    (env.APP_BASE_URL && env.APP_BASE_URL.startsWith('https://')
+      ? env.APP_BASE_URL.replace(/\/+$/, '')
+      : null) ?? 'https://astrogate.pages.dev'
+  const allowedOrigin =
+    origin &&
+    (allowedOrigins.has(origin) || /^https:\/\/[a-z0-9-]+\.astrogate\.pages\.dev$/.test(origin))
+      ? origin
+      : defaultAllowed
+
+  return {
+    ...SECURITY_RESPONSE_HEADERS,
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Telegram-Init-Data',
+    Vary: 'Origin',
+    'Cache-Control': 'no-store',
+  }
+}
+
+function isIpRateLimited(bucket: string, request: Request, limit: number): boolean {
+  const ip = request.headers.get('CF-Connecting-IP')?.trim() || 'unknown'
+  const key = `${bucket}:${ip}`
+  const now = Date.now()
+  const cutoff = now - RATE_LIMIT_WINDOW_MS
+  const existing = (rateLimitBuckets.get(key) ?? []).filter((ts) => ts > cutoff)
+  if (existing.length >= limit) {
+    rateLimitBuckets.set(key, existing)
+    return true
+  }
+  existing.push(now)
+  if (!rateLimitBuckets.has(key) && rateLimitBuckets.size >= MAX_RATE_LIMIT_KEYS) {
+    const oldest = rateLimitBuckets.keys().next().value
+    if (oldest) rateLimitBuckets.delete(oldest)
+  }
+  rateLimitBuckets.set(key, existing)
+  return false
 }
 
 function jsonOk(data: unknown, status = 200, extraHeaders?: Record<string, string>): Response {
@@ -37,8 +94,14 @@ function jsonOk(data: unknown, status = 200, extraHeaders?: Record<string, strin
   })
 }
 
-function jsonError(message: string, status = 400): Response {
-  return Response.json({ ok: false, error: message }, { status, headers: PUBLIC_API_HEADERS })
+function jsonError(message: string, status = 400, extraHeaders?: Record<string, string>): Response {
+  return Response.json(
+    { ok: false, error: message },
+    {
+      status,
+      headers: extraHeaders ? { ...PUBLIC_API_HEADERS, ...extraHeaders } : PUBLIC_API_HEADERS,
+    },
+  )
 }
 
 function detectImageFormat(bytes: Uint8Array): { contentType: string; ext: 'webp' | 'png' | 'jpg' | 'gif' } | null {
@@ -121,9 +184,9 @@ export function buildOpenApiSpec(origin: string) {
     openapi: '3.1.0',
     info: {
       title: 'AstroGate Public Read-Only & Content-Addressed Logo API',
-      version: '1.1.0',
+      version: '1.2.0',
       description:
-        'Public, unauthenticated JSON API for inspecting Stellar Soroban Fair-Flywheel v4.4 launches, anti-rug proofs, swap quotes, Sorobits SEP-50 NFTs, on-chain quests, and SHA-256 content-addressed token logos.',
+        'Public, unauthenticated JSON API for inspecting Stellar Soroban Fair-Flywheel v4.5 launches, anti-rug proofs, swap quotes, Sorobits SEP-50 NFTs, on-chain quests, and SHA-256 content-addressed token logos.',
     },
     servers: [{ url: origin }],
     paths: {
@@ -228,11 +291,24 @@ export async function handlePublicApiRequest(
     return null
   }
 
+  const isRestrictedWalletRoute =
+    path === '/api/v1/wallet/link' || path === '/api/v1/wallet/vault'
+
   if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 204, headers: PUBLIC_API_HEADERS })
+    return new Response(null, {
+      status: 204,
+      headers: isRestrictedWalletRoute ? walletCorsHeaders(request, env) : PUBLIC_API_HEADERS,
+    })
   }
 
   if (path === '/api/v1/wallet/link' && request.method === 'POST') {
+    const walletCors = walletCorsHeaders(request, env)
+    if (isIpRateLimited('wallet-link', request, WALLET_LINK_RATE_LIMIT_PER_MIN)) {
+      return jsonError('Too many wallet link requests. Try again in a minute.', 429, {
+        ...walletCors,
+        'Retry-After': '60',
+      })
+    }
     try {
       const initData = request.headers.get('X-Telegram-Init-Data')?.trim()
       let verifiedTelegram = false
@@ -244,19 +320,19 @@ export async function handlePublicApiRequest(
           return jsonOk(
             { ok: false, error: 'Telegram bot verification is not configured on this worker.' },
             503,
-            { 'Cache-Control': 'no-store' },
+            walletCors,
           )
         }
         const validInit = await verifyTelegramInitData(
           initData,
           env.TELEGRAM_BOT_TOKEN,
-          300,
+          86_400,
         )
         if (!validInit) {
           return jsonOk(
             { ok: false, error: 'Invalid or expired Telegram initData.' },
             401,
-            { 'Cache-Control': 'no-store' },
+            walletCors,
           )
         }
         const tgUser = parseTelegramInitDataUser(initData)
@@ -264,7 +340,7 @@ export async function handlePublicApiRequest(
           return jsonOk(
             { ok: false, error: 'Missing Telegram user payload in initData.' },
             401,
-            { 'Cache-Control': 'no-store' },
+            walletCors,
           )
         }
         authTgUserId = tgUser.id
@@ -284,6 +360,14 @@ export async function handlePublicApiRequest(
         encryptedVaultBundle?: string
       }
 
+      if (!verifiedTelegram && body.tgUserId !== undefined && Number(body.tgUserId) > 0) {
+        return jsonOk(
+          { ok: false, error: 'Telegram user ID requires verified Telegram initData.' },
+          401,
+          walletCors,
+        )
+      }
+
       const requestedUsername = body.username
         ? normalizeTelegramUsername(body.username)
         : ''
@@ -291,11 +375,11 @@ export async function handlePublicApiRequest(
         return jsonOk(
           { ok: false, error: 'Username does not match verified Telegram profile.' },
           403,
-          { 'Cache-Control': 'no-store' },
+          walletCors,
         )
       }
 
-      const effectiveTgUserId = authTgUserId ?? (typeof body.tgUserId === 'number' ? body.tgUserId : 0)
+      const effectiveTgUserId = authTgUserId ?? 0
       const effectiveUsername =
         authTgUsername ?? (requestedUsername || (authTgUserId ? `tg_${authTgUserId}` : ''))
       const effectiveVerified =
@@ -316,23 +400,27 @@ export async function handlePublicApiRequest(
         },
         env,
       )
-      return jsonOk({ ok: true, link }, 200, { 'Cache-Control': 'no-store' })
+      return jsonOk({ ok: true, link }, 200, walletCors)
     } catch (err) {
       if (err instanceof WalletLinkError) {
-        return jsonOk({ ok: false, error: err.message }, err.status, {
-          'Cache-Control': 'no-store',
-        })
+        return jsonOk({ ok: false, error: err.message }, err.status, walletCors)
       }
       return jsonOk(
         { ok: false, error: err instanceof Error ? err.message : 'Invalid wallet link request' },
         400,
-        { 'Cache-Control': 'no-store' },
+        walletCors,
       )
     }
   }
 
   // Content-addressed immutable token logo upload (no API key required; verified by magic bytes + SHA-256)
   if (path === '/api/v1/logos' && request.method === 'POST') {
+    if (isIpRateLimited('logos', request, LOGO_RATE_LIMIT_PER_MIN)) {
+      return jsonError('Too many logo uploads. Try again in a minute.', 429, {
+        'Cache-Control': 'no-store',
+        'Retry-After': '60',
+      })
+    }
     try {
       const buf = await request.arrayBuffer()
       if (buf.byteLength <= 0 || buf.byteLength > MAX_LOGO_BYTES) {
@@ -514,23 +602,22 @@ export async function handlePublicApiRequest(
     }
 
     if (path === '/api/v1/wallet/vault') {
+      const walletCors = walletCorsHeaders(request, env)
       const initData = request.headers.get('X-Telegram-Init-Data')?.trim() ?? ''
       if (!initData || !env.TELEGRAM_BOT_TOKEN) {
         return jsonOk(
           { ok: false, error: 'Verified X-Telegram-Init-Data header required' },
           401,
-          { 'Cache-Control': 'no-store' },
+          walletCors,
         )
       }
-      const validInit = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN, 300)
+      const validInit = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN, 86_400)
       const tgUser = validInit ? parseTelegramInitDataUser(initData) : null
       if (!validInit || !tgUser) {
-        return jsonOk({ ok: false, error: 'Invalid or expired Telegram initData' }, 401, {
-          'Cache-Control': 'no-store',
-        })
+        return jsonOk({ ok: false, error: 'Invalid or expired Telegram initData' }, 401, walletCors)
       }
       const res = await getVerifiedWalletVault(tgUser.id, env)
-      return jsonOk({ ok: true, ...res }, 200, { 'Cache-Control': 'no-store' })
+      return jsonOk({ ok: true, ...res }, 200, walletCors)
     }
 
     const tokenDetailMatch = /^\/api\/v1\/tokens\/([A-Z0-9]+)$/.exec(path)

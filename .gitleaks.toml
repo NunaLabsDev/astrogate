@@ -3,12 +3,18 @@ title = "AstroGate Gitleaks Configuration"
 [extend]
 useDefault = true
 
+[[rules]]
+id = "stellar-secret-seed"
+description = "Stellar Ed25519 Secret Seed (S...)"
+regex = '''\bS[A-Z2-7]{55}\b'''
+
 [allowlist]
-description = "Allow public Stellar C.../G... addresses, storage keys, and Stellar SDK doc test fixture"
+description = "Allow public Stellar C.../G... addresses, storage keys, and Stellar SDK doc test fixtures"
 regexTarget = "secret"
 regexes = [
   '''^[CG][A-Z2-7]{55}$''',
   '''^contracts/launchpad$''',
   '''^astrogate_splash_seen_v1$''',
   '''^SCZANGBA5YHTNYVVV4C3U252E2B6P6F5T3U6MM63WBSBZATAQI3EBTQ4$''',
+  '''^SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA$''',
 ]

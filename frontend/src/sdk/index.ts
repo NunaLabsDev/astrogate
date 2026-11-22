@@ -27,12 +27,16 @@ import {
   burnAndShout,
   buyCurveToken,
   claimCreatorVesting,
+  claimJackpotOnChain,
   extendTokenTtl,
   fetchCurveState,
+  fetchIsCurveClosed,
   fetchKingShout,
+  fetchPendingJackpot,
   launchFairAtomic,
   sellCurveToken,
   tokenClient,
+  triggerBuybackBurnWithBounty,
   triggerMilestoneBurn,
 } from '../lib/token'
 import { decodeOnChainMeta, encodeOnChainMeta } from '../lib/token-metadata'
@@ -62,7 +66,7 @@ import {
   localCurveQuoteSell,
   STELLAR_BURN_ADDRESS,
 } from '../lib/tokenomics'
-import { formatAmount } from '../lib/format'
+import { clampDecimals, formatAmount } from '../lib/format'
 import {
   classifyTokenEvent,
   fetchTokenEvents,
@@ -100,6 +104,7 @@ export interface AntiRugAuditResult {
   lpBurnAddress: string
   ownershipRenounced: boolean
   lpBurned: boolean
+  lpProtection?: 'locked-7y' | 'burned' | 'unlocked' | 'bonding-curve'
   verifiedLaunchpad: boolean
   isAntiRugVerified: boolean
   auditNotes: string[]
@@ -163,7 +168,7 @@ export async function getTokenDetails(tokenId: string): Promise<SdkTokenDetails>
       return {
         name: nameTx.result || 'Unknown',
         symbol: symbolTx.result || 'UNK',
-        decimals: typeof decimalsTx.result === 'number' ? decimalsTx.result : 7,
+        decimals: typeof decimalsTx.result === 'number' ? clampDecimals(decimalsTx.result) : 7,
       }
     }),
     fetchPoolState(tokenId),
@@ -230,6 +235,7 @@ export async function quoteSwap(params: {
         quote.tokens_out,
         v.virtualXlm,
         v.virtualTokens,
+        0,
       )
       return {
         direction: 'buy',
@@ -253,6 +259,7 @@ export async function quoteSwap(params: {
       quote.gross_xlm_out,
       v.virtualTokens,
       v.virtualXlm,
+      0,
     )
     return {
       direction: 'sell',
@@ -358,7 +365,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
 
   if (curve && !curve.graduated) {
     notes.push(
-      'Active Fair-Flywheel v4.4 Virtual Bonding Curve: DEX reserves (3.3M), Creator 15d Vesting (30K), 3-Checkpoint Jackpot Ladder (40K across 250/500/1,000 XLM), and Ecosystem (30K) are custody-locked inside Launchpad.',
+      'Active Fair-Flywheel v4.5 Virtual Bonding Curve: DEX reserves (3.3M), Creator 15d Vesting (30K), Escrowed 3-Checkpoint Jackpot Ladder (40K across 250/500/1,000 XLM), and Ecosystem (30K) are custody-locked inside Launchpad.',
     )
     return {
       tokenId,
@@ -366,6 +373,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
       lpBurnAddress: STELLAR_BURN_ADDRESS,
       ownershipRenounced,
       lpBurned: false,
+      lpProtection: 'bonding-curve',
       verifiedLaunchpad,
       isAntiRugVerified: ownershipRenounced && verifiedLaunchpad && curve.real_xlm_vault > 0n,
       auditNotes: notes,
@@ -379,6 +387,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
       lpBurnAddress: STELLAR_BURN_ADDRESS,
       ownershipRenounced,
       lpBurned: false,
+      lpProtection: 'unlocked',
       verifiedLaunchpad,
       isAntiRugVerified: false,
       auditNotes: [...notes, 'No active Soroswap AMM pool found on-chain.'],
@@ -386,30 +395,37 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
   }
 
   notes.push(`Soroswap Pair verified: ${pool.pairId}`)
-  notes.push(`Canonical Stellar Burn Address: ${STELLAR_BURN_ADDRESS}`)
 
-  // Verify LP Token Burn (descontando MINIMUM_LIQUIDITY bloqueado por el par)
+  // Verify LP protection (7-year Launchpad lock or canonical blackhole burn, discounting MINIMUM_LIQUIDITY)
   let lpBurned = false
+  let lpProtection: 'locked-7y' | 'burned' | 'unlocked' = 'unlocked'
   try {
-    const { burnedLp: burnBalance, totalSupply, fullyBurned } =
+    const { burnedLp: burnBalance, totalSupply, fullyBurned, lpProtection: protection } =
       await fetchBurnedLpInfo(pool.pairId)
+    lpProtection = protection
 
     if (fullyBurned) {
       lpBurned = true
-      notes.push(
-        `100% of withdrawable LP verified burned in ${STELLAR_BURN_ADDRESS} (${burnBalance.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
-      )
+      if (protection === 'locked-7y') {
+        notes.push(
+          `100% of withdrawable LP verified time-locked 7 years inside Launchpad ${LAUNCHPAD_CONTRACT_ID} (${burnBalance.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
+        )
+      } else {
+        notes.push(
+          `100% of withdrawable LP verified burned in ${STELLAR_BURN_ADDRESS} (${burnBalance.toString()} / ${totalSupply.toString()}; ${SOROSWAP_MINIMUM_LIQUIDITY.toString()} LP permanently locked by the pair).`,
+        )
+      }
     } else if (burnBalance > 0n && totalSupply > 0n) {
       const pct = (burnBalance * 100n) / totalSupply
       notes.push(
-        `Partial LP burn: ${pct.toString()}% held by burn address (${burnBalance.toString()} / ${totalSupply.toString()}).`,
+        `Partial LP lock/burn: ${pct.toString()}% protected (${burnBalance.toString()} / ${totalSupply.toString()}).`,
       )
     } else {
-      notes.push('No LP tokens detected in canonical burn address.')
+      notes.push('No LP tokens locked in Launchpad or canonical burn address.')
     }
   } catch (err) {
     notes.push(
-      `Could not verify LP burn on pair: ${(err as Error)?.message ?? 'contract error'}`,
+      `Could not verify LP lock/burn on pair: ${(err as Error)?.message ?? 'contract error'}`,
     )
   }
 
@@ -419,6 +435,7 @@ export async function verifyAntiRug(tokenId: string): Promise<AntiRugAuditResult
     lpBurnAddress: STELLAR_BURN_ADDRESS,
     ownershipRenounced,
     lpBurned,
+    lpProtection,
     verifiedLaunchpad,
     isAntiRugVerified: ownershipRenounced && lpBurned && pool.reserveXlm > 0n,
     auditNotes: notes,
@@ -485,6 +502,7 @@ export {
   buyCurveToken,
   checkRpcHealth,
   claimCreatorVesting,
+  claimJackpotOnChain,
   classifyTokenEvent,
   decodeOnChainMeta,
   DEVELOPER_TREASURY_ADDRESS,
@@ -492,7 +510,9 @@ export {
   executeWithRpcFailover,
   extendTokenTtl,
   fetchCurveState,
+  fetchIsCurveClosed,
   fetchKingShout,
+  fetchPendingJackpot,
   fetchTokenEvents,
   fetchTokenShouts,
   graduationProgressForListing,
@@ -503,6 +523,7 @@ export {
   localQuoteXlmForToken,
   parseTokenEvent,
   sellCurveToken,
+  triggerBuybackBurnWithBounty,
   triggerMilestoneBurn,
 }
 export type { TokenEvent, TokenShout, TokenTradeRole }

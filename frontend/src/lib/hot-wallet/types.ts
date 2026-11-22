@@ -49,6 +49,8 @@ export interface HotVaultStore {
   failedAttempts: number
   /** Unix timestamp (ms) until next unlock attempt is permitted after repeated failures. */
   lockUntil: number
+  /** Explicit user opt-in before encrypted ciphertext is mirrored to Telegram CloudStorage or Worker KV. */
+  cloudBackupEnabled?: boolean
 }
 
 /** Storage adapter abstraction to allow swappable persistence backends (localStorage, IndexedDB, etc.). */

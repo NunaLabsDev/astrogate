@@ -13,6 +13,11 @@ export default defineConfig({
         codeSplitting: {
           groups: [
             {
+              name: 'vite-preload',
+              test: /preload-helper/,
+              priority: 30,
+            },
+            {
               name: 'vendor-stellar-xdr',
               test: /node_modules\/(@stellar\/stellar-sdk\/lib\/esm\/xdr\/|@stellar\/js-xdr\/|js-xdr\/)/,
               priority: 25,

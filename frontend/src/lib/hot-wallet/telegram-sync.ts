@@ -8,6 +8,7 @@
  * - Splits metadata (`ag_vault_meta_v1`) and each wallet record (`ag_vault_w_<id>`)
  *   into individual keys to stay well under Telegram's 4,096-byte-per-key limit.
  */
+import { NETWORK_NAME } from '../network'
 import {
   isTelegramCloudAvailable,
   telegramCloudGetItems,
@@ -23,8 +24,14 @@ import type {
   TelegramWalletLinkMeta,
 } from './types'
 
-const CLOUD_META_KEY = 'ag_vault_meta_v1'
-const CLOUD_WALLET_PREFIX = 'ag_vault_w_'
+const CLOUD_META_KEY =
+  NETWORK_NAME === 'testnet'
+    ? 'ag_vault_meta_v1'
+    : `ag_vault_${NETWORK_NAME}_meta_v1`
+const CLOUD_WALLET_PREFIX =
+  NETWORK_NAME === 'testnet' ? 'ag_vault_w_' : `ag_vault_${NETWORK_NAME}_w_`
+const MAX_CLOUD_WALLETS = 10
+const VALID_ID_RE = /^[\w-]{4,64}$/
 
 interface CloudVaultMeta {
   v: 1
@@ -47,6 +54,7 @@ function isValidWalletRecord(raw: unknown): raw is EncryptedWalletRecord {
   const w = raw as Partial<EncryptedWalletRecord>
   return (
     typeof w.meta?.id === 'string' &&
+    VALID_ID_RE.test(w.meta.id) &&
     typeof w.meta?.publicKey === 'string' &&
     w.meta.publicKey.startsWith('G') &&
     w.crypto?.v === 1 &&
@@ -58,6 +66,11 @@ function isValidWalletRecord(raw: unknown): raw is EncryptedWalletRecord {
     typeof w.crypto?.iv === 'string' &&
     typeof w.crypto?.salt === 'string'
   )
+}
+
+function generateFallbackId(): string {
+  const bytes = globalThis.crypto.getRandomValues(new Uint8Array(8))
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 function parseCloudMeta(raw: string | undefined): CloudVaultMeta | null {
@@ -74,7 +87,9 @@ function parseCloudMeta(raw: string | undefined): CloudVaultMeta | null {
         activeId: parsed.activeId,
         ...(typeof parsed.primaryId === 'string' ? { primaryId: parsed.primaryId } : {}),
         telegramLink: parseTelegramWalletLinkMeta(parsed.telegramLink),
-        ids: parsed.ids.filter((id): id is string => typeof id === 'string'),
+        ids: parsed.ids
+          .filter((id): id is string => typeof id === 'string' && VALID_ID_RE.test(id))
+          .slice(0, MAX_CLOUD_WALLETS),
         updatedAt: typeof parsed.updatedAt === 'number' ? parsed.updatedAt : 0,
       }
     }
@@ -206,8 +221,11 @@ export async function syncVaultWithTelegramCloud(
   }
 
   if (localStore && !cloudStore) {
-    await pushVaultToTelegramCloud(localStore)
-    return { synced: true, restoredFromCloud: false, store: localStore }
+    if (localStore.cloudBackupEnabled) {
+      await pushVaultToTelegramCloud(localStore)
+      return { synced: true, restoredFromCloud: false, store: localStore }
+    }
+    return { synced: false, restoredFromCloud: false, store: localStore }
   }
 
   // Both exist: merge any accounts present in cloud but missing locally (and vice versa)
@@ -239,7 +257,16 @@ export async function syncVaultWithTelegramCloud(
     )
   }
 
-  const mergedWallets = Array.from(byPk.values())
+  const rawMerged = Array.from(byPk.values()).slice(0, MAX_CLOUD_WALLETS)
+  const usedIds = new Set<string>()
+  const mergedWallets = rawMerged.map((w) => {
+    const cleanId =
+      VALID_ID_RE.test(w.meta.id) && !usedIds.has(w.meta.id)
+        ? w.meta.id
+        : generateFallbackId()
+    usedIds.add(cleanId)
+    return cleanId === w.meta.id ? w : { ...w, meta: { ...w.meta, id: cleanId } }
+  })
   const primaryId =
     local.primaryId && mergedWallets.some((w) => w.meta.id === local.primaryId)
       ? local.primaryId

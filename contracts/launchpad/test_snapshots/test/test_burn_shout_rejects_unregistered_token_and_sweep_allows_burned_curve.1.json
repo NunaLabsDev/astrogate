@@ -349,6 +349,7 @@
       ]
     ],
     [],
+    [],
     []
   ],
   "ledger": {
@@ -684,6 +685,33 @@
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "CurveClosed"
+                  },
+                  {
+                    "address": "CDSUIKXESFORTYGUVPUYJR5Y2JFNF2ZWFAB62T6UW6XFSIQ6O72EG6O3"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "bool": true
               }
             }
           },

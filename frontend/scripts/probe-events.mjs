@@ -5,7 +5,12 @@
  * Uso: node scripts/probe-events.mjs [ventana_de_ledgers]
  */
 import { rpc, scValToNative } from '@stellar/stellar-sdk'
-import { RPC_URL, SOROSWAP_FACTORY } from '../src/lib/network.ts'
+
+const RPC_URL =
+  process.env.STELLAR_RPC_URL?.trim() || 'https://soroban-testnet.stellar.org'
+const SOROSWAP_FACTORY =
+  process.env.SOROSWAP_FACTORY?.trim() ||
+  'CDP3HMUH6SMS3S7NPGNDJLULCOXXEPSHY4JKUKMBNQMATHDHWXRRJTBY'
 
 const windowSize = Number(process.argv[2] ?? 10000)
 const server = new rpc.Server(RPC_URL)

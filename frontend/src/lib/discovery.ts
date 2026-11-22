@@ -38,7 +38,7 @@ import {
   XLM_SAC,
 } from './network'
 import { isValidContractAddress } from './address'
-import { shortAddress } from './format'
+import { clampDecimals, shortAddress } from './format'
 import { decodeOnChainMeta, saveLocalTokenMetadata } from './token-metadata'
 import {
   FACTORY_SYNC_META_KEY,
@@ -335,7 +335,9 @@ async function fetchTokenMetadata(
         client.decimals(),
       ])
       const decimals =
-        typeof decimalsTx.result === 'number' ? decimalsTx.result : fallback.decimals
+        typeof decimalsTx.result === 'number'
+          ? clampDecimals(decimalsTx.result)
+          : fallback.decimals
       return {
         name: nameTx.result || fallback.name,
         symbol: symbolTx.result || fallback.symbol,

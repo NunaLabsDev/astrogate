@@ -22,6 +22,12 @@ rsync -a \
   --exclude='logs' \
   --exclude='.env' \
   --exclude='.env.*' \
+  --exclude='.dev.vars' \
+  --exclude='**/.dev.vars' \
+  --exclude='coverage' \
+  --exclude='frontend/coverage' \
+  --exclude='*.pem' \
+  --exclude='*.key' \
   --exclude='*.session' \
   --exclude='*.session-journal' \
   --exclude='frontend/node_modules' \
@@ -56,7 +62,7 @@ cat <<'EOF' > "${STAGE_DIR}/AGENTS.md"
 
 ## 1. Project Overview
 
-**AstroGate** (`https://github.com/NunaLabsDev/astrogate`) is a zero-user-backend Fair-Flywheel v4.4 Launchpad, Soroswap AMM interface, Sorobits (SEP-50) on-chain `32x32` genomic pixel-art NFT platform, and Telegram Mini App / Bot (`@AstroGateSorobanBot`) built on **Stellar / Soroban**.
+**AstroGate** (`https://github.com/NunaLabsDev/astrogate`) is a zero-user-backend Fair-Flywheel v4.5 Launchpad, Soroswap AMM interface, Sorobits (SEP-50) on-chain `32x32` genomic pixel-art NFT platform, and Telegram Mini App / Bot (`@AstroGateSorobanBot`) built on **Stellar / Soroban**.
 
 - **Smart Contracts (`contracts/`)**: Rust + Soroban SDK (`soroban-sdk`) + OpenZeppelin Stellar (`stellar-tokens = "=0.8.0"`, SEP-41 & SEP-50).
 - **Frontend & SDK (`frontend/src/`)**: Vite + React 19 + TypeScript + Tailwind + `@creit.tech/stellar-wallets-kit` + client-side AES-GCM Hot Vault + `@astrogate/sdk` (`src/sdk/index.ts`).
@@ -68,11 +74,11 @@ cat <<'EOF' > "${STAGE_DIR}/AGENTS.md"
 
 | Path | Ownership & Purpose |
 | :--- | :--- |
-| `contracts/launchpad/` | Fair-Flywheel v4.4 bonding curve (66/33/0.3/0.4 jackpots/0.3 dev), atomic Soroswap graduation, 7-year contract LP lock (`reclaim_expired_lp`), anti-MEV buyback-and-burn, 15d vesting, Burn-to-Chat shouts |
+| `contracts/launchpad/` | Fair-Flywheel v4.5 bonding curve (66/33/0.3/0.4 escrowed jackpots via `claim_jackpot`/0.3 dev), atomic Soroswap graduation, 7-year contract LP lock (`reclaim_expired_lp`), 30d closed-curve refund (`CurveClosed`), 48h upgrade timelock, anti-MEV `min(0.25% pool, 0.8000000 XLM)` buyback + `2%` keeper rebate, 15d vesting, Burn-to-Chat shouts |
 | `contracts/token/` | SEP-41 `Capped` + `FungibleBurnable` + `Ownable` token with `lock_until_graduated` transfer lock |
-| `contracts/sorobits/` | SEP-50 NFT contract with on-chain RLE `32x32` SVG renderer, 256-bit genomes, and epigenetic progression |
+| `contracts/sorobits/` | SEP-50 NFT contract with commit-reveal capsule/forge RNG, `TokenBaseXp` anti-wash-trading, 48h upgrade timelock, on-chain RLE `32x32` SVG renderer, 256-bit genomes, and epigenetic progression |
 | `frontend/src/lib/curve-math.ts` | Runtime-agnostic bonding curve integer math (1:1 parity with `contracts/launchpad/src/contract.rs`) |
-| `frontend/src/lib/hot-wallet/` | Client-side `PBKDF2-SHA256` (210k) + `AES-GCM-256` vault (`publicKey` AAD, RAM zeroing, 15m idle lock) |
+| `frontend/src/lib/hot-wallet/` | Client-side `PBKDF2-SHA256` (210k) + `AES-GCM-256` vault (`publicKey` AAD, `BiometricManager` / WebAuthn PRF quick-unlock, RAM zeroing, 15m idle lock) |
 | `frontend/src/lib/network.ts` | Testnet/Mainnet presets, contract IDs, multi-RPC failover (`executeWithRpcFailover`), network-scoped storage keys |
 | `frontend/worker/` | Telegram bot (`@AstroGateSorobanBot`), KV event dedupe, `/api/v1/*` REST API, and `/mcp` JSON-RPC server |
 | `frontend/public/` | `llms.txt`, `llms-full.txt`, `_headers` (CSP & cache policy), `sw.js`, `.well-known/stellar.toml` |
@@ -150,7 +156,7 @@ Quick reference:
 EOF
 
 # Verify no forbidden secret files or env files leaked into staging.
-if find "${STAGE_DIR}" \( -name '.env' -o -name '.env.*' -o -name '*.pem' -o -name '*.key' \) ! -name '.env.example' | grep -q .; then
+if find "${STAGE_DIR}" \( -name '.env' -o -name '.env.*' -o -name '.dev.vars' -o -name '*.pem' -o -name '*.key' \) ! -name '.env.example' | grep -q .; then
   echo "ERROR: Forbidden env/key file detected in export!"
   exit 1
 fi

@@ -93,7 +93,7 @@ const TOOLS = [
   {
     name: 'get_protocol_info',
     description:
-      'Returns AstroGate Fair-Flywheel v4.3 contract addresses, fee formulas, and Sorobits SEP-50 specs.',
+      'Returns AstroGate Fair-Flywheel v4.5 contract addresses, fee formulas, and Sorobits SEP-50 specs.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -145,7 +145,7 @@ async function runLocalTool(name, args) {
   if (name === 'get_protocol_info') {
     return {
       protocol: 'AstroGate',
-      version: 'v4.3-fair-flywheel',
+      version: 'v4.5-fair-flywheel',
       network: NETWORK,
       rpcUrl: RPC_URL,
       contracts: {
@@ -192,6 +192,9 @@ async function runLocalTool(name, args) {
     throw new Error('Invalid Soroban tokenId (expected 56-char C... address)')
   }
   if (name === 'get_token_details') {
+    if (!LAUNCHPAD_ID) {
+      throw new Error('LAUNCHPAD_CONTRACT_ID must be set for mainnet')
+    }
     const [nameStr, symbolStr, decimals, totalSupply, curve, kingShout] = await Promise.all([
       simulateCall(tokenId, 'name'),
       simulateCall(tokenId, 'symbol'),
@@ -211,6 +214,9 @@ async function runLocalTool(name, args) {
     })
   }
   if (name === 'verify_anti_rug') {
+    if (!LAUNCHPAD_ID) {
+      throw new Error('LAUNCHPAD_CONTRACT_ID must be set for mainnet')
+    }
     const [owner, curve] = await Promise.all([
       simulateCall(tokenId, 'get_owner').catch(() => '__unsupported__'),
       simulateCall(LAUNCHPAD_ID, 'get_curve', new Address(tokenId).toScVal()).catch(() => null),
@@ -225,6 +231,9 @@ async function runLocalTool(name, args) {
     })
   }
   if (name === 'quote_swap') {
+    if (!LAUNCHPAD_ID) {
+      throw new Error('LAUNCHPAD_CONTRACT_ID must be set for mainnet')
+    }
     const rawAmt = String(args?.amountIn ?? '').trim()
     if (!/^\d+$/.test(rawAmt)) {
       throw new Error('amountIn must be a positive integer string in 7-decimal base units')
@@ -249,14 +258,36 @@ async function runLocalTool(name, args) {
   throw new Error(`Unknown tool: ${name}`)
 }
 
+function assertValidUpstreamUrl(rawUrl) {
+  let parsed
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    throw new Error(`Invalid ASTROGATE_MCP_URL: ${rawUrl}`)
+  }
+  const isLoopback =
+    parsed.protocol === 'http:' &&
+    (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+  if (parsed.protocol !== 'https:' && !isLoopback) {
+    throw new Error(
+      `ASTROGATE_MCP_URL must use https:// (or localhost http://): ${rawUrl}`,
+    )
+  }
+  return parsed.toString()
+}
+
 async function handleRequest(msg) {
   if (UPSTREAM_MCP) {
-    const res = await fetch(UPSTREAM_MCP, {
+    const targetUrl = assertValidUpstreamUrl(UPSTREAM_MCP)
+    const res = await fetch(targetUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(msg),
     })
     if (res.status === 202) return null
+    if (!res.ok) {
+      throw new Error(`Upstream MCP error (${res.status})`)
+    }
     return res.json()
   }
 

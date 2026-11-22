@@ -11,9 +11,14 @@ import {
 import { explorerAccountUrl, explorerContractUrl } from '../lib/explorer'
 import { errorMessage, shortAddress } from '../lib/format'
 import { formatUsdPrice } from '../lib/soroswap'
-import { DEFAULT_XLM_USD_PRICE } from '../lib/xlm'
+import { DEFAULT_XLM_USD_PRICE, validateXlmReserve } from '../lib/xlm'
+import { useXlmBalance } from '../hooks/useXlmBalance'
 import { useXlmUsdPrice } from '../hooks/useXlmUsdPrice'
-import { SOROBITS_CONTRACT_ID, SOROBITS_WASM_HASH } from '../lib/network'
+import {
+  NETWORK_NAME,
+  SOROBITS_CONTRACT_ID,
+  SOROBITS_WASM_HASH,
+} from '../lib/network'
 import {
   COSMIC_REALMS,
   claimPioneerOnChain,
@@ -64,6 +69,7 @@ export function SorobitsPage() {
   const createdTokens = useCreatedTokens((s) => s.tokens)
   const activityEntries = useActivity((s) => s.entries)
   const { data: xlmUsd = DEFAULT_XLM_USD_PRICE } = useXlmUsdPrice()
+  const xlmBalance = useXlmBalance(publicKey)
 
   const modalTokenId = parseTokenParam(searchParams.get('token'))
   const [tokenLookupInput, setTokenLookupInput] = useState('')
@@ -74,8 +80,15 @@ export function SorobitsPage() {
   const [syncingTokenId, setSyncingTokenId] = useState<number | null>(null)
   const [forging, setForging] = useState(false)
   const [forgeSelection, setForgeSelection] = useState<[string, string]>(['', ''])
+  const [confirmForgePair, setConfirmForgePair] = useState<string | null>(null)
   const [evolutionReveal, setEvolutionReveal] =
     useState<SorobitEvolutionReveal | null>(null)
+  const anyBusy =
+    claimingPioneer ||
+    mintingCapsule ||
+    claimingArchetype !== null ||
+    syncingTokenId !== null ||
+    forging
 
   const openTokenModal = useCallback(
     (tokenId: number) => {
@@ -269,9 +282,22 @@ export function SorobitsPage() {
     const kingBurnCount = Math.max(
       remote?.kingBurnCount ?? 0,
       pilot?.kingShouts ?? 0,
-      pilot?.burnsTriggered ?? 0,
       localQuestProgress.kingBurnCount,
     )
+    const burnsTriggered = Math.max(
+      remote?.burnsTriggered ?? 0,
+      pilot?.burnsTriggered ?? 0,
+    )
+    const remoteVol = remote?.volumeXlmStroops
+      ? BigInt(remote.volumeXlmStroops)
+      : undefined
+    const pilotVol = pilot?.volumeXlmStroops
+    const volumeXlmStroops =
+      pilotVol !== undefined || remoteVol !== undefined
+        ? (pilotVol ?? 0n) >= (remoteVol ?? 0n)
+          ? (pilotVol ?? remoteVol)
+          : remoteVol
+        : undefined
     return computeQuestSummary({
       accountId: remote?.accountId ?? localQuestProgress.accountId,
       funded: Boolean(remote?.funded || localQuestProgress.funded),
@@ -285,6 +311,8 @@ export function SorobitsPage() {
       ),
       ecosystemTokenCount: remote?.unlocked.og ? 1 : undefined,
       kingBurnCount,
+      volumeXlmStroops,
+      burnsTriggered,
     })
   }, [remoteQuests.data, onChainPilot.data, localQuestProgress])
 
@@ -298,10 +326,17 @@ export function SorobitsPage() {
       }),
       queryClient.invalidateQueries({ queryKey: ['sorobits-capsule-quota'] }),
       queryClient.invalidateQueries({ queryKey: ['sorobits-token'] }),
+      queryClient.invalidateQueries({ queryKey: ['xlm-balance'] }),
     ])
   }
 
   async function onClaimPioneer() {
+    if (anyBusy) return
+    const xlmErr = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmErr) {
+      toast.error(xlmErr)
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) return
     setClaimingPioneer(true)
@@ -319,6 +354,12 @@ export function SorobitsPage() {
   }
 
   async function onMintCapsule() {
+    if (anyBusy) return
+    const xlmErr = validateXlmReserve(xlmBalance.data, 70_000_000n, publicKey)
+    if (xlmErr) {
+      toast.error(xlmErr)
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) return
     setMintingCapsule(true)
@@ -336,6 +377,12 @@ export function SorobitsPage() {
   }
 
   async function onClaimQuestBadge(archetypeId: number, title: string) {
+    if (anyBusy) return
+    const xlmErr = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmErr) {
+      toast.error(xlmErr)
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) return
     setClaimingArchetype(archetypeId)
@@ -356,6 +403,12 @@ export function SorobitsPage() {
   }
 
   async function onSyncEpigenetics(tokenId: number) {
+    if (anyBusy) return
+    const xlmErr = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmErr) {
+      toast.error(xlmErr)
+      return
+    }
     const signer = requireSignerOrPrompt()
     if (!signer) return
     setSyncingTokenId(tokenId)
@@ -410,11 +463,24 @@ export function SorobitsPage() {
   }, [forgeSelection, tradeableOwned])
 
   async function onForgeAscend() {
+    if (anyBusy) return
     const [burnIdA, burnIdB] = resolvedForgeIds
     if (burnIdA === null || burnIdB === null || burnIdA === burnIdB) {
       toast.error('Select two distinct tradeable Sorobits to forge.')
       return
     }
+    const xlmErr = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+    if (xlmErr) {
+      toast.error(xlmErr)
+      return
+    }
+    const pairKey = `${burnIdA}:${burnIdB}`
+    if (confirmForgePair !== pairKey) {
+      setConfirmForgePair(pairKey)
+      triggerTelegramHaptic('medium')
+      return
+    }
+    setConfirmForgePair(null)
     const signer = requireSignerOrPrompt()
     if (!signer) return
     setForging(true)
@@ -459,6 +525,7 @@ export function SorobitsPage() {
     const other =
       tradeableOwned.find((t) => t.tokenId !== tokenId)?.tokenId ?? ''
     setForgeSelection([String(tokenId), other ? String(other) : ''])
+    setConfirmForgePair(null)
     closeTokenModal()
     const el = document.getElementById('astral-forge')
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -504,7 +571,9 @@ export function SorobitsPage() {
           <div className="max-w-2xl space-y-2">
             <div className="inline-flex items-center gap-2 rounded-full border border-indigo-400/30 bg-indigo-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-indigo-200">
               <span>🧬 100% On-Chain Cosmic Pilots</span>
-              <span className="text-emerald-300">· Stellar Testnet</span>
+              <span className="text-emerald-300">
+                · {NETWORK_NAME === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet'}
+              </span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
               Sorobits (<span className="font-mono text-sky-300">SBIT</span>)
@@ -593,7 +662,7 @@ export function SorobitsPage() {
               ) : (
                 <button
                   type="button"
-                  disabled={claimingPioneer}
+                  disabled={anyBusy}
                   onClick={() => void onClaimPioneer()}
                   className="w-full rounded-xl bg-emerald-500 px-3 py-2.5 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
                 >
@@ -636,7 +705,7 @@ export function SorobitsPage() {
               <button
                 type="button"
                 disabled={
-                  mintingCapsule ||
+                  anyBusy ||
                   Boolean(
                     capsuleQuota.data &&
                       capsuleQuota.data.minted >= capsuleQuota.data.maxAllowed,
@@ -897,7 +966,7 @@ export function SorobitsPage() {
                         {isOwnerSession ? (
                           <button
                             type="button"
-                            disabled={syncingTokenId === item.tokenId}
+                            disabled={anyBusy}
                             onClick={() => void onSyncEpigenetics(item.tokenId)}
                             className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold disabled:opacity-50 transition ${
                               xpDelta > 0
@@ -927,7 +996,7 @@ export function SorobitsPage() {
                 {isOwnerSession && !pioneerClaimed.data ? (
                   <button
                     type="button"
-                    disabled={claimingPioneer}
+                    disabled={anyBusy}
                     onClick={() => void onClaimPioneer()}
                     className="rounded-xl bg-emerald-500 px-3.5 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition"
                   >
@@ -958,14 +1027,20 @@ export function SorobitsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <select
                     aria-label="First Sorobit to burn"
+                    disabled={anyBusy}
                     value={String(resolvedForgeIds[0] ?? '')}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setForgeSelection([e.target.value, forgeSelection[1]])
-                    }
-                    className="min-w-[160px] flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100"
+                      setConfirmForgePair(null)
+                    }}
+                    className="min-w-[160px] flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 disabled:opacity-50"
                   >
                     {tradeableOwned.map((t) => (
-                      <option key={t.tokenId} value={String(t.tokenId)}>
+                      <option
+                        key={t.tokenId}
+                        value={String(t.tokenId)}
+                        disabled={t.tokenId === resolvedForgeIds[1]}
+                      >
                         #{t.tokenId} · {getRealmForItem(t).name} (Gen{' '}
                         {t.generation} · {t.xpScore} XP)
                       </option>
@@ -976,32 +1051,64 @@ export function SorobitsPage() {
                   </span>
                   <select
                     aria-label="Second Sorobit to burn"
+                    disabled={anyBusy}
                     value={String(resolvedForgeIds[1] ?? '')}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setForgeSelection([forgeSelection[0], e.target.value])
-                    }
-                    className="min-w-[160px] flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100"
+                      setConfirmForgePair(null)
+                    }}
+                    className="min-w-[160px] flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100 disabled:opacity-50"
                   >
                     {tradeableOwned.map((t) => (
-                      <option key={t.tokenId} value={String(t.tokenId)}>
+                      <option
+                        key={t.tokenId}
+                        value={String(t.tokenId)}
+                        disabled={t.tokenId === resolvedForgeIds[0]}
+                      >
                         #{t.tokenId} · {getRealmForItem(t).name} (Gen{' '}
                         {t.generation} · {t.xpScore} XP)
                       </option>
                     ))}
                   </select>
-                  <button
-                    type="button"
-                    disabled={
-                      forging ||
-                      resolvedForgeIds[0] === null ||
-                      resolvedForgeIds[1] === null ||
-                      resolvedForgeIds[0] === resolvedForgeIds[1]
-                    }
-                    onClick={() => void onForgeAscend()}
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition"
-                  >
-                    {forging ? 'Forging…' : '🔥 Burn 2 & Forge Gen+1'}
-                  </button>
+                  {confirmForgePair ===
+                    `${resolvedForgeIds[0]}:${resolvedForgeIds[1]}` &&
+                  resolvedForgeIds[0] !== null &&
+                  resolvedForgeIds[1] !== null ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={anyBusy}
+                        onClick={() => void onForgeAscend()}
+                        className="rounded-xl bg-rose-500 px-4 py-2 text-xs font-bold text-white hover:bg-rose-400 disabled:opacity-50 transition"
+                      >
+                        {forging
+                          ? 'Forging…'
+                          : `⚠️ Confirm Burn #${resolvedForgeIds[0]} & #${resolvedForgeIds[1]}`}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={anyBusy}
+                        onClick={() => setConfirmForgePair(null)}
+                        className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800 disabled:opacity-50 transition"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={
+                        anyBusy ||
+                        resolvedForgeIds[0] === null ||
+                        resolvedForgeIds[1] === null ||
+                        resolvedForgeIds[0] === resolvedForgeIds[1]
+                      }
+                      onClick={() => void onForgeAscend()}
+                      className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50 transition"
+                    >
+                      {forging ? 'Forging…' : '🔥 Burn 2 & Forge Gen+1'}
+                    </button>
+                  )}
                 </div>
               </div>
             ) : null}
@@ -1059,7 +1166,7 @@ export function SorobitsPage() {
                   ) : canClaim ? (
                     <button
                       type="button"
-                      disabled={claimingArchetype === archetypeId}
+                      disabled={anyBusy}
                       onClick={() =>
                         void onClaimQuestBadge(archetypeId, badge.title)
                       }
@@ -1131,7 +1238,7 @@ export function SorobitsPage() {
               !activeModalItem.soulbound &&
               tradeableOwned.length >= 2,
           )}
-          syncing={syncingTokenId === modalTokenId}
+          syncing={anyBusy}
           onSync={() => void onSyncEpigenetics(modalTokenId)}
           onSelectForForge={() => onSelectForForge(modalTokenId)}
           onClose={closeTokenModal}

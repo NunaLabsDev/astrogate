@@ -183,7 +183,13 @@ export function PortfolioPage() {
   ).length
   const swapCount = accountEntries.filter((entry) => entry.kind === 'swap').length
   const graduatedIds = new Set(
-    (tokenList.data ?? []).filter((t) => Boolean(t.pool?.exists)).map((t) => t.id),
+    (tokenList.data ?? [])
+      .filter((t) =>
+        t.curve
+          ? t.curve.graduated
+          : Boolean(t.pool?.exists && t.pool.reserveXlm > 0n),
+      )
+      .map((t) => t.id),
   )
   const createdTokensList = tokens.filter((t) => t.created)
   const graduatedCount = new Set([

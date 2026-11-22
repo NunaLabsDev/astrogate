@@ -9,7 +9,8 @@
  * Uso: npm run bindings
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { patchBindings } from './patch-bindings.mjs'
@@ -66,35 +67,57 @@ const CONTRACTS = [
   },
 ]
 
-for (const contract of CONTRACTS) {
+const localOnly = process.argv.includes('--local')
+const targets = localOnly
+  ? CONTRACTS.filter((contract) => Boolean(contract.wasm))
+  : CONTRACTS
+
+for (const contract of targets) {
   const targetLabel = contract.wasm ?? contract.id
   console.log(`\n== ${contract.name} (${targetLabel}) ==`)
   const targetArgs = contract.wasm
     ? ['--wasm', contract.wasm]
     : ['--contract-id', contract.id, '--network', 'testnet']
-  execFileSync(
-    './node_modules/.bin/stellar-contract-bindings-typescript',
-    [
-      ...targetArgs,
-      '--output-dir',
-      contract.out,
-      '--contract-name',
-      contract.name,
-      '--overwrite',
-    ],
-    { stdio: 'inherit' },
-  )
+  // Generate root-level AstroToken into a staging directory so `--overwrite` never deletes sibling subdirs.
+  const stageDir =
+    contract.out === 'src/contracts'
+      ? mkdtempSync(join(tmpdir(), 'ag-bindings-'))
+      : null
+  const outDir = stageDir ?? contract.out
 
-  // El generador deja los .ts dentro de `src/`; los movemos al nivel del output.
-  const generated = join(contract.out, 'src')
-  if (existsSync(generated)) {
-    for (const file of ['client.ts', 'types.ts', 'index.ts']) {
-      renameSync(join(generated, file), join(contract.out, file))
+  try {
+    execFileSync(
+      './node_modules/.bin/stellar-contract-bindings-typescript',
+      [
+        ...targetArgs,
+        '--output-dir',
+        outDir,
+        '--contract-name',
+        contract.name,
+        '--overwrite',
+      ],
+      { stdio: 'inherit' },
+    )
+
+    // El generador deja los .ts dentro de `src/`; los movemos al nivel del output.
+    const generated = join(outDir, 'src')
+    if (existsSync(generated)) {
+      for (const file of ['client.ts', 'types.ts', 'index.ts']) {
+        renameSync(join(generated, file), join(outDir, file))
+      }
+      rmSync(generated, { recursive: true, force: true })
     }
-    rmSync(generated, { recursive: true, force: true })
-  }
-  for (const file of ['package.json', 'tsconfig.json']) {
-    rmSync(join(contract.out, file), { force: true })
+    for (const file of ['package.json', 'tsconfig.json']) {
+      rmSync(join(outDir, file), { force: true })
+    }
+
+    if (stageDir) {
+      for (const file of ['client.ts', 'types.ts', 'index.ts']) {
+        copyFileSync(join(stageDir, file), join(contract.out, file))
+      }
+    }
+  } finally {
+    if (stageDir) rmSync(stageDir, { recursive: true, force: true })
   }
 
   patchBindings(contract.out)

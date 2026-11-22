@@ -63,17 +63,16 @@ describe('image-upload helpers', () => {
     expect((init.headers as Record<string, string>)['X-Logo-Sha256']).toBe(sha)
   })
 
-  it('falls back to deterministic SHA-256 URL when Worker endpoints are unreachable', async () => {
+  it('throws an explicit error when Worker logo upload endpoint is unreachable', async () => {
     const payload = new TextEncoder().encode('offline-logo-bytes')
-    const sha = await computeSha256Hex(payload)
     const fetchMock = vi.fn().mockRejectedValue(new Error('network down'))
     const blob = new Blob([payload], { type: 'image/webp' })
 
-    const url = await uploadTokenLogo(blob, {
-      fetchFn: fetchMock as unknown as typeof fetch,
-    })
-
-    expect(url).toBe(`${DEFAULT_PUBLIC_ORIGIN}/api/v1/logos/${sha}.webp`)
+    await expect(
+      uploadTokenLogo(blob, {
+        fetchFn: fetchMock as unknown as typeof fetch,
+      }),
+    ).rejects.toThrow('network down')
   })
 
   it('rejects compressed logos larger than MAX_LOGO_UPLOAD_BYTES', async () => {

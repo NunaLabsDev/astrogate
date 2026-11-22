@@ -4,6 +4,7 @@ import {
   getCachedTokenMetadata,
   setCachedTokenMetadata,
 } from '../lib/discovery'
+import { clampDecimals } from '../lib/format'
 import { ASTRO_TOKEN_ID, executeWithRpcFailover } from '../lib/network'
 import { tokenClient } from '../lib/token'
 
@@ -85,7 +86,7 @@ export function useTokenInfo(contractId: string = ASTRO_TOKEN_ID) {
           const meta = {
             name: name.result,
             symbol: symbol.result,
-            decimals: decimals.result,
+            decimals: clampDecimals(decimals.result),
           }
           setCachedTokenMetadata(contractId, meta)
           return {

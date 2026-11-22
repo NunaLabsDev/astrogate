@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for helping improve AstroGate! Please reference exact file paths and verify that your proposal preserves core Fair-Flywheel v4.2 and Anti-Rug invariants described in `AUDIT_GUIDE.md`.
+        Thank you for helping improve AstroGate! Please reference exact file paths and verify that your proposal preserves core Fair-Flywheel v4.5 and Anti-Rug invariants described in `AUDIT_GUIDE.md`.
   - type: dropdown
     id: category
     attributes:

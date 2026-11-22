@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTokenBalance } from '../hooks/useTokenBalance'
 import { useXlmBalance } from '../hooks/useXlmBalance'
 import { validateXlmReserve } from '../lib/xlm'
+import { DEFAULT_SOROBAN_INCLUSION_FEE } from '../lib/network'
 import { tokenClient, type LaunchpadToken } from '../lib/token'
 import { useWallet } from '../store/wallet'
 import { recordActivity } from '../store/activity'
@@ -33,6 +34,7 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
   const [to, setTo] = useState('')
   const [amount, setAmount] = useState('')
   const [busy, setBusy] = useState(false)
+  const submittingRef = useRef(false)
   const [resolving, setResolving] = useState(false)
   const [resolvedHandle, setResolvedHandle] = useState<{
     raw: string
@@ -90,6 +92,7 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (submittingRef.current) return
     setError(null)
     setSent(null)
 
@@ -111,95 +114,102 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
       return
     }
 
-    let destination = rawDest
-    if (!isValidStellarAddress(destination)) {
-      if (resolvedHandle && resolvedHandle.raw === rawDest) {
-        destination = resolvedHandle.address
-      } else {
-        setResolving(true)
-        const resolved = await resolveUsernameOrAddress(rawDest).finally(() =>
-          setResolving(false),
-        )
-        if (!resolved?.address) {
-          setError(
-            'Enter a valid Stellar public key (G…) or a linked Telegram @username.',
+    submittingRef.current = true
+    setBusy(true)
+    try {
+      let destination = rawDest
+      if (!isValidStellarAddress(destination)) {
+        if (resolvedHandle && resolvedHandle.raw === rawDest) {
+          destination = resolvedHandle.address
+        } else {
+          setResolving(true)
+          const resolved = await resolveUsernameOrAddress(rawDest).finally(() =>
+            setResolving(false),
           )
-          return
-        }
-        destination = resolved.address
-        if (resolved.username) {
-          setResolvedHandle({
-            raw: rawDest,
-            address: resolved.address,
-            username: resolved.username,
-            verifiedTelegram: resolved.verifiedTelegram,
-          })
+          if (!resolved?.address) {
+            setError(
+              'Enter a valid Stellar public key (G…) or a linked Telegram @username.',
+            )
+            return
+          }
+          destination = resolved.address
+          if (resolved.username) {
+            setResolvedHandle({
+              raw: rawDest,
+              address: resolved.address,
+              username: resolved.username,
+              verifiedTelegram: resolved.verifiedTelegram,
+            })
+          }
         }
       }
-    }
 
-    if (destination === publicKey) {
-      setError('Destination account cannot be the same as source account.')
-      return
-    }
+      if (destination === publicKey) {
+        setError('Destination account cannot be the same as source account.')
+        return
+      }
 
-    const amountBase = parseAmount(amount, token.decimals)
-    if (amountBase <= 0n) {
-      setError('Please enter an amount greater than 0.')
-      return
-    }
-    if (balance.data !== undefined && amountBase > balance.data) {
-      setError('Insufficient token balance.')
-      return
-    }
-    const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
-    if (xlmReserveError) {
-      setError(xlmReserveError)
-      return
-    }
+      const amountBase = parseAmount(amount, token.decimals)
+      if (amountBase <= 0n) {
+        setError('Please enter an amount greater than 0.')
+        return
+      }
+      if (balance.data !== undefined && amountBase > balance.data) {
+        setError('Insufficient token balance.')
+        return
+      }
+      const xlmReserveError = validateXlmReserve(xlmBalance.data, 0n, publicKey)
+      if (xlmReserveError) {
+        setError(xlmReserveError)
+        return
+      }
 
-    setBusy(true)
-    let hash: string | undefined
-    try {
-      const client = tokenClient(token.id, signer)
-      const tx = await client.transfer({
-        from: publicKey,
-        to: destination,
-        amount: amountBase,
-      })
-      const sentTx = await tx.signAndSend()
-      hash = sentTx.sendTransactionResponse?.hash
-      setSent({ amount: amountBase, to: destination, hash })
-      setAmount('')
-      recordActivity({
-        kind: 'transfer',
-        tokenId: token.id,
-        tokenSymbol: token.symbol,
-        amount: formatAmount(amountBase, token.decimals),
-        counterparty: destination,
-        account: publicKey,
-        hash,
-      })
-      toast.success('Transfer sent', {
-        message: `${formatAmount(amountBase, token.decimals)} ${token.symbol ?? 'token'} → ${shortAddress(destination)}`,
-        hash,
-      })
-      await invalidateTokenData(queryClient, token.id)
-    } catch (err) {
-      const message = errorMessage(err)
-      setError(message)
-      recordActivity({
-        kind: 'transfer',
-        status: 'failed',
-        tokenId: token.id,
-        tokenSymbol: token.symbol,
-        amount: formatAmount(amountBase, token.decimals),
-        counterparty: destination,
-        account: publicKey,
-        error: message,
-      })
-      toast.error('Transfer failed', { message })
+      let hash: string | undefined
+      try {
+        const client = tokenClient(token.id, signer)
+        const tx = await client.transfer(
+          {
+            from: publicKey,
+            to: destination,
+            amount: amountBase,
+          },
+          { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+        )
+        const sentTx = await tx.signAndSend()
+        hash = sentTx.sendTransactionResponse?.hash
+        setSent({ amount: amountBase, to: destination, hash })
+        setAmount('')
+        recordActivity({
+          kind: 'transfer',
+          tokenId: token.id,
+          tokenSymbol: token.symbol,
+          amount: formatAmount(amountBase, token.decimals),
+          counterparty: destination,
+          account: publicKey,
+          hash,
+        })
+        toast.success('Transfer sent', {
+          message: `${formatAmount(amountBase, token.decimals)} ${token.symbol ?? 'token'} → ${shortAddress(destination)}`,
+          hash,
+        })
+        await invalidateTokenData(queryClient, token.id)
+      } catch (err) {
+        const message = errorMessage(err)
+        setError(message)
+        recordActivity({
+          kind: 'transfer',
+          status: 'failed',
+          tokenId: token.id,
+          tokenSymbol: token.symbol,
+          amount: formatAmount(amountBase, token.decimals),
+          counterparty: destination,
+          account: publicKey,
+          error: message,
+        })
+        toast.error('Transfer failed', { message })
+      }
     } finally {
+      submittingRef.current = false
       setBusy(false)
     }
   }
@@ -233,8 +243,17 @@ export function TransferCard({ token }: { token: LaunchpadToken }) {
           ) : isHandleCandidate &&
             resolvedHandle &&
             resolvedHandle.raw === trimmedTo ? (
-            <span className="mt-1 block text-xs text-emerald-300 font-mono">
-              ✓ @{resolvedHandle.username} → {shortAddress(resolvedHandle.address)}
+            <span
+              className={`mt-1 block text-xs font-mono ${
+                resolvedHandle.verifiedTelegram
+                  ? 'text-emerald-300'
+                  : 'text-amber-300'
+              }`}
+            >
+              {resolvedHandle.verifiedTelegram
+                ? '✓ Verified Telegram'
+                : '⚠ Unverified'}{' '}
+              @{resolvedHandle.username} → {shortAddress(resolvedHandle.address)}
             </span>
           ) : null}
         </label>

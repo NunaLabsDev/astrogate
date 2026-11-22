@@ -43,15 +43,15 @@ COMMUNITY_USERNAME = "AstroGateCommunity"
 
 FEED_TITLE = "AstroGate Live Feed 📡 · NunaLabs"
 FEED_ABOUT = (
-    "Real-time Stellar Soroban alerts: Fair-Flywheel v4.3 launches, swaps, "
-    "Soroswap graduations, buyback burns, Burn-to-Chat shouts & Sorobits NFTs. "
+    "Real-time Stellar Soroban alerts: Fair-Flywheel v4.5 launches (7Y LP lock), swaps, "
+    "Soroswap graduations, anti-MEV buybacks (+2% rebate), Burn-to-Chat & Sorobits NFTs. "
     "Chat: @AstroGateCommunity · App: @AstroGateSorobanBot"
 )
 
 COMMUNITY_TITLE = "AstroGate Community 🌊🚀 · NunaLabs"
 COMMUNITY_ABOUT = (
-    "AstroGate Community — Fair-Flywheel v4.3 Launchpad + Soroswap AMM + "
-    "Sorobits (SBIT) On-Chain NFTs on Stellar Soroban. "
+    "AstroGate Community — Fair-Flywheel v4.5 Launchpad + Soroswap AMM + "
+    "Commit-Reveal Sorobits (SBIT) NFTs on Stellar Soroban. "
     "Live Feed: @AstroGateFeed · App: @AstroGateSorobanBot"
 )
 

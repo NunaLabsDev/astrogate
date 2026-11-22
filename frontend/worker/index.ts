@@ -1,7 +1,11 @@
 import { handlePublicApiRequest } from './api'
 import { answerProtocolQuestion, detectScamOrPhishing } from './ai'
 import { handleMcpHttpRequest } from './mcp'
-import { safeSecretEquals, verifyTelegramInitData } from './telegram-auth'
+import {
+  parseTelegramInitDataUser,
+  safeSecretEquals,
+  verifyTelegramInitData,
+} from './telegram-auth'
 import { resolveWalletIdentity } from './wallet'
 import {
   renderLaunchpadEventTelegramView,
@@ -64,10 +68,13 @@ import {
   parseCommandAndArg,
 } from './views'
 
-const DEFAULT_COMMUNITY_CHAT_ID = '-1001625368092'
 const DEFAULT_FEED_CHAT_ID = '-1003912502880'
 const seenEventIds = new Set<string>()
+const seenPulseTxHashes = new Set<string>()
+const pulseIpTimestamps = new Map<string, number>()
 let lastPolledLedger = 0
+let lastKvPersistedLedger = 0
+const LEDGER_KV_CHECKPOINT_INTERVAL = 720 // ~1h of Stellar ledgers (~5s/ledger)
 
 const TELEGRAM_API = 'https://api.telegram.org'
 
@@ -479,7 +486,7 @@ async function handleTextMessage(
       await sendRenderedView(
         token,
         chatId,
-        buildTokenInspectorView(upperArg, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+        buildTokenInspectorView(upperArg, data, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
         replyId,
         threadId,
       )
@@ -648,7 +655,7 @@ async function handleTextMessage(
         await sendRenderedView(
           token,
           chatId,
-          buildAccountInspectorView(upperAcct, account, lang, baseUrl, inGroup, botUsername, hasMainApp),
+          buildAccountInspectorView(upperAcct, account, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
           replyId,
           threadId,
         )
@@ -682,7 +689,7 @@ async function handleTextMessage(
     return
   }
 
-  if (command === 'v42' || command === 'v44' || command === 'rules' || command === 'tokenomics' || command === 'fees') {
+  if (command === 'v42' || command === 'v44' || command === 'v45' || command === 'rules' || command === 'tokenomics' || command === 'fees') {
     await sendRenderedView(
       token,
       chatId,
@@ -793,7 +800,7 @@ async function handleTextMessage(
     await sendRenderedView(
       token,
       chatId,
-      buildShoutsView(targetToken, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildShoutsView(targetToken, data, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       replyId,
       threadId,
     )
@@ -828,7 +835,7 @@ async function handleTextMessage(
     await sendRenderedView(
       token,
       chatId,
-      buildTokenInspectorView(resolved, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildTokenInspectorView(resolved, data, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       replyId,
       threadId,
     )
@@ -842,7 +849,7 @@ async function handleTextMessage(
         token,
         chatId,
         buildAiAnswerView(
-          'Ask me anything about AstroGate, Fair-Flywheel v4.4, Soroswap graduations, or Sorobits NFTs — e.g. /ask how do I launch a token?',
+          'Ask me anything about AstroGate, Fair-Flywheel v4.5, Soroswap graduations, or Sorobits NFTs — e.g. /ask how do I launch a token?',
           false,
           baseUrl,
           inGroup,
@@ -885,7 +892,7 @@ async function handleTextMessage(
     await sendRenderedView(
       token,
       chatId,
-      buildTokenInspectorView(detected.value, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildTokenInspectorView(detected.value, data, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       replyId,
       threadId,
     )
@@ -898,7 +905,7 @@ async function handleTextMessage(
     await sendRenderedView(
       token,
       chatId,
-      buildAccountInspectorView(detected.value, account, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildAccountInspectorView(detected.value, account, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       replyId,
       threadId,
     )
@@ -915,7 +922,7 @@ async function handleTextMessage(
       await sendRenderedView(
         token,
         chatId,
-        buildTokenInspectorView(matchedId, data, lang, baseUrl, inGroup, botUsername, hasMainApp),
+        buildTokenInspectorView(matchedId, data, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
         replyId,
         threadId,
       )
@@ -1108,7 +1115,7 @@ async function handleCallbackQuery(
       token,
       chatId,
       messageId,
-      buildTokenInspectorView(tokenId, info, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildTokenInspectorView(tokenId, info, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       isPhoto,
       threadId,
     )
@@ -1123,7 +1130,7 @@ async function handleCallbackQuery(
       token,
       chatId,
       messageId,
-      buildShoutsView(tokenId, shoutsData, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildShoutsView(tokenId, shoutsData, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       isPhoto,
       threadId,
     )
@@ -1138,7 +1145,7 @@ async function handleCallbackQuery(
       token,
       chatId,
       messageId,
-      buildAccountInspectorView(accountId, account, lang, baseUrl, inGroup, botUsername, hasMainApp),
+      buildAccountInspectorView(accountId, account, lang, baseUrl, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       isPhoto,
       threadId,
     )
@@ -1184,15 +1191,12 @@ async function broadcastLaunchpadEvents(
   env: Env,
 ): Promise<number> {
   const feedChatId = Number(env.TELEGRAM_FEED_CHAT_ID || DEFAULT_FEED_CHAT_ID)
-  const communityChatId = Number(
-    env.TELEGRAM_COMMUNITY_CHAT_ID || DEFAULT_COMMUNITY_CHAT_ID,
-  )
   const metaCache = new Map<string, { symbol: string; name: string; decimals: number }>()
   let sentCount = 0
 
   for (const ev of events) {
     const targets = routeLaunchpadEventTargets(ev)
-    if (!targets.feed && !targets.community) continue
+    if (!targets.feed) continue
     const dedupeKey = ev.txHash ? `${ev.txHash}:${ev.kind}:${ev.id}` : ev.id
     const fresh = await claimEventOnce(dedupeKey, env)
     if (!fresh) continue
@@ -1208,12 +1212,8 @@ async function broadcastLaunchpadEvents(
     const { botUsername, hasMainApp } = botFlags(env)
     const view = renderLaunchpadEventTelegramView(ev, meta, botUsername, hasMainApp)
 
-    if (targets.feed && Number.isFinite(feedChatId)) {
+    if (Number.isFinite(feedChatId)) {
       await sendRenderedView(token, feedChatId, view)
-      sentCount += 1
-    }
-    if (targets.community && Number.isFinite(communityChatId)) {
-      await sendRenderedView(token, communityChatId, view)
       sentCount += 1
     }
   }
@@ -1253,6 +1253,16 @@ export function pulseCorsHeaders(
 }
 
 async function isPulseRateLimited(ip: string): Promise<boolean> {
+  const now = Date.now()
+  const last = pulseIpTimestamps.get(ip)
+  if (last !== undefined && now - last < 5_000) {
+    return true
+  }
+  if (!pulseIpTimestamps.has(ip) && pulseIpTimestamps.size >= 1024) {
+    const oldest = pulseIpTimestamps.keys().next().value
+    if (oldest) pulseIpTimestamps.delete(oldest)
+  }
+  pulseIpTimestamps.set(ip, now)
   try {
     const cacheStorage = (globalThis as { caches?: { open: (n: string) => Promise<Cache> } }).caches
     if (!cacheStorage) return false
@@ -1268,6 +1278,26 @@ async function isPulseRateLimited(ip: string): Promise<boolean> {
     return false
   }
   return false
+}
+
+async function claimPulseTxOnce(txHash: string, env: Env): Promise<boolean> {
+  if (seenPulseTxHashes.has(txHash)) return false
+  seenPulseTxHashes.add(txHash)
+  if (seenPulseTxHashes.size > 1024) {
+    const oldest = seenPulseTxHashes.values().next().value
+    if (oldest) seenPulseTxHashes.delete(oldest)
+  }
+  try {
+    if (env.ASTRO_KV) {
+      const kvKey = `pulse:tx:${txHash}`
+      const hit = await env.ASTRO_KV.get(kvKey)
+      if (hit) return false
+      await env.ASTRO_KV.put(kvKey, '1', { expirationTtl: 3600 })
+    }
+  } catch {
+    // Fallback to in-memory deduplication
+  }
+  return true
 }
 
 export async function handleWorkerRequest(
@@ -1304,7 +1334,7 @@ export async function handleWorkerRequest(
       `ORG_NAME="AstroGate · Built by NunaLabs"\n` +
       `ORG_URL="${baseUrl}"\n` +
       `ORG_LOGO="${baseUrl}/icon-512.png"\n` +
-      `ORG_DESCRIPTION="Fair-Flywheel v4.4 Launchpad + Soroswap AMM & Sorobits (SBIT) On-Chain Genomic NFTs on Stellar Soroban Mainnet · Built by NunaLabs."\n`
+      `ORG_DESCRIPTION="Fair-Flywheel v4.5 Launchpad + Soroswap AMM & Sorobits (SBIT) On-Chain Genomic NFTs on Stellar Soroban Mainnet · Built by NunaLabs."\n`
     return new Response(toml, {
       status: 200,
       headers: {
@@ -1322,7 +1352,7 @@ export async function handleWorkerRequest(
   const mcpResponse = await handleMcpHttpRequest(request, env)
   if (mcpResponse) return mcpResponse
 
-  if (url.pathname === '/api/telegram/pulse') {
+  if (url.pathname === '/api/telegram/session') {
     const cors = pulseCorsHeaders(
       request.headers.get('Origin'),
       env.APP_BASE_URL,
@@ -1335,25 +1365,98 @@ export async function handleWorkerRequest(
       return new Response('Method Not Allowed', { status: 405, headers: cors })
     }
     if (!env.TELEGRAM_BOT_TOKEN) {
-      return Response.json({ ok: false, posted: 0 }, { status: 200, headers: cors })
+      return Response.json(
+        { ok: false, error: 'Telegram auth not configured' },
+        { status: 503, headers: cors },
+      )
     }
 
-    const initData = request.headers.get('X-Telegram-Init-Data')
-    if (initData) {
-      const validInit = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN)
-      if (!validInit) {
-        return Response.json({ ok: false, error: 'Invalid initData' }, { status: 401, headers: cors })
+    let initData = request.headers.get('X-Telegram-Init-Data')?.trim() ?? ''
+    if (!initData) {
+      try {
+        const body = (await request.json()) as { initData?: string }
+        initData = typeof body.initData === 'string' ? body.initData.trim() : ''
+      } catch {
+        // Ignore empty or non-JSON body
       }
-    } else {
-      const origin = request.headers.get('Origin')
+    }
+    if (!initData) {
+      return Response.json(
+        { ok: false, error: 'Missing Telegram initData' },
+        { status: 401, headers: cors },
+      )
+    }
+
+    const valid = await verifyTelegramInitData(
+      initData,
+      env.TELEGRAM_BOT_TOKEN,
+      86_400,
+    )
+    const tgUser = valid ? parseTelegramInitDataUser(initData) : null
+    if (!valid || !tgUser) {
+      return Response.json(
+        { ok: false, error: 'Invalid or expired Telegram initData' },
+        { status: 401, headers: cors },
+      )
+    }
+
+    return Response.json(
+      {
+        ok: true,
+        user: {
+          id: tgUser.id,
+          firstName: tgUser.first_name,
+          username: tgUser.username ?? null,
+        },
+        verifiedAt: Date.now(),
+      },
+      { status: 200, headers: cors },
+    )
+  }
+
+  if (url.pathname === '/api/telegram/pulse') {
+    const cors = pulseCorsHeaders(
+      request.headers.get('Origin'),
+      env.APP_BASE_URL,
+      url.origin,
+    )
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: cors })
+    }
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { status: 405, headers: cors })
+    }
+    const origin = request.headers.get('Origin')
+    if (origin) {
       const allowedOrigin =
         origin === 'https://astrogate.pages.dev' ||
         origin === url.origin ||
-        (origin && /^https:\/\/[a-z0-9-]+\.astrogate\.pages\.dev$/.test(origin)) ||
+        /^https:\/\/[a-z0-9-]+\.astrogate\.pages\.dev$/.test(origin) ||
         (env.APP_BASE_URL && origin === env.APP_BASE_URL.replace(/\/+$/, ''))
       if (!allowedOrigin) {
-        return Response.json({ ok: false, error: 'Unauthorized origin' }, { status: 403, headers: cors })
+        return Response.json(
+          { ok: false, error: 'Unauthorized origin' },
+          { status: 403, headers: cors },
+        )
       }
+    }
+    if (!env.TELEGRAM_BOT_TOKEN) {
+      return Response.json({ ok: false, posted: 0 }, { status: 200, headers: cors })
+    }
+
+    const initData = request.headers.get('X-Telegram-Init-Data')?.trim()
+    if (!initData) {
+      return Response.json(
+        { ok: false, error: 'Telegram initData required' },
+        { status: 401, headers: cors },
+      )
+    }
+    const validInit = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN)
+    if (!validInit) {
+      return Response.json(
+        { ok: false, error: 'Invalid initData' },
+        { status: 401, headers: cors },
+      )
     }
 
     const ip = request.headers.get('CF-Connecting-IP') || 'unknown'
@@ -1370,6 +1473,10 @@ export async function handleWorkerRequest(
     const txHash = (body.txHash || '').trim().toLowerCase()
     if (!/^[0-9a-f]{64}$/.test(txHash)) {
       return Response.json({ ok: false }, { status: 400, headers: cors })
+    }
+    const freshTx = await claimPulseTxOnce(txHash, env)
+    if (!freshTx) {
+      return Response.json({ ok: true, posted: 0, deduped: true }, { headers: cors })
     }
     try {
       const events = await fetchLaunchpadEventsByTxHash(txHash, env, 180)
@@ -1476,14 +1583,14 @@ export async function handleWorkerRequest(
 
 const DIGEST_INTERVAL_MS = 12 * 60 * 60 * 1000
 
-async function maybeSendCommunityDigest(token: string, env: Env): Promise<void> {
+async function maybeSendFeedDigest(token: string, env: Env): Promise<void> {
   if (!env.ASTRO_KV) return
-  const communityChatId = Number(
-    env.TELEGRAM_COMMUNITY_CHAT_ID || DEFAULT_COMMUNITY_CHAT_ID,
+  const feedChatId = Number(
+    env.TELEGRAM_FEED_CHAT_ID || DEFAULT_FEED_CHAT_ID,
   )
-  if (!Number.isFinite(communityChatId)) return
+  if (!Number.isFinite(feedChatId)) return
 
-  const lastRaw = await env.ASTRO_KV.get('last_community_digest_ts')
+  const lastRaw = await env.ASTRO_KV.get('last_feed_digest_ts')
   const lastTs = Number(lastRaw ?? '0')
   const now = Date.now()
   if (Number.isFinite(lastTs) && lastTs > 0 && now - lastTs < DIGEST_INTERVAL_MS) {
@@ -1499,7 +1606,7 @@ async function maybeSendCommunityDigest(token: string, env: Env): Promise<void> 
   const { botUsername, folderUrl, hasMainApp } = botFlags(env)
   const sent = await sendRenderedView(
     token,
-    communityChatId,
+    feedChatId,
     buildCommunityDigestView(
       snap.items,
       sorobits.totalSupply,
@@ -1509,7 +1616,7 @@ async function maybeSendCommunityDigest(token: string, env: Env): Promise<void> 
     ),
   )
   if (sent) {
-    await env.ASTRO_KV.put('last_community_digest_ts', String(now), {
+    await env.ASTRO_KV.put('last_feed_digest_ts', String(now), {
       expirationTtl: 172_800,
     })
   }
@@ -1525,7 +1632,10 @@ export default {
       if (!startLedger && env.ASTRO_KV) {
         const stored = await env.ASTRO_KV.get('last_polled_ledger')
         const parsed = Number(stored ?? '0')
-        if (Number.isFinite(parsed) && parsed > 0) startLedger = parsed
+        if (Number.isFinite(parsed) && parsed > 0) {
+          startLedger = parsed
+          lastKvPersistedLedger = parsed
+        }
       }
       const { events, latestLedger } = await fetchRecentLaunchpadEvents(
         startLedger,
@@ -1534,12 +1644,17 @@ export default {
       if (latestLedger > 0) {
         const nextCursor = latestLedger + 1
         lastPolledLedger = nextCursor
-        if (env.ASTRO_KV) {
+        const shouldPersistLedger =
+          events.length > 0 ||
+          lastKvPersistedLedger === 0 ||
+          nextCursor - lastKvPersistedLedger >= LEDGER_KV_CHECKPOINT_INTERVAL
+        if (env.ASTRO_KV && shouldPersistLedger) {
           await env.ASTRO_KV.put('last_polled_ledger', String(nextCursor))
+          lastKvPersistedLedger = nextCursor
         }
       }
       await broadcastLaunchpadEvents(events, env.TELEGRAM_BOT_TOKEN, env)
-      await maybeSendCommunityDigest(env.TELEGRAM_BOT_TOKEN, env)
+      await maybeSendFeedDigest(env.TELEGRAM_BOT_TOKEN, env)
     } catch (err) {
       console.error('[AstroGate Bot] Scheduled feed sync error:', err)
     }

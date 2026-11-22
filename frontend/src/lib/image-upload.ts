@@ -191,15 +191,10 @@ export async function uploadTokenLogo(
   const sha256 = options?.sha256 ?? (await computeSha256Hex(buffer))
   const contentType = blob.type || 'image/webp'
   const ext = extForMime(contentType)
-  const fallbackOrigin = (
-    options?.fallbackOrigin ?? DEFAULT_PUBLIC_ORIGIN
-  ).replace(/\/+$/, '')
-  const deterministicUrl = `${fallbackOrigin}/api/v1/logos/${sha256}.${ext}`
 
   const fetchImpl = options?.fetchFn ?? globalThis.fetch
-  const candidates = options?.endpoint
-    ? [options.endpoint]
-    : ['/api/v1/logos', `${fallbackOrigin}/api/v1/logos`]
+  const candidates = options?.endpoint ? [options.endpoint] : ['/api/v1/logos']
+  let lastError: Error | null = null
 
   for (const endpoint of candidates) {
     try {
@@ -215,18 +210,37 @@ export async function uploadTokenLogo(
             ? AbortSignal.timeout(10_000)
             : undefined,
       })
-      if (!res.ok) continue
-      const json = (await res.json()) as { ok?: boolean; url?: unknown }
-      if (json.ok && typeof json.url === 'string' && json.url.startsWith('https://')) {
+      if (!res.ok) {
+        lastError = new Error(`Logo upload failed (HTTP ${res.status}).`)
+        continue
+      }
+      const json = (await res.json()) as {
+        ok?: boolean
+        url?: unknown
+        error?: unknown
+      }
+      if (
+        json.ok &&
+        typeof json.url === 'string' &&
+        (json.url.startsWith('https://') || json.url.startsWith('/'))
+      ) {
         return json.url
       }
       if (json.ok) {
-        return deterministicUrl
+        const fallbackOrigin = options?.fallbackOrigin?.replace(/\/+$/, '')
+        return fallbackOrigin
+          ? `${fallbackOrigin}/api/v1/logos/${sha256}.${ext}`
+          : `/api/v1/logos/${sha256}.${ext}`
       }
-    } catch {
-      // Try next endpoint or deterministic fallback URL
+      lastError = new Error(
+        typeof json.error === 'string' && json.error
+          ? json.error
+          : 'Logo upload rejected by server.',
+      )
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error('Logo upload failed.')
     }
   }
 
-  return deterministicUrl
+  throw lastError ?? new Error('Logo upload failed: Worker endpoint unreachable.')
 }

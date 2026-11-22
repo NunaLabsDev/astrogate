@@ -3,7 +3,9 @@ import { Client as FactoryClient } from '../contracts/soroswap-factory'
 import { Client as PairClient } from '../contracts/soroswap-pair'
 import { Client as RouterClient } from '../contracts/soroswap-router'
 import { isValidContractAddress } from './address'
+import { clampDecimals, STELLAR_DECIMALS } from './format'
 import {
+  DEFAULT_SOROBAN_INCLUSION_FEE,
   executeWithRpcFailover,
   LAUNCHPAD_CONTRACT_ID,
   NETWORK_PASSPHRASE,
@@ -32,54 +34,47 @@ const DEADLINE_SECONDS = 300
  */
 export function tokenPriceInXlm(pool: PoolState, decimals: number): bigint {
   if (!pool.exists || pool.reserveToken <= 0n || pool.reserveXlm <= 0n) return 0n
-  const safeDecimals = Math.max(0, Math.trunc(decimals))
+  const safeDecimals = clampDecimals(decimals)
   return (pool.reserveXlm * 10n ** BigInt(safeDecimals)) / pool.reserveToken
 }
 
 /**
- * Precio de 1 token en XLM como número de coma flotante de alta precisión.
- * Permite representar precios fraccionarios (< 1 stroop, e.g. 0.00000001005 XLM).
+ * Precio de 1 token en XLM como número de coma flotante alineado con la precisión
+ * nativa de Stellar (7 decimales / stroops).
  */
 export function tokenPriceInXlmNumber(pool: PoolState, decimals: number): number {
   if (!pool.exists || pool.reserveToken <= 0n || pool.reserveXlm <= 0n) return 0
-  const safeDecimals = Math.max(0, Math.trunc(decimals))
-  const reserveXlm = Number(pool.reserveXlm) / 1e7
+  const safeDecimals = clampDecimals(decimals)
+  const reserveXlm = Number(pool.reserveXlm) / 10 ** STELLAR_DECIMALS
   const reserveToken = Number(pool.reserveToken) / 10 ** safeDecimals
   if (!Number.isFinite(reserveXlm) || !Number.isFinite(reserveToken) || reserveToken <= 0) return 0
   return reserveXlm / reserveToken
 }
 
 /**
- * Fija un número muy pequeño con ~3 cifras significativas y sin notación
- * científica (`toFixed` admite como máximo 100 decimales; con 20 basta para
- * cualquier precio realista de un token de 7 decimales).
- */
-function formatTinyNumber(value: number): string {
-  const decimals = Math.min(20, Math.max(6, Math.ceil(-Math.log10(value)) + 2))
-  const fixed = value.toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')
-  return fixed === '0' ? `<0.${'0'.repeat(19)}1` : fixed
-}
-
-/**
- * Formats a fractional token price in XLM into a human-readable string without scientific notation.
- * e.g. 0.000000503 XLM (precio inicial de un fair launch de 5 XLM / 9.95M tokens)
+ * Formats a fractional token price in XLM respecting Stellar's exact 7-decimal
+ * stroop granularity (`1 stroop = 0.0000001 XLM`, e.g. `0.0000757` or `0.0003030`).
  */
 export function formatTokenPrice(priceInXlm: number): string {
   if (!Number.isFinite(priceInXlm) || priceInXlm <= 0) return '0'
   if (priceInXlm >= 1) {
     return priceInXlm.toLocaleString('en-US', { maximumFractionDigits: 4 })
   }
-  if (priceInXlm >= 0.0001) {
-    return priceInXlm.toFixed(6)
+  if (priceInXlm < 0.0000001) {
+    return '<0.0000001'
   }
-  return formatTinyNumber(priceInXlm)
+  if (priceInXlm >= 0.0001) {
+    return priceInXlm.toFixed(STELLAR_DECIMALS).replace(/0$/, '')
+  }
+  return priceInXlm.toFixed(STELLAR_DECIMALS)
 }
 
-/** Precio en USD legible: 4 decimales desde 1 centavo; debajo, 3 cifras significativas. */
+/** Precio en USD legible: 4 decimales desde 1 centavo; hasta 7 decimales nativos Stellar debajo. */
 export function formatUsdPrice(priceUsd: number): string {
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return '0'
   if (priceUsd >= 0.01) return priceUsd.toFixed(4)
-  return formatTinyNumber(priceUsd)
+  if (priceUsd < 0.0000001) return '<0.0000001'
+  return priceUsd.toFixed(STELLAR_DECIMALS).replace(/0+$/, '').replace(/\.$/, '') || '<0.0000001'
 }
 
 /**
@@ -514,10 +509,13 @@ async function ensurePair(
     token_b: XLM_SAC,
   })
   if (!unwrapResult<boolean>(existsTx.result, 'pair_exists')) {
-    const createTx = await factory.create_pair({
-      token_a: tokenId,
-      token_b: XLM_SAC,
-    })
+    const createTx = await factory.create_pair(
+      {
+        token_a: tokenId,
+        token_b: XLM_SAC,
+      },
+      { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+    )
     await createTx.signAndSend()
   }
 
@@ -585,16 +583,19 @@ export async function addLiquidity(params: {
   }
 
   onStep?.('liquidity')
-  const tx = await router.add_liquidity({
-    token_a: tokenFirst ? tokenId : XLM_SAC,
-    token_b: tokenFirst ? XLM_SAC : tokenId,
-    amount_a_desired: tokenFirst ? amountToken : amountXlm,
-    amount_b_desired: tokenFirst ? amountXlm : amountToken,
-    amount_a_min: tokenFirst ? withSlippage(amountToken) : withSlippage(amountXlm),
-    amount_b_min: tokenFirst ? withSlippage(amountXlm) : withSlippage(amountToken),
-    to: recipient ?? publicKey,
-    deadline: unixDeadline(),
-  })
+  const tx = await router.add_liquidity(
+    {
+      token_a: tokenFirst ? tokenId : XLM_SAC,
+      token_b: tokenFirst ? XLM_SAC : tokenId,
+      amount_a_desired: tokenFirst ? amountToken : amountXlm,
+      amount_b_desired: tokenFirst ? amountXlm : amountToken,
+      amount_a_min: tokenFirst ? withSlippage(amountToken) : withSlippage(amountXlm),
+      amount_b_min: tokenFirst ? withSlippage(amountXlm) : withSlippage(amountToken),
+      to: recipient ?? publicKey,
+      deadline: unixDeadline(),
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -654,19 +655,22 @@ export async function withdrawLiquidity(params: {
   )
 
   const { router } = soroswapClients(signer)
-  const tx = await router.remove_liquidity({
-    token_a: tokenFirst ? tokenId : XLM_SAC,
-    token_b: tokenFirst ? XLM_SAC : tokenId,
-    liquidity: lpAmount,
-    amount_a_min: withSlippage(
-      tokenFirst ? expected.tokenAmount : expected.xlmAmount,
-    ),
-    amount_b_min: withSlippage(
-      tokenFirst ? expected.xlmAmount : expected.tokenAmount,
-    ),
-    to: signer.address,
-    deadline: unixDeadline(),
-  })
+  const tx = await router.remove_liquidity(
+    {
+      token_a: tokenFirst ? tokenId : XLM_SAC,
+      token_b: tokenFirst ? XLM_SAC : tokenId,
+      liquidity: lpAmount,
+      amount_a_min: withSlippage(
+        tokenFirst ? expected.tokenAmount : expected.xlmAmount,
+      ),
+      amount_b_min: withSlippage(
+        tokenFirst ? expected.xlmAmount : expected.tokenAmount,
+      ),
+      to: signer.address,
+      deadline: unixDeadline(),
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -695,13 +699,16 @@ export async function swapXlmForToken(params: {
   const { tokenId, amountIn, amountOutMin, signer, onHash } = params
   const { router } = soroswapClients(signer)
 
-  const tx = await router.swap_exact_tokens_for_tokens({
-    amount_in: amountIn,
-    amount_out_min: amountOutMin,
-    path: [XLM_SAC, tokenId],
-    to: signer.address,
-    deadline: unixDeadline(),
-  })
+  const tx = await router.swap_exact_tokens_for_tokens(
+    {
+      amount_in: amountIn,
+      amount_out_min: amountOutMin,
+      path: [XLM_SAC, tokenId],
+      to: signer.address,
+      deadline: unixDeadline(),
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -720,13 +727,16 @@ export async function swapTokenForXlm(params: {
   const { tokenId, amountIn, amountOutMin, signer, onHash } = params
   const { router } = soroswapClients(signer)
 
-  const tx = await router.swap_exact_tokens_for_tokens({
-    amount_in: amountIn,
-    amount_out_min: amountOutMin,
-    path: [tokenId, XLM_SAC],
-    to: signer.address,
-    deadline: unixDeadline(),
-  })
+  const tx = await router.swap_exact_tokens_for_tokens(
+    {
+      amount_in: amountIn,
+      amount_out_min: amountOutMin,
+      path: [tokenId, XLM_SAC],
+      to: signer.address,
+      deadline: unixDeadline(),
+    },
+    { fee: DEFAULT_SOROBAN_INCLUSION_FEE },
+  )
   const sent = await tx.signAndSend()
   const hash = sent.sendTransactionResponse?.hash
   if (hash) onHash?.(hash)
@@ -752,10 +762,13 @@ export function isLpFullyBurned(burnedLp: bigint, totalSupply: bigint): boolean 
 
 export type BurnedLpInfo = {
   burnedLp: bigint
+  deadBurnLp: bigint
+  contractLockedLp: bigint
   totalSupply: bigint
   burnedPercent: number
-  /** 100% de los LP retirables en la burn address (ver `isLpFullyBurned`). */
+  /** 100% de los LP retirables bloqueados (en Launchpad 7Y o en la burn address). */
   fullyBurned: boolean
+  lpProtection: 'locked-7y' | 'burned' | 'unlocked'
 }
 
 /**
@@ -781,11 +794,20 @@ export async function fetchBurnedLpInfo(pairId: string): Promise<BurnedLpInfo> {
       : 0n
     const burnedLp = deadBurnLp + contractLockedLp
     const fullyBurned = isLpFullyBurned(burnedLp, totalSupply)
+    const lpProtection: 'locked-7y' | 'burned' | 'unlocked' =
+      contractLockedLp > 0n && contractLockedLp >= deadBurnLp
+        ? 'locked-7y'
+        : deadBurnLp > 0n
+          ? 'burned'
+          : 'unlocked'
     return {
       burnedLp,
+      deadBurnLp,
+      contractLockedLp,
       totalSupply,
       burnedPercent: fullyBurned ? 100 : lpSharePercent(burnedLp, totalSupply),
       fullyBurned,
+      lpProtection,
     }
   })
 }

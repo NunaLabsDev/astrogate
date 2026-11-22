@@ -35,7 +35,7 @@ import {
   whaleThresholdBase,
 } from './tokenomics'
 
-describe('allocation math (Fair-Flywheel v4.4: 66 / 33 / 0.30 / 0.40 jackpots / 0.30 dev)', () => {
+describe('allocation math (Fair-Flywheel v4.5: 66 / 33 / 0.30 / 0.40 jackpots / 0.30 dev)', () => {
   it('reparte 66% curva, 33% DEX, 0.30% vesting creador, 0.40% jackpots (5K+10K+25K), 0.30% dev sobre 10M', () => {
     expect(BURN_VAULT_TOKENS_ALLOC_BASE).toBe(0n)
     expect(
@@ -66,7 +66,7 @@ describe('allocation math (Fair-Flywheel v4.4: 66 / 33 / 0.30 / 0.40 jackpots / 
   })
 })
 
-describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.4)', () => {
+describe('localCurveQuoteBuy & localCurveQuoteSell (paridad 1:1 con Rust v4.5)', () => {
   it('aplica fees suavizadas en 3 etapas para compras (0.30% / 0.50% / 0.25%) sin penalizar ballenas', () => {
     const qEarly = localCurveQuoteBuy(0n, 0n, 10n * STROOPS_PER_UNIT)
     expect(qEarly).not.toBeNull()

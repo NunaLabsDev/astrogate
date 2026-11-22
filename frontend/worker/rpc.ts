@@ -252,6 +252,92 @@ export async function fetchPairReservesWorker(
   }
 }
 
+export async function fetchPairLpProtectionWorker(
+  pairId: string,
+  env: Env,
+): Promise<{
+  lpProtection: 'locked_7y' | 'burned' | 'unlocked'
+  lockedLp: bigint
+  deadBurnLp: bigint
+  totalSupply: bigint
+  lpLockedPercent: number
+} | null> {
+  const cfg = resolveWorkerNetwork(env)
+  const burnAddress = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF'
+  const minLiquidity = 1_000n
+  try {
+    return await withRpcFailover(cfg, async (rpcUrl) => {
+      const server = new sorobanRpc.Server(rpcUrl)
+      const pairContract = new Contract(pairId)
+      const sourceAccount = {
+        accountId: () => READONLY_SOURCE,
+        sequenceNumber: () => '0',
+        incrementSequenceNumber: () => {},
+      }
+      const sim = (method: string, ...args: ReturnType<Address['toScVal']>[]) => {
+        const tx = new TransactionBuilder(sourceAccount, {
+          fee: '100',
+          networkPassphrase: cfg.passphrase,
+        })
+          .addOperation(pairContract.call(method, ...args))
+          .setTimeout(30)
+          .build()
+        return server.simulateTransaction(tx)
+      }
+
+      const [supplySim, burnSim, launchpadSim] = await withTimeout(
+        Promise.all([
+          sim('total_supply'),
+          sim('balance', Address.fromString(burnAddress).toScVal()),
+          cfg.launchpadContractId
+            ? sim('balance', Address.fromString(cfg.launchpadContractId).toScVal())
+            : Promise.resolve(null),
+        ]),
+        3500,
+      )
+      if (
+        !sorobanRpc.Api.isSimulationSuccess(supplySim) ||
+        !supplySim.result ||
+        !sorobanRpc.Api.isSimulationSuccess(burnSim) ||
+        !burnSim.result
+      ) {
+        return null
+      }
+      const totalSupply = BigInt(scValToNative(supplySim.result.retval) ?? 0)
+      const deadBurnLp = BigInt(scValToNative(burnSim.result.retval) ?? 0)
+      const lockedLp =
+        launchpadSim &&
+        sorobanRpc.Api.isSimulationSuccess(launchpadSim) &&
+        launchpadSim.result
+          ? BigInt(scValToNative(launchpadSim.result.retval) ?? 0)
+          : 0n
+      const combined = deadBurnLp + lockedLp
+      const fullyProtected =
+        totalSupply > 0n && combined > 0n && combined + minLiquidity >= totalSupply
+      const lpLockedPercent = fullyProtected
+        ? 100
+        : totalSupply > 0n
+          ? Number(((combined * 10_000n) / totalSupply)) / 100
+          : 0
+      const lpProtection: 'locked_7y' | 'burned' | 'unlocked' =
+        lockedLp > 0n && lockedLp >= deadBurnLp
+          ? 'locked_7y'
+          : deadBurnLp > 0n
+            ? 'burned'
+            : 'unlocked'
+      return {
+        lpProtection,
+        lockedLp,
+        deadBurnLp,
+        totalSupply,
+        lpLockedPercent,
+      }
+    })
+  } catch {
+    return null
+  }
+}
+
 export async function fetchTokenOwnerWorker(
   tokenId: string,
   env: Env,
@@ -775,7 +861,7 @@ export async function fetchUserQuestStatus(
   const sb = makeSorobits(primaryRpc, cfg)
   const server = new sorobanRpc.Server(primaryRpc)
 
-  const [account, launchesInfo, recentEvents, sorobitsIds] = await Promise.all([
+  const [account, launchesInfo, recentEvents, sorobitsIds, pilotRecord] = await Promise.all([
     fetchHorizonAccountSummary(accountId, env),
     (async () => {
       try {
@@ -849,10 +935,45 @@ export async function fetchUserQuestStatus(
     })(),
     (async () => {
       try {
-        const res = await withTimeout(sb.tokens_of({ owner: accountId }), 3500)
-        return (res.result ?? []).map((id) => Number(id))
+        const collected: number[] = []
+        let offset = 0
+        while (collected.length < 50) {
+          const pageSize = 50 - collected.length
+          const pageTx = await withTimeout(
+            sb.tokens_of_page({ owner: accountId, offset, limit: pageSize }),
+            3500,
+          )
+          const page = (pageTx.result ?? []).map((id) => Number(id))
+          collected.push(...page)
+          if (page.length < pageSize) break
+          offset += page.length
+        }
+        return collected
       } catch {
-        return [] as number[]
+        try {
+          const res = await withTimeout(sb.tokens_of({ owner: accountId }), 3500)
+          return (res.result ?? []).map((id) => Number(id)).slice(0, 50)
+        } catch {
+          return [] as number[]
+        }
+      }
+    })(),
+    (async () => {
+      try {
+        const tx = await withTimeout(lp.get_pilot({ user: accountId }), 3500)
+        const rec = tx.result
+        if (!rec) return null
+        return {
+          launches: Number(rec.launches ?? 0),
+          graduations: Number(rec.graduations ?? 0),
+          trades: Number(rec.trades ?? 0),
+          volumeXlmStroops: BigInt(rec.volume_xlm_stroops ?? 0n),
+          shouts: Number(rec.shouts ?? 0),
+          kingShouts: Number(rec.king_shouts ?? 0),
+          burnsTriggered: Number(rec.burns_triggered ?? 0),
+        }
+      } catch {
+        return null
       }
     })(),
   ])
@@ -902,13 +1023,22 @@ export async function fetchUserQuestStatus(
     ...computeQuestSummary({
       accountId,
       funded: Boolean(account?.funded),
-      launchedCount: Math.max(launchesInfo.launched, eventLaunchCount),
-      shoutCount,
-      graduatedCount: launchesInfo.createdGrad + tradedGradCount,
-      swapCount,
+      launchedCount: Math.max(
+        launchesInfo.launched,
+        eventLaunchCount,
+        pilotRecord?.launches ?? 0,
+      ),
+      shoutCount: Math.max(shoutCount, pilotRecord?.shouts ?? 0),
+      graduatedCount: Math.max(
+        launchesInfo.createdGrad + tradedGradCount,
+        pilotRecord?.graduations ?? 0,
+      ),
+      swapCount: Math.max(swapCount, pilotRecord?.trades ?? 0),
       assetCount: account?.assetCount ?? 0,
       ecosystemTokenCount,
-      kingBurnCount,
+      kingBurnCount: Math.max(kingBurnCount, pilotRecord?.kingShouts ?? 0),
+      volumeXlmStroops: pilotRecord?.volumeXlmStroops,
+      burnsTriggered: pilotRecord?.burnsTriggered,
     }),
     sorobitsIds,
     sorobitsBalance: sorobitsIds.length,
