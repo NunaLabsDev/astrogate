@@ -46,7 +46,7 @@ try {
     defaultOptions: { queries: { retry: false, enabled: false } },
   })
 
-  function renderTree(Component, path) {
+  function renderTree(Component, path, props) {
     return renderToString(
       createElement(
         QueryClientProvider,
@@ -54,7 +54,7 @@ try {
         createElement(
           MemoryRouter,
           { initialEntries: [path] },
-          createElement(Component),
+          createElement(Component, props),
         ),
       ),
     )
@@ -89,11 +89,33 @@ try {
     throw new Error('el landing gate no preserva el deep link para /token/:id')
   }
 
-  function renderApp(path) {
-    return renderTree(MiniAppShell, path)
+  function renderApp(path, authenticated = true) {
+    return renderTree(
+      MiniAppShell,
+      path,
+      authenticated
+        ? { ssrPublicKey: 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF' }
+        : undefined,
+    )
   }
 
-  const html = renderApp('/')
+  // Unauthenticated MiniAppShell must gate the app behind AstroWallet SSO login
+  const unauthHtml = renderApp('/', false)
+  for (const text of [
+    'AstroGate',
+    'Sign In with AstroWallet',
+    'Verify Connection',
+    'Demo',
+  ]) {
+    if (!unauthHtml.includes(text)) {
+      throw new Error(`el login gate no contiene "${text}"`)
+    }
+  }
+  if (unauthHtml.includes('Memecoin Market')) {
+    throw new Error('MiniAppShell expuso el mercado sin login de AstroWallet')
+  }
+
+  const html = renderApp('/', true)
   const checks = [
     'AstroGate',
     'Memecoin Market',

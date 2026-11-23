@@ -18,12 +18,14 @@ export function WalletButton() {
     mode,
     hotAccounts,
     hotActiveId,
+    linkedWallets,
     telegramLink,
     hotUnlocked,
     demoAccounts,
     demoActive,
     demoPending,
     selectDemo,
+    switchLinkedWallet,
     addDemoAccount,
     startDemo,
     openWalletModal,
@@ -173,20 +175,32 @@ export function WalletButton() {
             </code>
           </button>
         ) : (
-          <span className="hidden items-center gap-1.5 rounded-lg bg-slate-800/80 px-2.5 py-1 text-xs font-mono tabular-nums sm:inline-flex">
+          <div className="flex items-center gap-1 rounded-xl border border-emerald-500/35 bg-emerald-950/35 px-2 py-1 text-xs">
+            <span className="text-emerald-300 font-semibold whitespace-nowrap">
+              ✓ {telegramLink?.username ? `@${telegramLink.username}` : 'AstroWallet'}
+            </span>
             {xlmBalance.data !== undefined ? (
-              <span className="text-emerald-300 font-semibold">
-                {xlmBalance.data.toLocaleString('en-US', {
-                  maximumFractionDigits: 1,
-                })}{' '}
-                XLM
+              <span className="hidden sm:inline font-mono tabular-nums text-emerald-200 whitespace-nowrap">
+                · {xlmBalance.data.toLocaleString('en-US', { maximumFractionDigits: 1 })} XLM
               </span>
             ) : null}
-            {xlmBalance.data !== undefined ? (
-              <span className="text-slate-600">·</span>
-            ) : null}
-            <code className="text-slate-200">{shortAddress(publicKey)}</code>
-          </span>
+            {linkedWallets.length > 1 ? (
+              <select
+                aria-label="Switch AstroWallet public key"
+                value={publicKey}
+                onChange={(e) => switchLinkedWallet(e.target.value)}
+                className="bg-transparent font-mono text-slate-100 outline-none cursor-pointer"
+              >
+                {linkedWallets.map((addr, idx) => (
+                  <option key={addr} value={addr} className="bg-slate-900 text-slate-100">
+                    #{idx + 1} {shortAddress(addr)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <code className="hidden sm:inline text-slate-200">{shortAddress(publicKey)}</code>
+            )}
+          </div>
         )}
         {NETWORK_NAME !== 'mainnet' &&
         mode !== 'demo' &&

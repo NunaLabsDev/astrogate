@@ -87,9 +87,19 @@ function NavItems({ mobile = false }: { mobile?: boolean }) {
   )
 }
 
-export default function MiniAppShell() {
+export default function MiniAppShell({
+  ssrPublicKey,
+}: {
+  ssrPublicKey?: string
+} = {}) {
   const { pathname } = useLocation()
   const navigate = useNavigate()
+  const storePublicKey = useWallet((state) => state.publicKey)
+  const publicKey = storePublicKey ?? ssrPublicKey ?? null
+  const pending = useWallet((state) => state.pending)
+  const demoPending = useWallet((state) => state.demoPending)
+  const connect = useWallet((state) => state.connect)
+  const startDemo = useWallet((state) => state.startDemo)
   const hydrateFromTelegramCloud = useWallet(
     (state) => state.hydrateFromTelegramCloud,
   )
@@ -182,19 +192,66 @@ export default function MiniAppShell() {
         className="mx-auto flex w-full max-w-5xl min-w-0 flex-col gap-3.5 sm:gap-5 px-3 sm:px-4 pt-3 pb-24 sm:py-6"
       >
         <ScrollToTop />
-        <ErrorBoundary fallback={(err, retry) => <PageErrorFallback error={err} onRetry={retry} />}>
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/market" element={<MarketPage />} />
-            <Route path="/dex" element={<DexPage />} />
-            <Route path="/token/:id" element={<TokenPage />} />
-            <Route path="/sorobits" element={<SorobitsPage />} />
-            <Route path="/portfolio" element={<PortfolioPage />} />
-            <Route path="/create" element={<CreatePage />} />
-            <Route path="/docs" element={<DocsPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </ErrorBoundary>
+        {!publicKey ? (
+          <section
+            aria-label="AstroWallet Login Gate"
+            className="mx-auto mt-4 w-full max-w-md rounded-3xl border border-sky-400/25 bg-slate-950/75 p-5 sm:p-6 shadow-xl backdrop-blur-xl"
+          >
+            <div className="flex items-center gap-2.5 mb-2">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+                🛡️
+              </span>
+              <h1 className="text-base sm:text-lg font-extrabold text-white">
+                Sign In with AstroWallet (@AstroID)
+              </h1>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed mb-4">
+              {BRAND.name} requires an active <strong>AstroWallet</strong> connection before
+              launching, trading, or managing tokens. All public keys derived from your seed phrase
+              or imported in AstroWallet sync automatically.
+            </p>
+            <div className="flex flex-col gap-2.5">
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => void connect()}
+                className="min-h-[44px] w-full rounded-2xl bg-emerald-500 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-60"
+              >
+                {pending ? 'Connecting AstroWallet…' : '🛡️ Sign In with AstroWallet'}
+              </button>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => void hydrateFromTelegramCloud()}
+                className="min-h-[40px] w-full rounded-2xl border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs sm:text-sm font-semibold text-slate-200 hover:bg-slate-800"
+              >
+                🔄 Verify Connection
+              </button>
+              <button
+                type="button"
+                disabled={demoPending || pending}
+                onClick={() => void startDemo()}
+                className="min-h-[40px] w-full rounded-2xl border border-sky-500/35 bg-sky-500/10 px-4 py-2 text-xs font-semibold text-sky-200 hover:bg-sky-500/20 disabled:opacity-60"
+              >
+                {demoPending ? 'Creating Testnet Demo…' : '⚡ Use Disposable Testnet Demo'}
+              </button>
+            </div>
+          </section>
+        ) : (
+          <ErrorBoundary fallback={(err, retry) => <PageErrorFallback error={err} onRetry={retry} />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/market" element={<MarketPage />} />
+              <Route path="/dex" element={<DexPage />} />
+              <Route path="/token/:id" element={<TokenPage />} />
+              <Route path="/sorobits" element={<SorobitsPage />} />
+              <Route path="/portfolio" element={<PortfolioPage />} />
+              <Route path="/create" element={<CreatePage />} />
+              <Route path="/docs" element={<DocsPage />} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </ErrorBoundary>
+        )}
       </main>
 
       <footer className="hidden sm:block mx-auto w-full max-w-5xl border-t border-slate-800/60 px-4 py-5 text-center text-xs text-slate-500">
@@ -219,14 +276,16 @@ export default function MiniAppShell() {
       </footer>
 
       {/* Native-style fixed mobile / Telegram Mini App bottom navigation */}
-      <nav
-        aria-label="Mobile navigation"
-        className="sm:hidden fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl px-3 pt-1.5 tg-safe-bottom"
-      >
-        <div className="mx-auto flex max-w-md items-center gap-1.5">
-          <NavItems mobile />
-        </div>
-      </nav>
+      {publicKey && (
+        <nav
+          aria-label="Mobile navigation"
+          className="sm:hidden fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/90 backdrop-blur-xl px-3 pt-1.5 tg-safe-bottom"
+        >
+          <div className="mx-auto flex max-w-md items-center gap-1.5">
+            <NavItems mobile />
+          </div>
+        </nav>
+      )}
 
       <SplashScreen />
     </div>

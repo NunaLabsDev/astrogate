@@ -161,6 +161,25 @@ export type WalletMode = 'wallet' | 'hot' | 'demo'
 export type WalletModalView = 'connect' | 'unlock' | 'manage'
 
 const HOT_MODE_KEY = networkStorageKey('astrogate.hot.mode.v1')
+const LINKED_WALLETS_KEY = networkStorageKey('astrogate.linked_wallets.v1')
+
+function loadLinkedWallets(): string[] {
+  const raw = readStorageString(LINKED_WALLETS_KEY)
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string' && isValidStellarAddress(x))
+      : []
+  } catch {
+    return []
+  }
+}
+
+function saveLinkedWallets(wallets: string[]): void {
+  if (wallets.length > 0) writeStorageString(LINKED_WALLETS_KEY, JSON.stringify(wallets))
+  else removeStorageKey(LINKED_WALLETS_KEY)
+}
 const HOT_IDLE_AUTO_LOCK_MS = 15 * 60 * 1000
 let hotIdleTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -207,6 +226,7 @@ type WalletState = {
   hotActiveId: string | null
   hotPrimaryId: string | null
   hotPrimaryPublicKey: string | null
+  linkedWallets: string[]
   telegramLink: TelegramWalletLinkMeta | null
   hotUnlocked: boolean
   telegramCloudSynced: boolean
@@ -226,6 +246,7 @@ type WalletState = {
   refreshBiometricCapability: () => Promise<BiometricCapability>
   connect: () => Promise<void>
   disconnect: () => Promise<void>
+  switchLinkedWallet: (address: string) => void
   createHotWallet: (params: {
     pin: string
     label?: string
@@ -294,6 +315,7 @@ export const useWallet = create<WalletState>((set, get) => ({
   hotActiveId: initialHot.activeId,
   hotPrimaryId: initialHot.primaryId,
   hotPrimaryPublicKey: initialHot.primaryPublicKey,
+  linkedWallets: loadLinkedWallets(),
   telegramLink: initialHot.telegramLink,
   hotUnlocked: initialHot.unlocked,
   telegramCloudSynced: false,
@@ -345,17 +367,24 @@ export const useWallet = create<WalletState>((set, get) => ({
           const data = (await res.json()) as {
             found?: boolean
             primaryPublicKey?: string
+            wallets?: string[]
             username?: string | null
             tgUserId?: number
             verifiedTelegram?: boolean
           }
           if (data.found && data.primaryPublicKey && isValidStellarAddress(data.primaryPublicKey)) {
+            const wallets = (data.wallets ?? [data.primaryPublicKey]).filter((w) =>
+              isValidStellarAddress(w),
+            )
+            const uniqueWallets = Array.from(new Set([data.primaryPublicKey, ...wallets]))
             saveDemoMode(false)
             saveHotMode(false)
+            saveLinkedWallets(uniqueWallets)
             set({
               mode: 'wallet',
               walletProvider: 'astro',
               publicKey: data.primaryPublicKey,
+              linkedWallets: uniqueWallets,
               telegramLink: data.username
                 ? {
                     username: data.username,
@@ -488,10 +517,20 @@ export const useWallet = create<WalletState>((set, get) => ({
         return
       }
       await walletKit().disconnect()
-      set({ publicKey: null })
+      saveLinkedWallets([])
+      set({ publicKey: null, linkedWallets: [] })
     } finally {
       set({ pending: false })
     }
+  },
+
+  switchLinkedWallet: (address) => {
+    if (!isValidStellarAddress(address)) return
+    set({
+      mode: 'wallet',
+      walletProvider: 'astro',
+      publicKey: address,
+    })
   },
 
   createHotWallet: async ({ pin, label }) => {
