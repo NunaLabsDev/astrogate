@@ -1385,17 +1385,17 @@ export function buildGroupWelcomeView(
   const keyboard: InlineKeyboardButton[][] = [
     [
       {
-        text: '🛡️ 1. Open AstroWallet',
+        text: '🛡️ AstroWallet',
         url: 'https://t.me/AstroWalletAppBot/wallet',
       },
       {
-        text: '⚡ 2. Open AstroDex',
+        text: '⚡ AstroDex',
         url: 'https://t.me/AstroDexBot/dex',
       },
     ],
     [
       {
-        text: '🚀 3. Open AstroGate',
+        text: '🚀 AstroGate',
         url: miniAppStartUrl(botUsername, 'home', hasMainApp),
       },
       ...(folderUrl && folderUrl.startsWith('https://t.me/')
@@ -1409,10 +1409,9 @@ export function buildGroupWelcomeView(
     text: [
       `👋 <b>Welcome to Astro Soroban, ${safeName}!</b>`,
       ``,
-      `One unified Stellar, Soroban &amp; TON ecosystem inside Telegram:`,
-      `• <b>1. AstroWallet</b> — Vault, <code>/pay</code>, <code>/split</code> &amp; AstroID signer`,
-      `• <b>2. AstroDex</b> — <code>/scan</code>, <code>/chart</code>, <code>/book</code> &amp; <code>/route</code>`,
-      `• <b>3. AstroGate</b> — <code>/market</code>, <code>/king</code>, <code>/launch</code> &amp; <code>/sorobits</code>`,
+      `• <b>AstroWallet</b> — Vault, <code>/pay</code>, <code>/split</code>`,
+      `• <b>AstroDex</b> — Charts, <code>/scan</code>, <code>/route</code>, <code>/whales</code>`,
+      `• <b>AstroGate</b> — Launchpad, <code>/market</code>, <code>/token</code>`,
       `🛡️ <i>Admins never DM first · Never share your <code>S…</code> key.</i>`,
     ].join('\n'),
     reply_markup: { inline_keyboard: keyboard },
@@ -1421,7 +1420,7 @@ export function buildGroupWelcomeView(
 
 export function buildCommunityDigestView(
   items: MarketTokenSummary[],
-  sorobitsTotal: number,
+  _sorobitsTotal: number,
   botUsername = DEFAULT_BOT_USERNAME,
   folderUrl?: string,
   hasMainApp = false,
@@ -1429,12 +1428,12 @@ export function buildCommunityDigestView(
   const active = items.filter((i) => !i.graduated).slice(0, 3)
   const graduated = items.filter((i) => i.graduated).slice(0, 2)
   const lines: string[] = [
-    `🌊📡 <b>AstroGate Live Feed Digest · Stellar Testnet</b>`,
+    `📡 <b>AstroGate Live Feed · Stellar Testnet</b>`,
     ``,
   ]
 
   if (active.length > 0) {
-    lines.push(`<b>⛰️ Closest to Soroswap Graduation (1,000 XLM):</b>`)
+    lines.push(`<b>⛰️ Closest to Graduation (1,000 XLM):</b>`)
     active.forEach((item, idx) => {
       const pct = curvePercent(item.curveXlmNet)
       const medal = idx === 0 ? '👑' : idx === 1 ? '🥈' : '🥉'
@@ -1447,34 +1446,25 @@ export function buildCommunityDigestView(
 
   if (graduated.length > 0) {
     lines.push(
-      `<b>🎓 Active Soroswap DEX Pairs:</b> ${graduated
+      `<b>🎓 Active DEX Pairs:</b> ${graduated
         .map((g) => `$${escapeHtml(g.symbol)}`)
         .join(' · ')}`,
     )
   }
 
   lines.push(
-    `🧬 <b>Sorobits (SBIT) Minted On-Chain:</b> <code>${sorobitsTotal}</code>`,
     ``,
-    `<i>Chat &amp; run <code>/market</code>, <code>/king</code>, <code>/quests GA...</code>, or <code>/ask</code> in @AstroSoroban.</i>`,
-    `<i>Built by NunaLabs</i>`,
+    `<i>Use <code>/market</code> or <code>/token TICKER</code> in @AstroSoroban.</i>`,
   )
 
   const keyboard: InlineKeyboardButton[][] = [
     [
       {
-        text: '🔥 Trade Live Curves',
+        text: '🔥 Trade Curves',
         url: miniAppStartUrl(botUsername, 'market', hasMainApp),
       },
-      {
-        text: '🧬 Sorobits NFTs',
-        url: miniAppStartUrl(botUsername, 'sorobits', hasMainApp),
-      },
-    ],
-    [
-      { text: '💬 Community Chat', url: 'https://t.me/AstroSoroban' },
       ...(folderUrl && folderUrl.startsWith('https://t.me/')
-        ? [{ text: '📁 All 3 Chats', url: folderUrl }]
+        ? [{ text: '💬 Community', url: 'https://t.me/AstroSoroban' }]
         : [
             {
               text: '🚀 Launch Token',
@@ -1482,6 +1472,9 @@ export function buildCommunityDigestView(
             },
           ]),
     ],
+    ...(folderUrl && folderUrl.startsWith('https://t.me/')
+      ? [[{ text: '🚀 Launch Token', url: miniAppStartUrl(botUsername, 'create', hasMainApp) }]]
+      : [[{ text: '💬 Community', url: 'https://t.me/AstroSoroban' }]]),
   ]
 
   return {

@@ -21,7 +21,7 @@ export function HomePage() {
             Memecoin Market
           </h1>
           <p className="text-xs sm:text-sm text-slate-400 truncate">
-            Closed Bonding Curves → Soroswap DEX · 40,000 Token 3-Checkpoint Jackpot Ladder
+            Fair bonding curves → Soroswap DEX
           </p>
         </div>
 
@@ -34,38 +34,6 @@ export function HomePage() {
       </div>
 
       <MarketList selectedId={null} onSelect={openToken} mode="curves" />
-
-      <Link
-        to="/sorobits"
-        className="flex items-center justify-between gap-3 rounded-2xl border border-cyan-400/20 bg-slate-900/70 px-3.5 py-2.5 backdrop-blur-md transition-colors hover:border-cyan-400/45 hover:bg-slate-900"
-      >
-        <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex -space-x-1.5 shrink-0">
-            {(['pioneer', 'launcher', 'graduate', 'legend'] as const).map((slug) => (
-              <img
-                key={slug}
-                src={`/badges/${slug}.png`}
-                alt=""
-                width={32}
-                height={32}
-                className="h-8 w-8 rounded-lg border border-slate-800 bg-slate-950"
-                style={{ imageRendering: 'pixelated' }}
-              />
-            ))}
-          </div>
-          <div className="min-w-0">
-            <p className="truncate text-xs sm:text-sm font-bold text-white">
-              Sorobits (SBIT) · 100% On-Chain 32×32 NFTs
-            </p>
-            <p className="truncate text-[11px] text-slate-400">
-              Season-1 Stellar Heritage collection stored in Soroban
-            </p>
-          </div>
-        </div>
-        <span className="shrink-0 rounded-xl bg-cyan-500/15 px-2.5 py-1 text-xs font-bold text-cyan-300 border border-cyan-400/30">
-          Explore →
-        </span>
-      </Link>
     </div>
   )
 }

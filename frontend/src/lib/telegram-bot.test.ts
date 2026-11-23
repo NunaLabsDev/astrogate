@@ -375,7 +375,6 @@ describe('Telegram bot views & parsers', () => {
     })
     expect(card.text).toContain('NEW KING SHOUT')
     expect(card.text).toContain('LFG &lt;Soroban&gt;')
-    expect(card.text).toContain('Built by NunaLabs')
     expect(card.reply_markup.inline_keyboard[0]?.[0]?.url).toContain(
       `start=${SAMPLE_CONTRACT}`,
     )
@@ -511,7 +510,7 @@ describe('Telegram bot views & parsers', () => {
     expect(sorobitMint?.kind).toBe('sorobit_mint')
     if (sorobitMint) {
       expect(routeLaunchpadEventTargets(sorobitMint)).toEqual({
-        feed: true,
+        feed: false,
         community: false,
       })
       const rendered = renderLaunchpadEventTelegramView(sorobitMint, {
@@ -1602,8 +1601,8 @@ describe('Telegram bot views & parsers', () => {
         },
         { symbol: 'HEY', name: 'Hey', decimals: 7 },
       )
-      expect(gradTradeView.text).toContain('Graduating Curve Buy (100.0%)')
-      expect(gradTradeView.text).not.toContain('Only <code>0.0 XLM</code> left')
+      expect(gradTradeView.text).toContain('Graduating Buy (100.0%)')
+      expect(gradTradeView.text).not.toContain('0.0 XLM</code> left')
     } finally {
       globalThis.fetch = originalFetch
     }

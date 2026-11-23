@@ -288,12 +288,12 @@ export function routeLaunchpadEventTargets(ev: LaunchpadParsedEvent): {
     )
     return { feed: !isE2eNoise, community: false }
   }
-  if (ev.kind === 'graduated' || ev.kind === 'launch' || ev.kind === 'sorobit_mint') {
+  if (ev.kind === 'graduated' || ev.kind === 'launch') {
     return { feed: true, community: false }
   }
-  if (ev.kind === 'sorobit_evolve') {
-    // Only highlight actual rank-tier evolutions (tier >= 1) in Live Feed
-    return { feed: ev.rankTier >= 1, community: false }
+  if (ev.kind === 'sorobit_mint' || ev.kind === 'sorobit_evolve') {
+    // Pillar 4 (Sorobits NFTs) is deferred — keep feed alerts silent for now
+    return { feed: false, community: false }
   }
   if (ev.kind === 'burn') {
     // Stage 1 milestone burn is emitted inside the same tx as `graduated`, so skip duplicate feed post
@@ -329,24 +329,21 @@ export function renderLaunchpadEventTelegramView(
     const burnedText = formatTokensCompact(ev.amount, meta.decimals)
     const header = ev.isKing
       ? `👑 <b>NEW KING SHOUT · $${safeSym}</b>`
-      : `🔥 <b>On-Chain Burn-to-Chat · $${safeSym}</b>`
+      : `🔥 <b>Burn-to-Chat · $${safeSym}</b>`
     return {
       text: [
         header,
         ``,
         `<blockquote>“${escapeHtml(ev.message.slice(0, 160))}”</blockquote>`,
-        ``,
-        `🔥 <b>Burned:</b> <code>${burnedText} $${safeSym}</code>`,
-        `👤 <b>Wallet:</b> <code>${shortAddr(ev.sender)}</code> · Ledger <code>#${ev.ledger}</code>`,
-        `<i>Built by NunaLabs</i>`,
+        `🔥 <code>${burnedText} $${safeSym}</code> burned · <code>${shortAddr(ev.sender)}</code>`,
       ].join('\n'),
       reply_markup: {
         inline_keyboard: [
           [
             {
               text: ev.isKing
-                ? `👑 Steal Crown · $${meta.symbol.slice(0, 10)}`
-                : `💬 Burn & Reply · $${meta.symbol.slice(0, 10)}`,
+                ? `👑 Steal Crown`
+                : `💬 Burn & Reply`,
               url: tokenDeepLink,
             },
             { text: '💬 Community', url: communityLink },
@@ -359,12 +356,10 @@ export function renderLaunchpadEventTelegramView(
   if (ev.kind === 'launch') {
     return {
       text: [
-        `🚀 <b>New AstroGate Fair-Launch · $${safeSym}</b> (${safeName})`,
+        `🚀 <b>New Launch · $${safeSym}</b> (${safeName})`,
         ``,
-        `💎 <b>Seed Pool:</b> <code>${formatXlm(ev.xlmInitial, 2)} XLM</code> · <code>10M</code> Fixed Supply`,
-        `👤 <b>Creator:</b> <code>${shortAddr(ev.creator)}</code>`,
+        `💎 Seed: <code>${formatXlm(ev.xlmInitial, 2)} XLM</code> · Creator: <code>${shortAddr(ev.creator)}</code>`,
         `<code>${ev.tokenId}</code>`,
-        `<i>Built by NunaLabs</i>`,
       ].join('\n'),
       reply_markup: {
         inline_keyboard: [
@@ -380,25 +375,23 @@ export function renderLaunchpadEventTelegramView(
   if (ev.kind === 'graduated') {
     return {
       text: [
-        `🎓 <b>GRADUATED TO SOROSWAP DEX · $${safeSym}</b>`,
+        `🎓 <b>Graduated to Soroswap DEX · $${safeSym}</b>`,
         ``,
-        `💧 <b>DEX Liquidity:</b> <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · <b>7Y LP Contract Lock</b>`,
+        `💧 Liquidity: <code>${formatXlm(ev.xlmDeposited, 2)} XLM</code> · 7Y LP Lock`,
         ev.vaultBurned > 0n
-          ? `🔥 <b>Vault Burned:</b> <code>${formatTokensCompact(ev.vaultBurned, meta.decimals)} $${safeSym}</code>`
-          : `🏆 <b>Escrow Unlocked:</b> Spark (+5K) &amp; Crown (+10K) jackpots ready via Claim`,
+          ? `🔥 Burned: <code>${formatTokensCompact(ev.vaultBurned, meta.decimals)} $${safeSym}</code>`
+          : `🏆 Jackpot escrow unlocked`,
         `<code>${ev.tokenId}</code>`,
-        `<i>Built by NunaLabs</i>`,
       ].join('\n'),
       reply_markup: {
         inline_keyboard: [
           [
-            { text: `🎓 Trade $${meta.symbol.slice(0, 10)} on DEX`, url: tokenDeepLink },
+            { text: `🎓 Trade $${meta.symbol.slice(0, 10)}`, url: tokenDeepLink },
             {
-              text: '📊 AstroDex Chart',
+              text: '📊 AstroDex',
               url: `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(`token_${ev.tokenId}`)}`,
             },
           ],
-          [{ text: '💬 Community', url: communityLink }],
         ],
       },
     }
@@ -407,25 +400,22 @@ export function renderLaunchpadEventTelegramView(
   if (ev.kind === 'burn') {
     const title =
       ev.burnKind === 'buyback'
-        ? `🔥 <b>Anti-MEV DEX Buyback &amp; Burn · $${safeSym}</b>`
+        ? `🔥 <b>DEX Buyback &amp; Burn · $${safeSym}</b>`
         : `🏛 <b>Milestone Burn #${ev.xlmSpentOrStage.toString()} · $${safeSym}</b>`
     return {
       text: [
         title,
-        ``,
-        `🔥 <b>Supply Permanently Burned:</b> <code>${formatTokensCompact(ev.tokensBurned, meta.decimals)} $${safeSym}</code>`,
-        ev.burnKind === 'buyback'
-          ? `💎 <b>XLM Chunk:</b> <code>${formatXlm(ev.xlmSpentOrStage, 2)} XLM</code> · <b>+2% Keeper Rebate</b>`
-          : '',
-        `<i>Built by NunaLabs</i>`,
-      ]
-        .filter(Boolean)
-        .join('\n'),
+        `🔥 Burned: <code>${formatTokensCompact(ev.tokensBurned, meta.decimals)} $${safeSym}</code>${
+          ev.burnKind === 'buyback'
+            ? ` · <code>${formatXlm(ev.xlmSpentOrStage, 2)} XLM</code>`
+            : ''
+        }`,
+      ].join('\n'),
       reply_markup: {
         inline_keyboard: [
           [
             { text: `⚡ Open $${meta.symbol.slice(0, 12)}`, url: tokenDeepLink },
-            { text: '🔥 Market App', url: marketDeepLink },
+            { text: '🔥 Market', url: marketDeepLink },
           ],
         ],
       },
@@ -440,16 +430,13 @@ export function renderLaunchpadEventTelegramView(
         : 'Generative 256-Bit Genome'
     return {
       text: [
-        `🧬 <b>Sorobit NFT Minted · SBIT #${ev.sorobitId}</b>`,
-        ``,
-        `🎨 <b>Class:</b> ${editionLabel} · ${ev.soulbound ? 'Soulbound Pilot Badge' : 'Tradeable Collectible'}`,
-        `👤 <b>Pilot:</b> <code>${shortAddr(ev.to)}</code> · Ledger <code>#${ev.ledger}</code>`,
-        `<i>Built by NunaLabs</i>`,
+        `🧬 <b>Sorobit Minted · SBIT #${ev.sorobitId}</b>`,
+        `${editionLabel} · <code>${shortAddr(ev.to)}</code>`,
       ].join('\n'),
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🧬 View Sorobits NFTs', url: sorobitsDeepLink },
+            { text: '🧬 View Sorobit', url: sorobitsDeepLink },
             { text: '💬 Community', url: communityLink },
           ],
         ],
@@ -461,15 +448,13 @@ export function renderLaunchpadEventTelegramView(
     const sorobitsDeepLink = miniAppStartUrl(botUsername, 'sorobits', hasMainApp)
     return {
       text: [
-        `⚡ <b>Sorobit Rank Evolved · SBIT #${ev.sorobitId}</b>`,
-        ``,
-        `🏅 <b>Rank Tier:</b> <code>Tier ${ev.rankTier}</code> · <b>XP:</b> <code>${ev.xpScore.toLocaleString('en-US')}</code>`,
-        `<i>Built by NunaLabs</i>`,
+        `⚡ <b>Sorobit Evolved · SBIT #${ev.sorobitId}</b>`,
+        `Tier ${ev.rankTier} · XP <code>${ev.xpScore.toLocaleString('en-US')}</code>`,
       ].join('\n'),
       reply_markup: {
         inline_keyboard: [
           [
-            { text: '🧬 Inspect Sorobit', url: sorobitsDeepLink },
+            { text: '🧬 Inspect', url: sorobitsDeepLink },
             { text: '💬 Community', url: communityLink },
           ],
         ],
@@ -485,32 +470,30 @@ export function renderLaunchpadEventTelegramView(
 
   const header = ev.isBuy
     ? isGraduatingBuy
-      ? `🎓 <b>Graduating Curve Buy (100.0%) · $${safeSym}</b>`
+      ? `🎓 <b>Graduating Buy (100.0%) · $${safeSym}</b>`
       : isNearGrad
         ? `⛰️ <b>Almost Graduated (${pct.toFixed(1)}%) · $${safeSym}</b>`
         : isWhale
-          ? `🐳 <b>Whale Curve Buy · $${safeSym}</b>`
+          ? `🐳 <b>Whale Buy · $${safeSym}</b>`
           : `🟢 <b>Curve Buy · $${safeSym}</b>`
     : isWhale
-      ? `🚨 <b>Whale Curve Sell · $${safeSym}</b>`
+      ? `🚨 <b>Whale Sell · $${safeSym}</b>`
       : `🔴 <b>Curve Sell · $${safeSym}</b>`
 
   const actionLine = ev.isBuy
-    ? `💎 <b>Buy:</b> <code>${formatXlm(ev.xlmAmount, 2)} XLM</code> → <code>${formatTokensCompact(ev.tokenAmount, meta.decimals)} $${safeSym}</code>`
-    : `💸 <b>Sell:</b> <code>${formatTokensCompact(ev.tokenAmount, meta.decimals)} $${safeSym}</code> → <code>${formatXlm(ev.xlmAmount, 2)} XLM</code>`
+    ? `<code>${formatXlm(ev.xlmAmount, 2)} XLM</code> → <code>${formatTokensCompact(ev.tokenAmount, meta.decimals)} $${safeSym}</code>`
+    : `<code>${formatTokensCompact(ev.tokenAmount, meta.decimals)} $${safeSym}</code> → <code>${formatXlm(ev.xlmAmount, 2)} XLM</code>`
 
   const goalLine = isNearGrad
-    ? `🔥 <b>Only <code>${remainingXlm.toFixed(1)} XLM</code> left until Soroswap graduation!</b>`
+    ? `🔥 <code>${remainingXlm.toFixed(1)} XLM</code> left to Soroswap!`
     : ''
 
   return {
     text: [
       header,
-      ``,
       actionLine,
-      `📈 <b>Curve:</b> <code>${progressBar(pct, 10)}</code> <b>${pct.toFixed(1)}%</b> (${formatXlm(ev.curveXlmNet, 1)}/1,000 XLM)`,
+      `📈 <code>${progressBar(pct, 10)}</code> <b>${pct.toFixed(1)}%</b> (${formatXlm(ev.curveXlmNet, 1)}/1,000 XLM)`,
       goalLine,
-      `<i>Built by NunaLabs</i>`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -524,11 +507,10 @@ export function renderLaunchpadEventTelegramView(
             url: tokenDeepLink,
           },
           {
-            text: '📊 AstroDex X-Ray',
+            text: '📊 AstroDex',
             url: `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(`token_${ev.tokenId}`)}`,
           },
         ],
-        [{ text: '💬 Community', url: communityLink }],
       ],
     },
   }

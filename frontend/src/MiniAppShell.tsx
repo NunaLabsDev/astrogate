@@ -23,12 +23,15 @@ import {
 } from './lib/telegram'
 import { useWallet } from './store/wallet'
 
-const NAV_ITEMS = [
+const MOBILE_NAV_ITEMS = [
   { to: '/', label: 'Market', icon: '🔥' },
   { to: '/dex', label: 'DEX', icon: '🎓' },
-  { to: '/sorobits', label: 'Sorobits', icon: '🧬' },
   { to: '/create', label: 'Launch', icon: '🚀' },
   { to: '/portfolio', label: 'Portfolio', icon: '👛' },
+] as const
+
+const DESKTOP_NAV_ITEMS = [
+  ...MOBILE_NAV_ITEMS,
   { to: '/docs', label: 'Docs', icon: '📘' },
 ] as const
 
@@ -50,9 +53,10 @@ function mobileTabClass(active: boolean) {
 
 function NavItems({ mobile = false }: { mobile?: boolean }) {
   const { pathname } = useLocation()
+  const items = mobile ? MOBILE_NAV_ITEMS : DESKTOP_NAV_ITEMS
   return (
     <>
-      {NAV_ITEMS.map((item) => {
+      {items.map((item) => {
         const isMarketRoot = item.to === '/' && pathname === '/market'
         return (
           <NavLink

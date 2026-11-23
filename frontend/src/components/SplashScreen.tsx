@@ -84,7 +84,7 @@ export function SplashScreen() {
           AstroGate
         </h2>
         <p className="mt-1 text-xs text-slate-400">
-          Fair-Flywheel v4.5, 7Y LP lock &amp; 100% on-chain 32×32 NFTs · Built by NunaLabs
+          Fair-Flywheel v4.5 · 7Y LP Lock · Stellar Soroban
         </p>
 
         <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
