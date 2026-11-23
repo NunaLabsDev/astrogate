@@ -3,7 +3,20 @@
 > **Archived Sessions (4–38) & legacy tail notes**: [`docs/archive/STATUS_HISTORY.md`](./docs/archive/STATUS_HISTORY.md)  
 > **Live Testnet IDs & v4.4/v4.5 notes**: [`docs/CONTRACTS_AND_NETWORK.md`](./docs/CONTRACTS_AND_NETWORK.md) · **Docs Index**: [`docs/INDEX.md`](./docs/INDEX.md)
 
-## Latest Verified Session Snapshot — Session 39 (Nov 18, 2026, `ee4a712` / `2424d7e`)
+## Latest Verified Session Snapshot — Session 40 (Nov 23, 2026, `03eb819` on `feat/telegram-ecosystem-unification`)
+Completed full ecosystem audit remediation unifying wallet custody exclusively under **Pillar 1 `AstroWallet` (`AstroID` SSO)** and decoupling **Sorobits SEP-50** for the standalone **Pillar 4 NFT Marketplace**:
+- **Exclusive `AstroWallet` Custody (`src/store/wallet.ts`, `src/lib/signer.ts`, `worker/api.ts`, `worker/wallet.ts`):**
+  - Removed `<HotWalletModal />` from `MiniAppShell.tsx` and Reown `WalletConnectModule` from `wallet.ts`, making `AstroID` SSO visible on mobile in `WalletButton.tsx` while keeping disposable Testnet `Demo` accounts.
+  - Added 0-click `AstroID` auto-resolution inside Telegram (`hydrateFromTelegramCloud`), AstroConnect v1 Worker proxy (`POST/GET /api/v1/wallet/connect/requests*`), `astroWalletConnectSigner`, and strict `env.ASTROWALLET` precedence over stale `ASTRO_KV` in `resolveWalletIdentity`.
+- **Sorobits SEP-50 Pillar 4 Decoupling (`contracts/sorobits/src/contract.rs`, `frontend/src/lib/sorobits.ts`, `ecosystem.ts`, `SorobitsPage.tsx`):**
+  - Added `set_launchpad_optional(Option<Address>)` + Launchpad-independent quest progression in `claim_quest_badge` (`CapsulesMinted` & collection count); removed `./token` (`launchpadClient`) coupling from `sorobits.ts`; added `buildSorobitsMarketplaceUrl` CTA.
+- **Verification & Live Testnet Deployments (`03eb819`):**
+  - **Rust (`cargo test --workspace`):** **69 passed** (`19` launchpad + `23` sorobits + `27` token).
+  - **Worker & Frontend (`tsc -p tsconfig.worker.json && npm run check`):** `oxlint` `0` errors/warnings (`174` files), **31 Vitest files / 243 tests passed** (including `worker/wallet.test.ts`), `smoke:render`, `verify:pwa`, `check:csp` passed.
+  - **Cloudflare Testnet:** Worker `astrogate-stellar` version `f68c3220-5d29-4a43-81bc-de3918dd9025` (cron `*/5 * * * *`), Pages `astrogate` deployed at `https://87c3ea8c.astrogate.pages.dev` (`https://astrogate.pages.dev`).
+- **Next Session:** Migrate Worker/frontend AstroConnect glue to universal `@astrowallet/connect-sdk` and prepare Gate 3 Mainnet contracts + standalone Pillar 4 `Sorobits NFT Marketplace` repo after Gate 1 (`AstroWallet`) and Gate 2 (`AstroDex`) pass Mainnet gates.
+
+## Previous Session Snapshot — Session 39 (Nov 18, 2026, `ee4a712` / `2424d7e`)
 Recorded **Fair-Flywheel v4.4** in-place Testnet upgrade, **3-Checkpoint Jackpot Ladder (`40,000` tokens)**, softened 3-stage fees, dedicated `/dex` route, multi-contract cache isolation, and Sorobits SEP-50 ID fixes (*AI-generated; pending human review*):
 - **Launchpad v4.4 (`CB5VMDAPQUK5LT5LH5L5THI6XYYUBTAXM7BJZLZYFGUJHZB64LZHFAPK`)**: upgraded in-place on Testnet (WASM hash `fd2f1a6e0d68a94972963ef87e3b4947be1f89a7230c09e53aff70dabf1dcbf1`, `48,263 B`); `66%` Curve / `33%` Soroswap DEX / `0.30%` Creator 15d Vesting / `0.40%` (`+5K` Spark @ `250 XLM`, `+10K` Crown @ `500 XLM`, `+25K` Graduation @ `1,000 XLM`) / `0.30%` Ecosystem Treasury; buy fees `0.30% / 0.50% / 0.25%`, sell fees `1.20% / 1.80% / 1.50%`.
 - **Contract Isolation & Sorobits Fix**: added `SUPPORTED_LAUNCHPAD_CONTRACTS` / `CONTRACT_GENERATION_TAG` / `contractStorageKey(...)` while keeping Native Wallet (`networkStorageKey`) intact; filtered legacy pre-v4.3 / smoke launches; fixed `fetchSorobitById` burned-ID rendering and removed unrelated `genesis0` fallback.
