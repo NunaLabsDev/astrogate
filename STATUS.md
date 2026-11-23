@@ -10,11 +10,12 @@ Completed full ecosystem audit remediation unifying wallet custody exclusively u
   - Added 0-click `AstroID` auto-resolution inside Telegram (`hydrateFromTelegramCloud`), AstroConnect v1 Worker proxy (`POST/GET /api/v1/wallet/connect/requests*`), `astroWalletConnectSigner`, and strict `env.ASTROWALLET` precedence over stale `ASTRO_KV` in `resolveWalletIdentity`.
 - **Sorobits SEP-50 Pillar 4 Decoupling (`contracts/sorobits/src/contract.rs`, `frontend/src/lib/sorobits.ts`, `ecosystem.ts`, `SorobitsPage.tsx`):**
   - Added `set_launchpad_optional(Option<Address>)` + Launchpad-independent quest progression in `claim_quest_badge` (`CapsulesMinted` & collection count); removed `./token` (`launchpadClient`) coupling from `sorobits.ts`; added `buildSorobitsMarketplaceUrl` CTA.
-- **Verification & Live Testnet Deployments (`03eb819`):**
+- **Verification & Live Testnet Deployments (`b7861e6`):**
+  - **Universal `@astrowallet/connect` v0.2.0 Migration:** Migrated `src/lib/signer.ts` (`astroWalletConnectSigner`) and `src/lib/ecosystem.ts` (`resolveAstroWalletIdentity`, `getAstroGateBotUsername`) to `@astrowallet/connect` (`vendor/astrowallet-connect-0.2.0.tgz`), fixing missing `app.botUsername` + passing `sourceAddress`, and updated `worker/api.ts` to forward `X-Ecosystem-Secret` (`ECOSYSTEM_SHARED_INTENT_SECRET`).
   - **Rust (`cargo test --workspace`):** **69 passed** (`19` launchpad + `23` sorobits + `27` token).
-  - **Worker & Frontend (`tsc -p tsconfig.worker.json && npm run check`):** `oxlint` `0` errors/warnings (`174` files), **31 Vitest files / 243 tests passed** (including `worker/wallet.test.ts`), `smoke:render`, `verify:pwa`, `check:csp` passed.
-  - **Cloudflare Testnet:** Worker `astrogate-stellar` version `f68c3220-5d29-4a43-81bc-de3918dd9025` (cron `*/5 * * * *`), Pages `astrogate` deployed at `https://87c3ea8c.astrogate.pages.dev` (`https://astrogate.pages.dev`).
-- **Next Session:** Migrate Worker/frontend AstroConnect glue to universal `@astrowallet/connect-sdk` and prepare Gate 3 Mainnet contracts + standalone Pillar 4 `Sorobits NFT Marketplace` repo after Gate 1 (`AstroWallet`) and Gate 2 (`AstroDex`) pass Mainnet gates.
+  - **Worker & Frontend (`tsc -p tsconfig.worker.json && npm run check`):** `oxlint` `0` errors/warnings (`174` files), **31 Vitest files / 244 tests passed** (including `ecosystem.test.ts` & `worker/wallet.test.ts`), `smoke:render`, `verify:pwa`, `check:csp` passed.
+  - **Cloudflare Testnet:** Worker `astrogate-stellar` version `e6e480ab-039f-44a8-ac9c-4024d394cfa2` (cron `*/5 * * * *`), Pages `astrogate` deployed at `https://7396d4a9.astrogate.pages.dev` (`https://astrogate.pages.dev`).
+- **Next Gate:** Prepare Gate 3 Mainnet contracts + standalone Pillar 4 `Sorobits NFT Marketplace` repo (`astromarket` / `sorobits-market`) after Gate 1 (`AstroWallet`) and Gate 2 (`AstroDex`) pass Mainnet gates.
 
 ## Previous Session Snapshot — Session 39 (Nov 18, 2026, `ee4a712` / `2424d7e`)
 Recorded **Fair-Flywheel v4.4** in-place Testnet upgrade, **3-Checkpoint Jackpot Ladder (`40,000` tokens)**, softened 3-stage fees, dedicated `/dex` route, multi-contract cache isolation, and Sorobits SEP-50 ID fixes (*AI-generated; pending human review*):
