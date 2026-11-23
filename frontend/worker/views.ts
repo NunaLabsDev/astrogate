@@ -492,10 +492,10 @@ export function buildWalletResolveView(
         `<i>Synced across AstroWallet, AstroDex &amp; AstroGate.</i>`,
       ].join('\n')
     : [
-        `🔎 <b>No Native Wallet Linked for ${cleanQuery}</b>`,
+        `🔎 <b>No AstroID Linked for ${cleanQuery}</b>`,
         ``,
-        `This user has not linked an AstroID or AstroGate wallet yet.`,
-        `Open AstroWallet or AstroGate Mini App to create your self-custodial wallet and link your <code>@username</code>.`,
+        `This user has not linked an AstroID wallet yet.`,
+        `Open AstroWallet to create your self-custodial wallet and link your <code>@username</code>.`,
       ].join('\n')
 
   const astroDexUrl = `https://t.me/AstroDexBot/dex?startapp=${encodeURIComponent(
@@ -508,7 +508,7 @@ export function buildWalletResolveView(
       inline_keyboard: [
         [
           miniAppBtn(
-            '👛 Open Native Wallet',
+            '📊 Open Portfolio',
             '/portfolio',
             baseUrl,
             inGroup,
