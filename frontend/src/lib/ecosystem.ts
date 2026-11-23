@@ -1,3 +1,4 @@
+import { createAstroConnectClient } from '@astrowallet/connect'
 import { isValidStellarAddress } from './address'
 
 export interface AstroWalletIdentityResult {
@@ -22,6 +23,13 @@ function cleanShortName(raw?: string): string | null {
   const trimmed = raw?.trim()
   if (!trimmed || !/^[A-Za-z0-9_]{3,64}$/.test(trimmed)) return null
   return trimmed
+}
+
+export function getAstroGateBotUsername(override?: string): string {
+  return (
+    cleanBotUsername(override ?? readEnvString('VITE_TG_BOT_USERNAME')) ??
+    'AstroGateSorobanBot'
+  )
 }
 
 export function getAstroWalletApiBaseUrl(override?: string): string | null {
@@ -142,30 +150,28 @@ export async function resolveAstroWalletIdentity(
       : undefined
 
   try {
-    const res = await fetchImpl(
-      `${base}/v1/identity/resolve?q=${encodeURIComponent(clean)}`,
-      {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-        ...(signal ? { signal } : {}),
+    const client = createAstroConnectClient({
+      apiBaseUrl: base,
+      app: {
+        name: 'AstroGate',
+        botUsername: getAstroGateBotUsername(),
       },
-    )
-    if (!res.ok) return null
-    const json = (await res.json().catch(() => null)) as {
-      ok?: boolean
-      found?: boolean
-      username?: string
-      primaryAddress?: string
-    } | null
+      fetchFn: ((input: RequestInfo | URL, init?: RequestInit) =>
+        fetchImpl(input, {
+          ...init,
+          headers: { Accept: 'application/json', ...(init?.headers as Record<string, string> | undefined) },
+          ...(signal ? { signal } : {}),
+        })) as typeof fetch,
+    })
+    const identity = await client.resolveIdentity(clean)
     if (
-      json?.ok &&
-      json.found &&
-      typeof json.primaryAddress === 'string' &&
-      isValidStellarAddress(json.primaryAddress)
+      identity.found &&
+      typeof identity.primaryAddress === 'string' &&
+      isValidStellarAddress(identity.primaryAddress)
     ) {
       return {
-        address: json.primaryAddress,
-        username: json.username?.replace(/^@/, '').toLowerCase() ?? null,
+        address: identity.primaryAddress,
+        username: identity.username?.replace(/^@/, '').toLowerCase() ?? null,
         verifiedTelegram: true,
       }
     }

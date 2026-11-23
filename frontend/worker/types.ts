@@ -34,6 +34,7 @@ export interface Env {
   TELEGRAM_MINI_APP_SHORT_NAME?: string
   TELEGRAM_AI_ENABLED?: string
   ASTROWALLET_API_BASE_URL?: string
+  ECOSYSTEM_SHARED_INTENT_SECRET?: string
   APP_BASE_URL?: string
   STELLAR_NETWORK?: 'testnet' | 'mainnet'
   NETWORK_PASSPHRASE?: string

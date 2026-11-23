@@ -28,6 +28,7 @@
     "mcp": "node scripts/mcp-server.mjs"
   },
   "dependencies": {
+    "@astrowallet/connect": "file:./vendor/astrowallet-connect-0.2.0.tgz",
     "@creit.tech/stellar-wallets-kit": "^2.7.1",
     "@stellar/stellar-sdk": "^17.4.0",
     "@tailwindcss/vite": "^4.3.3",

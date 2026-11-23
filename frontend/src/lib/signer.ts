@@ -1,9 +1,11 @@
+import { createAstroConnectClient } from '@astrowallet/connect'
 import { StellarWalletsKit } from '@creit.tech/stellar-wallets-kit'
 import type { Signer } from '@stellar/stellar-sdk/contract'
 import { isValidStellarAddress } from './address'
+import { BRAND } from './brand'
+import { getAstroGateBotUsername } from './ecosystem'
 import { NETWORK_PASSPHRASE } from './network'
 import { openTelegramDeepLink } from './telegram'
-import { BRAND } from './brand'
 
 function assertNetworkPassphrase(provided?: string): string {
   if (provided && provided !== NETWORK_PASSPHRASE) {
@@ -52,14 +54,6 @@ function signerAddress(expected: string, provided?: string): string {
   return expected
 }
 
-async function sha256Hex(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
 /**
  * Universal Clear-Sign delegator backed by AstroWallet (Pillar 1 AstroConnect v1).
  * Routes signing requests via AstroGate Worker proxy -> ASTROWALLET binding -> Clear-Sign sheet.
@@ -74,65 +68,30 @@ export function astroWalletConnectSigner(address: string): Signer {
     signTransaction: async (xdr, opts) => {
       assertNetworkPassphrase(opts?.networkPassphrase)
       signerAddress(address, opts?.address)
-      const xdrSha256 = await sha256Hex(xdr)
-      const createRes = await fetch('/api/v1/wallet/connect/requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'sign_xdr',
-          app: {
-            name: BRAND.name,
-            origin: typeof window !== 'undefined' ? window.location.origin : undefined,
-          },
-          payload: {
-            unsignedXdr: xdr,
-            xdrSha256,
-            submit: false,
-            humanSummary: `Sign ${BRAND.name} Soroban transaction`,
-          },
-        }),
+      const origin = typeof window !== 'undefined' ? window.location.origin : ''
+      const client = createAstroConnectClient({
+        apiBaseUrl: origin,
+        requestsPathPrefix: '/api/v1/wallet/connect/requests',
+        app: {
+          name: BRAND.name,
+          botUsername: getAstroGateBotUsername(),
+          ...(origin ? { origin } : {}),
+        },
+        openLinkFn: openTelegramDeepLink,
       })
-      const created = (await createRes.json().catch(() => ({}))) as {
-        requestId?: string
-        resultToken?: string
-        deepLink?: string
-        error?: string
+      const result = await client.signTransaction(xdr, {
+        submit: false,
+        sourceAddress: address,
+        humanSummary: `Sign ${BRAND.name} Soroban transaction`,
+        timeoutMs: 180_000,
+      })
+      if (!result.signedXdr) {
+        throw new Error('AstroWallet did not return a signed XDR.')
       }
-      if (!createRes.ok || !created.requestId || !created.resultToken) {
-        throw new Error(created.error ?? 'Failed to initialize AstroWallet Clear-Sign session.')
+      return {
+        signedTxXdr: result.signedXdr,
+        signerAddress: result.address ?? address,
       }
-      if (created.deepLink) {
-        openTelegramDeepLink(created.deepLink)
-      }
-
-      const deadline = Date.now() + 180_000
-      while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 1500))
-        const pollRes = await fetch(`/api/v1/wallet/connect/requests/${created.requestId}`, {
-          headers: { 'X-Connect-Token': created.resultToken },
-        })
-        if (!pollRes.ok) continue
-        const poll = (await pollRes.json().catch(() => ({}))) as {
-          status?: string
-          result?: {
-            signedXdr?: string
-            address?: string
-            reason?: string
-          }
-        }
-        if (poll.status === 'approved' && poll.result?.signedXdr) {
-          return {
-            signedTxXdr: poll.result.signedXdr,
-            signerAddress: poll.result.address ?? address,
-          }
-        }
-        if (poll.status === 'rejected' || poll.status === 'expired') {
-          throw new Error(
-            poll.result?.reason ?? `AstroWallet signature ${poll.status}.`,
-          )
-        }
-      }
-      throw new Error('Timed out waiting for AstroWallet Clear-Sign approval.')
     },
     signAuthEntry: () => {
       throw new Error(

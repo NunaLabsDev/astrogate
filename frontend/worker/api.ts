@@ -487,6 +487,9 @@ export async function handlePublicApiRequest(
       const initHeaders = new Headers({ 'Content-Type': 'application/json' })
       const initData = request.headers.get('X-Telegram-Init-Data')?.trim()
       if (initData) initHeaders.set('X-Telegram-Init-Data', initData)
+      if (env.ECOSYSTEM_SHARED_INTENT_SECRET?.trim()) {
+        initHeaders.set('X-Ecosystem-Secret', env.ECOSYSTEM_SHARED_INTENT_SECRET.trim())
+      }
 
       const upstreamRes = env.ASTROWALLET
         ? await env.ASTROWALLET.fetch('https://astrowallet.internal/v1/connect/requests', {
