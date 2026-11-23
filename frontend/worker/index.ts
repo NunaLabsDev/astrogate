@@ -520,7 +520,7 @@ async function handleTextMessage(
       await sendRenderedView(
         token,
         chatId,
-        buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp),
+        buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
         replyId,
         threadId,
       )
@@ -584,7 +584,7 @@ async function handleTextMessage(
         baseUrl,
         botUsername,
         inGroup,
-        { hasMainApp, folderUrl },
+        { hasMainApp, folderUrl, network: env.STELLAR_NETWORK },
       ),
       replyId,
       threadId,
@@ -602,7 +602,7 @@ async function handleTextMessage(
         baseUrl,
         botUsername,
         inGroup,
-        { hasMainApp, folderUrl },
+        { hasMainApp, folderUrl, network: env.STELLAR_NETWORK },
       ),
       replyId,
       threadId,
@@ -616,7 +616,7 @@ async function handleTextMessage(
     await sendRenderedView(
       token,
       chatId,
-      buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp),
+      buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
       replyId,
       threadId,
     )
@@ -798,7 +798,7 @@ async function handleTextMessage(
         await sendRenderedView(
           token,
           chatId,
-          buildInvalidTokenUsageView(lang, baseUrl, inGroup, botUsername, hasMainApp),
+          buildInvalidTokenUsageView(lang, baseUrl, inGroup, botUsername, hasMainApp, env.ASTRO_TOKEN_ID),
           replyId,
           threadId,
         )
@@ -837,7 +837,7 @@ async function handleTextMessage(
       await sendRenderedView(
         token,
         chatId,
-        buildInvalidTokenUsageView(lang, baseUrl, inGroup, botUsername, hasMainApp),
+        buildInvalidTokenUsageView(lang, baseUrl, inGroup, botUsername, hasMainApp, env.ASTRO_TOKEN_ID),
         replyId,
         threadId,
       )
@@ -969,6 +969,7 @@ async function handleTextMessage(
         buildWelcomeView(msg.from?.first_name, lang, baseUrl, botUsername, false, {
           hasMainApp,
           folderUrl,
+          network: env.STELLAR_NETWORK,
         }),
       )
     }
@@ -1015,7 +1016,7 @@ async function handleCallbackQuery(
           baseUrl,
           botUsername,
           inGroup,
-          { hasMainApp, folderUrl },
+          { hasMainApp, folderUrl, network: env.STELLAR_NETWORK },
         ),
         isPhoto,
         threadId,
@@ -1028,7 +1029,7 @@ async function handleCallbackQuery(
         token,
         chatId,
         messageId,
-        buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp),
+        buildMarketView(snap.items, lang, baseUrl, snap.rpcFailed, inGroup, botUsername, hasMainApp, env.STELLAR_NETWORK),
         isPhoto,
         threadId,
       )

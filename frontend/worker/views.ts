@@ -217,43 +217,29 @@ function cbBtn(text: string, data: string): InlineKeyboardButton {
   return { text, callback_data: data }
 }
 
-function shareUrl(botUsername: string): string {
-  const target = `https://t.me/${botUsername}?start=home`
-  const caption =
-    'Launch or trade Fair-Flywheel v4.5 tokens on Stellar Soroban with 7Y LP lock on AstroGate.'
-  return `https://t.me/share/url?url=${encodeURIComponent(target)}&text=${encodeURIComponent(caption)}`
-}
-
 export function buildWelcomeView(
   firstName: string | undefined,
   _lang: BotLang,
   baseUrl = DEFAULT_APP_BASE_URL,
   botUsername = DEFAULT_BOT_USERNAME,
   inGroup = false,
-  opts?: { hasMainApp?: boolean; folderUrl?: string },
+  opts?: { hasMainApp?: boolean; folderUrl?: string; network?: 'testnet' | 'mainnet' },
 ): BotRenderedView {
   const safeName = firstName ? escapeHtml(firstName.trim().slice(0, 32)) : ''
   const hasMainApp = Boolean(opts?.hasMainApp)
-  const greet = safeName ? `👋 <b>Hey, ${safeName}</b>` : '👋 <b>Welcome</b>'
+  const netLabel = opts?.network === 'mainnet' ? 'Stellar Mainnet' : 'Stellar Testnet'
+  const greet = safeName ? `Hey, ${safeName}` : 'Welcome'
   const text = [
-    `🌊🚀 <b>AstroGate</b> · <code>Stellar Testnet</code>`,
-    `${greet}`,
-    ``,
-    `<blockquote>Fair-Flywheel v4.5 · 10M fixed supply · 40K Escrowed Jackpots · 7Y LP lock</blockquote>`,
-    ``,
-    `⚡ <b>3-Stage Curve:</b> <code>0.30% → 0.50% → 0.25%</code> buy · +5K / +10K / +25K prizes`,
-    `🔥 <b>Real Flywheel:</b> Anti-MEV Buyback (+2% Keeper Rebate) &amp; Burn-to-Chat`,
-    `🧬 <b>Sorobits NFTs:</b> Commit-Reveal 32×32 genomic SVG art (SEP-50)`,
-    `🔐 <b>Self-custody:</b> Biometric + PIN encrypted wallet synced with CloudStorage`,
-    ``,
-    `<i>Tap any button below, paste a <code>CA…</code> / <code>GA…</code> address, or ask me anything in plain English.</i>`,
+    `🚀 <b>AstroGate</b> · <code>${netLabel}</code>`,
+    `${greet} — Fair-Flywheel launchpad with 7Y locked LP &amp; AstroID SSO.`,
+    `Tap below to explore curves, paste a <code>CA…</code> / <code>$TICKER</code>, or run /help.`,
     `<i>Built by NunaLabs</i>`,
   ].join('\n')
 
   const keyboard: InlineKeyboardButton[][] = [
     [
       miniAppBtn(
-        '🌊 Open AstroGate Mini App',
+        '🚀 Open AstroGate',
         '/',
         baseUrl,
         inGroup,
@@ -263,61 +249,10 @@ export function buildWelcomeView(
       ),
     ],
     [
-      miniAppBtn(
-        '🧬 Sorobits NFTs',
-        '/sorobits',
-        baseUrl,
-        inGroup,
-        'sorobits',
-        botUsername,
-        hasMainApp,
-      ),
-      miniAppBtn(
-        '🔥 Live Market',
-        '/market',
-        baseUrl,
-        inGroup,
-        'market',
-        botUsername,
-        hasMainApp,
-      ),
-    ],
-    [
-      miniAppBtn(
-        '🚀 Launch Token',
-        '/create',
-        baseUrl,
-        inGroup,
-        'create',
-        botUsername,
-        hasMainApp,
-      ),
-      miniAppBtn(
-        '👛 My Wallet',
-        '/portfolio',
-        baseUrl,
-        inGroup,
-        'wallet',
-        botUsername,
-        hasMainApp,
-      ),
-    ],
-    [
-      cbBtn('📊 Curves', 'nav:mkt:e'),
-      cbBtn('🏆 Quests', 'nav:qst:e'),
-      cbBtn('🧬 SBIT', 'nav:sbt:e'),
-      { text: '📤 Share', url: shareUrl(botUsername) },
-    ],
-    [
+      cbBtn('🔥 Live Curves', 'nav:mkt:e'),
       { text: '🛡️ AstroWallet', url: 'https://t.me/AstroWalletAppBot/wallet' },
-      { text: '⚡ AstroDex', url: 'https://t.me/AstroDexBot/dex' },
-      { text: '💬 @AstroSoroban', url: 'https://t.me/AstroSoroban' },
     ],
   ]
-
-  if (opts?.folderUrl && opts.folderUrl.startsWith('https://t.me/')) {
-    keyboard.push([{ text: '📁 Join All 3 AstroGate Chats', url: opts.folderUrl }])
-  }
 
   return {
     text,
@@ -394,8 +329,10 @@ export function buildMarketView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  network: 'testnet' | 'mainnet' = 'testnet',
 ): BotRenderedView {
-  const rows: string[] = [`🔥 <b>Live Fair-Flywheel Market</b> · <code>Testnet</code>`, '']
+  const netLabel = network === 'mainnet' ? 'Mainnet' : 'Testnet'
+  const rows: string[] = [`🔥 <b>Live Fair-Flywheel Market</b> · <code>${netLabel}</code>`, '']
 
   if (items.length === 0) {
     rows.push(
@@ -601,16 +538,11 @@ export function buildWalletView(
   hasMainApp = false,
 ): BotRenderedView {
   const text = [
-    `👛 <b>AstroGate Native Wallet · @username Linked</b>`,
+    `🛡️ <b>AstroID SSO · Powered by AstroWallet</b>`,
     ``,
-    `<blockquote>100% self-custody: private keys never leave your device unencrypted.</blockquote>`,
+    `Custody &amp; Clear-Sign live exclusively in <b>AstroWallet</b> (<code>@AstroWalletAppBot</code>), linked 0-click to your Telegram <code>@username</code>.`,
     ``,
-    `🪪 <b>@username Identity:</b> Cryptographic Ed25519 link to your <code>Primary</code> wallet (up to 10 sub-wallets)`,
-    `🔐 <b>Client Encryption:</b> <code>PBKDF2-SHA256</code> + <code>AES-GCM-256</code> + Biometric / PRF unlock`,
-    `☁️ <b>Telegram ↔ Web Sync:</b> <code>Telegram CloudStorage</code> + portable <code>AGVAULT1:</code> bundles &amp; exportable <code>S…</code> keys`,
-    `🚰 <b>Free Testnet XLM:</b> 1-tap <code>10,000 XLM</code> Friendbot faucet inside the app`,
-    ``,
-    `💡 <i>Tip: run <code>/wallet @username</code> to look up a linked wallet, or paste any <code>GA…</code> address for live balance.</i>`,
+    `💡 <i>Run <code>/wallet @username</code> to look up a linked AstroID, or paste any <code>GA…</code> address for live balance.</i>`,
   ].join('\n')
 
   return {
@@ -619,8 +551,11 @@ export function buildWalletView(
     reply_markup: {
       inline_keyboard: [
         [
+          { text: '🛡️ Open AstroWallet', url: 'https://t.me/AstroWalletAppBot/wallet' },
+        ],
+        [
           miniAppBtn(
-            '👛 Open Wallet & Faucet',
+            '👛 View Portfolio',
             '/portfolio',
             baseUrl,
             inGroup,
@@ -628,9 +563,6 @@ export function buildWalletView(
             botUsername,
             hasMainApp,
           ),
-        ],
-        [
-          cbBtn('📊 Live Curves', 'nav:mkt:e'),
           cbBtn('⬅️ Home', 'nav:home:e'),
         ],
       ],
@@ -704,22 +636,16 @@ export function buildHelpView(
   hasMainApp = false,
 ): BotRenderedView {
   const text = [
-    `❓ <b>Commands &amp; Safety · @${botUsername}</b>`,
+    `❓ <b>AstroGate Commands · @${botUsername}</b>`,
     ``,
-    `/start — Main hub &amp; Mini App launchpad`,
     `/market — Live bonding curves &amp; DEX pairs`,
-    `/king — King of the Hill race &amp; King Shout throne`,
-    `/token <code>CA…</code> or <code>ASTRO</code> — Live on-chain token inspector`,
-    `/shouts <code>CA…</code> or <code>ASTRO</code> — Live Burn-to-Chat thread`,
-    `/sorobits — 100% on-chain 32×32 SVG NFTs (SEP-50)`,
-    `/quests <code>GA…</code> — Season-1 NFT quest progress`,
-    `/rewards — Bounties, sprints &amp; <code>/claim GA…</code> check`,
-    `/ask <code>question</code> — Instant protocol &amp; market Q&amp;A`,
-    `/wallet · /wallet <code>@user</code> — Native multi-wallet &amp; handle lookup`,
-    `/launch · /v45 — Launch token &amp; Fair-Flywheel v4.5 rules`,
+    `/launch — Launch a fair token on v4.5`,
+    `/token <code>CA…</code> or <code>ASTRO</code> — Live token inspector`,
+    `/wallet <code>@user</code> — Look up linked AstroID wallet`,
+    `/rules — Fair-Flywheel v4.5 fee &amp; LP rules`,
+    `/ask <code>question</code> — Instant protocol Q&amp;A`,
     ``,
-    `💡 <b>Inline:</b> Type <code>@${botUsername} ASTRO</code> in any chat to share a live token card.`,
-    `🛡 <b>Security:</b> Never paste your secret seed <code>S…</code> in any Telegram chat.`,
+    `💡 <i>Inline:</i> <code>@${botUsername} ASTRO</code> · 🛡 Never paste secret seeds <code>S…</code> in chat.`,
     `<i>Built by NunaLabs</i>`,
   ].join('\n')
 
@@ -1018,12 +944,12 @@ export function buildInvalidTokenUsageView(
   inGroup = false,
   botUsername = DEFAULT_BOT_USERNAME,
   hasMainApp = false,
+  flagshipTokenId = 'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
 ): BotRenderedView {
   const text = [
     `🔍 <b>Inspect On-Chain Token</b>`,
     ``,
-    `Send <code>/token</code> with a ticker (e.g. <code>/token ASTRO</code>) or a 56-char <code>CA…</code> contract address, or paste <code>$TICKER</code> / <code>CA…</code> directly in chat:`,
-    `<code>/token CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE</code>`,
+    `Send <code>/token</code> with a ticker (e.g. <code>/token ASTRO</code>) or a 56-char <code>CA…</code> contract address.`,
   ].join('\n')
 
   return {
@@ -1034,10 +960,10 @@ export function buildInvalidTokenUsageView(
         [
           miniAppBtn(
             '⚡ ASTRO Flagship',
-            '/token/CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+            `/token/${flagshipTokenId}`,
             baseUrl,
             inGroup,
-            'CAI637WCEILQF3ZYOV6BRUCX532XQIVOOJ4CRWFPWHQRJHOH5OKHSXRE',
+            flagshipTokenId,
             botUsername,
             hasMainApp,
           ),
