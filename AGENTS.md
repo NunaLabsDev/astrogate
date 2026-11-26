@@ -3,7 +3,7 @@
 Launchpad + AMM + Sorobits SEP-50 collectibles on **Stellar / Soroban Testnet**.
 - **Brand**: **AstroGate** — single source `frontend/src/lib/brand.ts` (example token `$ASTRO` stays unchanged).
 - **Stack**: Rust + Soroban SDK `28.0.0` + OpenZeppelin Stellar `0.8.0` · Soroswap AMM · Vite + React 19 + TypeScript · Cloudflare Pages (`https://astrogate.pages.dev`) + Worker `astrogate-stellar` (`ASTROW` Service Binding).
-- **Wallet**: Native self-custodial Hot Wallet (`PBKDF2-SHA256` + `AES-GCM-256`, `CloudStorage` / `AGVAULT1:` sync, `@username` Ed25519 link); `@creit.tech/stellar-wallets-kit` remains in dependencies/fallback signer.
+- **Wallet**: Exclusive **AstroWallet** (`@AstroID` SSO + `@astrowallet/connect` v0.2.0 via `ASTROWALLET` Service Binding; disposable Testnet `Demo` accounts only; zero local mnemonic/PIN custody).
 - **GitHub Origin**: `https://github.com/NunaLabsDev/astrogate.git` (`NunaLabsDev` org / `KawsayRuraq`). Public exports must run via `./scripts/prepare-opensource-export.sh` (never push to legacy `ruwaq/astro-launchpad`).
 
 ## Non-Negotiable Invariants
@@ -11,7 +11,7 @@ Launchpad + AMM + Sorobits SEP-50 collectibles on **Stellar / Soroban Testnet**.
 2. **Wallet = Identity**: Ed25519 wallet signatures only; no JWTs, sessions, or user auth backend.
 3. **Network-First Data**: Read balances, reserves, and events directly from Soroban RPC / Horizon; user flows must never depend on local Postgres/Redis (optional dev-only).
 4. **Testnet-Only Safety**: Default to Stellar Testnet. Demo accounts use disposable Friendbot keys in `localStorage`. Never commit `.secrets/`, `.env*`, or `S...` seeds; never treat testnet code as mainnet-audited.
-5. **Telegram 100% EN + Internal Links**: `@AstroGateSorobanBot`, `@AstroGateCommunity`, and `@AstroGateFeed` must stay strictly English and use internal `https://t.me/AstroGateSorobanBot?start=...` links (never `https://astrogate.pages.dev/...` in chats/buttons, so `Telegram.WebApp.CloudStorage` stays intact). Automated alerts broadcast ONLY to `@AstroGateFeed` (`community: false`).
+5. **Telegram 100% EN + Internal Links**: `@AstroGateSorobanBot`, `@AstroSoroban`, and `@AstroGateFeed` must stay strictly English and use internal `https://t.me/AstroGateSorobanBot?start=...` links (never `https://astrogate.pages.dev/...` in chats/buttons, so `Telegram.WebApp.CloudStorage` stays intact). Automated alerts broadcast ONLY to `@AstroGateFeed` (`community: false`).
 6. **Contract / Frontend Parity**: Keep `contracts/launchpad/src/contract.rs` 1:1 with `frontend/src/lib/tokenomics.ts` and `curve-math.ts`.
 7. **No Sleep Loops**: Never use `sleep` polling for builds or background jobs; run background + single-shot verification (`pgrep`, `ls`, `curl`).
 

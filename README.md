@@ -2,7 +2,7 @@
 
 AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on-chain collectible platform built natively on **Stellar / Soroban**.
 
-- **Zero Custodial Backend**: Identity = native self-custodial Stellar Wallet (`PBKDF2-SHA256` + `AES-GCM-256` vault synced via `Telegram.WebApp.CloudStorage` and encrypted `AGVAULT1:` bundles, linked cryptographically to Telegram `@username` via Ed25519 proofs, with exportable `S...` seeds). State & pricing = Stellar Horizon + Soroban RPC directly.
+- **Zero Custodial Backend (`AstroWallet` SSO)**: Identity & signing run exclusively through **AstroWallet** (`@AstroID` 0-click Telegram SSO + `@astrowallet/connect` v0.2.0 via `ASTROWALLET` Service Binding, with disposable Testnet `Demo` accounts only). State & pricing come directly from Stellar Horizon + Soroban RPC.
 - **Fair-Flywheel v4.5 Launchpad** (`7 XLM` protocol fee + `>= 2 XLM` initial creator curve buy):
   - Fixed `10,000,000` supply (`7` decimals, aligned with `1 XLM = 10^7` stroops) and **immediate `renounce_ownership()`** on launch.
   - **66.0% (`6,600,000`)** Virtual Bonding Curve (`1,000 vXLM -> 1,000 real XLM` graduation target, `4.00x` curve range): softened 3-stage buy fees (`0.30%` `<250 XLM`, `0.50%` `250–500 XLM`, `0.25%` sprint `500–1,000 XLM`), gentle sell fees (`1.20% -> 1.80% -> 1.50%`), and P2P transfers locked until graduation.
@@ -12,7 +12,7 @@ AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on
   - **0.30% (`30,000`)** Developer / Protocol Ecosystem allocation transferred to `treasury` on graduation.
   - **Anti-MEV Deflation & 48h Governance**: chunked DEX Buyback & Burn (`trigger_buyback_burn` / `trigger_buyback_burn_with_bounty` capped at `min(0.25% pool, 0.8000000 XLM)` per `300s` with `+2%` XLM keeper rebate), 3-tier Burn-to-Chat (`burn_shout`), and 48h contract upgrade timelock (`propose_upgrade`/`execute_upgrade`/`cancel_upgrade`).
 - **Sorobits (SEP-50) On-Chain Pixel Collectibles**: `32×32` deterministic & generative pixel avatars rendered natively on-chain via RLE + SVG (`render_svg`, `animated_svg`) with 256-bit genomes (`BytesN<32>`), commit-reveal RNG (`commit_capsule`/`reveal_capsule`, `commit_forge`/`reveal_forge`), epigenetic XP/rank evolution, free Soulbound `AGQ01` Pioneer badge, and 48h upgrade timelock.
-- **Telegram-Only Mini App & Live Feed Bot (`@AstroGateSorobanBot`)**: External browsers receive a clean presentation landing page redirecting into Telegram; the trading/wallet `MiniAppShell` loads strictly after Worker-side HMAC-SHA256 `initData` session verification (`POST /api/telegram/session`, 24h TTL). Interactive commands run in `@AstroGateCommunity` while automated on-chain alerts & digests stream strictly to `@AstroGateFeed`.
+- **Telegram-Only Mini App & Live Feed Bot (`@AstroGateSorobanBot`)**: External browsers receive a clean presentation landing page redirecting into Telegram; the `MiniAppShell` loads strictly after Worker-side HMAC-SHA256 `initData` session verification (`POST /api/telegram/session`, 24h TTL). Community commands run in `@AstroSoroban` while automated on-chain alerts & digests stream strictly to `@AstroGateFeed`.
 
 ---
 
@@ -35,7 +35,7 @@ AstroGate is a decentralized, zero-backend Fair-Launchpad, AMM interface, and on
 
 ```mermaid
 flowchart TD
-    User["Native AstroGate Wallet (@username Linked · Multi-Wallet)"] <--> Frontend["AstroGate SPA (React 19 + Vite + TS)"]
+    User["AstroWallet (@AstroID SSO · Multi-Key Switcher)"] <--> Frontend["AstroGate SPA (React 19 + Vite + TS)"]
     Frontend <--> Oracles["XLM/USD Oracles (Coinbase, Binance, CoinGecko)"]
     Frontend <--> RPC["Soroban RPC Pool (Multi-endpoint Failover)"]
     Frontend <--> Horizon["Stellar Horizon API"]
@@ -46,7 +46,7 @@ flowchart TD
     Launchpad -. "7Y LP Lock & Legacy Burn" .-> Blackhole["Contract Vault / Legacy Blackhole"]
     Worker["Cloudflare Pages Functions + astrogate-stellar Worker (@AstroGateSorobanBot)"] <--> RPC
     Worker -- "Automated Alerts Only" --> Feed["@AstroGateFeed"]
-    Worker <--> Community["@AstroGateCommunity (Commands Only)"]
+    Worker <--> Community["@AstroSoroban (Commands Only)"]
 ```
 
 ---
